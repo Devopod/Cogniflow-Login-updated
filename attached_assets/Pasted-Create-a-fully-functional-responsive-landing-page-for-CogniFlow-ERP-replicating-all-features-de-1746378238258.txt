@@ -1,0 +1,353 @@
+Create a fully functional, responsive landing page for "CogniFlow ERP," replicating all features, design elements, and functionalities of Zoho’s landing page (https://www.zoho.com/) as of May 2025, including an A-to-Z feature set, while incorporating the CogniFlow ERP project’s MVP modules (Sales Management, Inventory/Stock Management, Re-order Level Management, MPESA Integration, Customers Management, Suppliers Management, Purchase Management, Payments Management, Expense Management, Quotations Management, Accounting Management, HR & Payroll, Users Accounts Management, Tight Security with Role-Based Management, Reports Management) and facial detection integration for real-time employee attendance and mood analysis. Build it using React.js with TypeScript and Tailwind CSS, hosted as a single-page application. Use cdn.jsdelivr.net for React, React DOM, Tailwind CSS, and font CDNs (Inter, Roboto). Ensure a professional, modern, feature-rich experience tailored to CogniFlow ERP’s branding for construction, retail, manufacturing, and services.
+
+Requirements
+
+
+
+
+
+Technology Stack:
+
+
+
+
+
+Frontend: React.js with TypeScript for type-safe, component-based development.
+
+
+
+Styling: Tailwind CSS via CDN for responsive, utility-first styling.
+
+
+
+No Backend: Use static JSON data for dynamic content (e.g., features, testimonials, blogs, gallery).
+
+
+
+Dependencies: CDN-hosted React, React DOM, Tailwind CSS, and fonts (Inter, Roboto).
+
+
+
+Design (Zoho-inspired, CogniFlow-branded):
+
+
+
+
+
+Header: Sticky navigation with logo ("CogniFlow ERP"), mega menu (Home, Products, Solutions, Pricing, Resources, Company), and CTAs ("Sign Up", "Contact Sales"). Include sub-menus for Products (Sales Management, Inventory/Stock Management, Re-order Level Management, MPESA Integration, Customers Management, Suppliers Management, Purchase Management, Payments Management, Expense Management, Quotations Management, Accounting Management, HR & Payroll, Users Accounts Management, Tight Security, Reports Management, Facial Detection) and language toggle (English, Arabic, Hindi). Use white background, bold typography, hover effects, search icon.
+
+
+
+Hero Section: Full-width with headline ("Transform Your Business with CogniFlow ERP"), subheading ("AI-driven ERP with facial detection for construction, retail, manufacturing, services"), CTAs ("Start Free Trial", "Watch Demo"). Use gradient/video background, trust signals (“Trusted by global industries”).
+
+
+
+Features Section: Grid of 16 cards (15 MVP modules + Facial Detection) with icons, titles, descriptions, hover animations, and detail toggles (e.g., Sales: Quotation Tracking, Facial Detection: Mood Analysis). Use light gray background.
+
+
+
+Testimonials Section: Carousel of 5 testimonials with quotes, names, company logos, ratings, navigation controls.
+
+
+
+Solutions Section: Grid for industries (Construction, Retail, Manufacturing, Services) and business sizes (Startups, Enterprises) with icons, “Learn More” links.
+
+
+
+Blog Section: 4 blog posts with thumbnails, titles, summaries, categories (e.g., ERP Automation, AI, Facial Detection), SEO meta tags.
+
+
+
+Resources Section: Links to webinars, eBooks (e.g., “AI-Driven ERP”), community forum.
+
+
+
+CTA Section: “Get Started Today” with CTA button (“Try CogniFlow ERP Now”) and tagline (“Streamline with AI and facial detection”). Use bold background.
+
+
+
+Footer: Links to Products, Company (About, Contact, Careers), Resources (Blogs, Support, Webinars), region-specific sites (US, India, East Africa). Include social icons (Twitter, LinkedIn, Instagram, Facebook), newsletter signup, copyright (“© 2025 CogniFlow”). Add GDPR badge.
+
+
+
+Responsive: Fully responsive with Tailwind breakpoints, RTL support for Arabic/Hebrew.
+
+
+
+Visual Editor: Simulate section customization (color, font toggles) with Tailwind classes.
+
+
+
+SEO Tools: Meta titles (“CogniFlow ERP - AI-Driven Software”), descriptions, sitemap, analytics placeholder.
+
+
+
+Multilingual: Simulate language toggle for English, Arabic, Hindi.
+
+
+
+Functionality (Zoho Features, CogniFlow MVP Modules, Facial Detection):
+
+
+
+
+
+Navigation: Smooth scrolling, mega menu with sub-menus for 15 MVP modules + Facial Detection, sticky header, simulated search bar.
+
+
+
+Interactivity: Hover animations (scale, shadow) for buttons, cards, menus; drag-and-drop placeholders for section reordering.
+
+
+
+Dynamic Content: JSON for features, testimonials, blogs, gallery, analytics. Example:
+
+const features = [
+  { id: 1, title: "Sales Management", description: "Automate pipelines with AI quotations.", icon: "sales-icon.png" },
+  { id: 2, title: "Inventory/Stock Management", description: "Real-time stock with PDF print.", icon: "inventory-icon.png" },
+  { id: 3, title: "Re-order Level Management", description: "In-app low-stock notifications.", icon: "reorder-icon.png" },
+  { id: 4, title: "MPESA Integration", description: "Mobile payments for East Africa.", icon: "mpesa-icon.png" },
+  { id: 5, title: "Customers Management", description: "Manage data with Meta/Google Forms.", icon: "customers-icon.png" },
+  { id: 6, title: "Suppliers Management", description: "Track suppliers with Excel import.", icon: "suppliers-icon.png" },
+  { id: 7, title: "Purchase Management", description: "Handle requests and approvals.", icon: "purchase-icon.png" },
+  { id: 8, title: "Payments Management", description: "Multi-currency payment processing.", icon: "payments-icon.png" },
+  { id: 9, title: "Expense Management", description: "AI-automated expense logging.", icon: "expense-icon.png" },
+  { id: 10, title: "Quotations Management", description: "Create, send, track quotations.", icon: "quotations-icon.png" },
+  { id: 11, title: "Accounting Management", description: "Ledger, trial balance, reports.", icon: "accounting-icon.png" },
+  { id: 12, title: "HR & Payroll", description: "Employee records, payroll, attendance.", icon: "hr-icon.png" },
+  { id: 13, title: "Users Accounts Management", description: "Secure accounts with RBAC.", icon: "users-icon.png" },
+  { id: 14, title: "Tight Security", description: "OAuth 2.0, JWT, role-based access.", icon: "security-icon.png" },
+  { id: 15, title: "Reports Management", description: "Custom sales, stock, HR reports.", icon: "reports-icon.png" },
+  { id: 16, title: "Facial Detection", description: "Real-time attendance, mood analysis.", icon: "facial-detection-icon.png" }
+];
+const testimonials = [
+  { id: 1, quote: "Facial detection revolutionized our HR.", name: "John Doe", company: "TechBuild Inc.", rating: 5 },
+  { id: 2, quote: "MPESA integration streamlined payments.", name: "Aisha Khan", company: "RetailPro", rating: 4.5 },
+  { id: 3, quote: "Inventory saved 30% in costs.", name: "Rahul Sharma", company: "ManuFacture Co.", rating: 4.8 },
+  { id: 4, quote: "AI reports are game-changing.", name: "Emily Chen", company: "ServiceNow Ltd.", rating: 4.7 },
+  { id: 5, quote: "Secure, user-friendly ERP.", name: "Omar Ali", company: "BuildEasy", rating: 5 }
+];
+
+
+
+Forms: Contact form (name, email, message), newsletter signup with simulated submission (console log), simulating Meta/Google Forms for Customers Management.
+
+
+
+SubSites: Region-specific toggles (US, India, East Africa) with localized text (e.g., INR for Razorpay, KES for MPESA).
+
+
+
+Blog Management: Posts with categories (ERP, AI, Facial Detection), SEO tags, disabled comments.
+
+
+
+Photo Gallery: 6 images (e.g., ERP dashboards, construction, retail, facial check-in) with lightbox effect.
+
+
+
+Version Control: Simulate page version toggle with placeholder text.
+
+
+
+Analytics: Placeholder for visitor tracking (page views, clicks, heatmaps) with JSON, simulating Reports Management.
+
+
+
+Social Integration: Social sharing buttons (Twitter, LinkedIn, Instagram, Facebook), auto-publish placeholders.
+
+
+
+Accessibility: ARIA labels, keyboard navigation, semantic HTML, GDPR-compliant cookie consent popup.
+
+
+
+Security: SSL placeholder, password-protected links, reflecting OAuth 2.0, JWT, RBAC.
+
+
+
+AI Features: Simulate AI chatbot with static responses (e.g., “Explore facial detection for HR”), highlight speech-to-text onboarding, predictive analytics, facial detection (attendance/mood via OpenCV/TensorFlow).
+
+
+
+Integrations: Placeholders for Stripe, MPESA, Razorpay, Google Analytics, WhatsApp, Meta/Google Forms; grid of 6 mock extensions.
+
+
+
+Mobile Apps: iOS/Android app placeholder links for CogniFlow ERP.
+
+
+
+Multichannel: Simulate WhatsApp, email, social media integration for Customers Management.
+
+
+
+E-commerce: Payment integration placeholders (Stripe, MPESA, Razorpay) with USD, INR, KES support.
+
+
+
+Workflow Automation: Simulate AI-driven lead, email, task automation (e.g., Sales Management follow-ups).
+
+
+
+Onboarding: Simulated setup guide with “Start Free Trial”, speech-to-text, facial detection placeholders.
+
+
+
+Community: Simulated CogniFlow Community forum, events page.
+
+
+
+Learning Resources: Webinars, eBooks (e.g., “Facial Detection in HR”), tutorials.
+
+
+
+Careers: Simulated careers page link.
+
+
+
+Free Plans: Forever free plan for small businesses (up to 5 users).
+
+
+
+Video Content: Placeholder demo video in hero, screenshots in features (e.g., MPESA, HR).
+
+
+
+Industry Focus: Highlight construction (BOM), retail (stock), manufacturing (re-order), services (HR) with tailored visuals/text.
+
+
+
+Trust Signals: “Trusted by 10M+ users”, “Serving 160+ countries”.
+
+
+
+Steps:
+
+
+
+
+
+Set up Replit project with React.js, TypeScript.
+
+
+
+Configure Tailwind CSS, font CDNs (Inter, Roboto) in index.html.
+
+
+
+Create main component to render all sections (Header, Hero, Features, Testimonials, Solutions, Blog, Gallery, Resources, CTA, Footer, Chatbot, Forms, CookieConsent, Search).
+
+
+
+Build reusable components with TypeScript interfaces for props.
+
+
+
+Style with Tailwind CSS (blues, whites, grays, e.g., bg-blue-600, text-gray-800).
+
+
+
+Implement smooth scrolling, hover animations, drag-and-drop placeholders.
+
+
+
+Populate dynamic sections with JSON, simulating FastAPI data.
+
+
+
+Add SEO meta tags, sitemap, analytics placeholders.
+
+
+
+Simulate multilingual support, SubSites, version control, AI chatbot, integrations.
+
+
+
+Implement GDPR cookie consent, RTL support.
+
+
+
+Test responsiveness, accessibility, performance, GDPR compliance.
+
+
+
+Generate instructions for running on Replit.
+
+Notes
+
+
+
+
+
+Branding: Use “CogniFlow ERP” consistently, emphasizing AI and facial detection for construction, retail, manufacturing, services.
+
+
+
+Fonts: Inter/Roboto via CDN.
+
+
+
+Color Palette: Blues, whites, grays (Tailwind bg-blue-600, text-gray-800, bg-gray-100).
+
+
+
+Performance: Optimize with minimal assets, lazy-loaded images, CDN usage.
+
+
+
+Forms: Use <button> with onClick for CTAs, simulated submissions (console log) due to Replit restrictions.
+
+
+
+Drag-and-Drop: Simulate section styling toggles.
+
+
+
+Privacy: Emphasize no ad-revenue model in footer/hero.
+
+
+
+MVP Modules: Feature all 15 modules with descriptions (e.g., “MPESA: East Africa payments”, “Facial Detection: Attendance and mood”).
+
+
+
+Facial Detection: Dedicated card/demo for real-time attendance/mood analysis.
+
+
+
+AI: Highlight speech-to-text, predictive analytics, facial detection placeholders.
+
+
+
+Payments: Simulate Stripe, MPESA, Razorpay with USD, INR, KES.
+
+
+
+Trust Signals: “Trusted by 10M+ users”, “Serving 160+ countries”.
+
+Deliverables
+
+
+
+
+
+Complete HTML with CDN imports, React rendering.
+
+
+
+Main app component combining all sections.
+
+
+
+Individual component files for each section/feature.
+
+
+
+JSON data for features, testimonials, blogs, gallery, analytics.
+
+
+
+Detailed instructions for running on Replit.
+
+Generate the complete codebase, ensuring it’s production-ready, responsive, and replicates all Zoho features (mega menu, SEO, multilingual, SubSites, blogs, forms, gallery, analytics, AI chatbot, integrations, automation, accessibility, security, e-commerce, onboarding, community) while branded for CogniFlow ERP, incorporating all 15 MVP modules and facial detection, aligning with the project’s technology stack and industry focus. Provide all files for direct use in a Replit project.

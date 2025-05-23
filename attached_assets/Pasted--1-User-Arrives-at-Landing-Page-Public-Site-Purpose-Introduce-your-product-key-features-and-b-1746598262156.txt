@@ -1,0 +1,96 @@
+✅ 1. User Arrives at Landing Page (Public Site)
+Purpose: Introduce your product, key features, and benefits.
+
+This page includes navigation links, module highlights, and CTAs like “Explore HRMS”, “Start Free Trial”, or “Login”.
+
+Each module (like Sales, Inventory, HRMS) should have a public-facing description page to explain its purpose.
+
+🔗 Example URLs:
+
+/
+
+/modules/sales
+
+/modules/hrms
+
+🧠 Goal: Make it easy to understand what your ERP does before login.
+
+✅ 2. User Clicks on a CTA (Explore or Start Demo)
+Each module's CTA leads to either:
+
+A dedicated landing page for that module (/modules/inventory)
+
+OR directly to a login/signup page with the module intent stored in the URL (/login?redirect=/dashboard/inventory)
+
+🧠 Why this matters: You preserve user intent so they land in the right place post-login.
+
+✅ 3. Authentication Step (Login/Signup)
+The login form captures user credentials.
+
+Once login is successful:
+
+The system generates a secure session or token
+
+Fetches user permissions/roles from backend (e.g., can this user access HRMS?)
+
+Then redirects to the appropriate module/dashboard
+
+If the user clicked on “Explore HRMS” earlier, they now land on:
+
+bash
+Copy
+Edit
+/dashboard/hrms
+🧠 Behavior: If a user tries to directly access /dashboard/sales without login or permission, redirect them to login or a “403 Forbidden” page.
+
+✅ 4. Inside Authenticated ERP Panel (Dashboard)
+Structure of this panel:
+
+Common layout: navbar, sidebar, notifications
+
+Sidebar dynamically shows only the modules allowed for the logged-in user
+
+Each module like Sales, Inventory, HRMS has its own space
+
+🎯 Example:
+
+/dashboard/inventory
+
+/dashboard/sales
+
+/dashboard/reports
+
+🧠 User Experience: Like a mini “operating system” inside your app. Each module feels like an app but shares the same design, login, and navigation.
+
+✅ 5. Module Interaction
+Each module allows users to:
+
+View and manage data
+
+Access reports or perform workflows (e.g., create invoice in Sales)
+
+Trigger other modules (e.g., HRMS → Payroll)
+
+Modules are independent in UX but may interconnect via backend APIs.
+
+✅ 6. Returning to Public Site (Optional)
+Users can logout or click on a link to return to the public site (e.g., “Back to Marketing Page” or /)
+
+🧠 This separation keeps your marketing & technical systems clean.
+
+🔐 Security and Structure Principles
+Concept	How It Works
+Public vs Auth Routing	Landing pages are open, dashboard is protected
+Role-Based Access	Each user sees only modules they’re allowed to use
+URL Deep Linking	Login preserves user’s intent and redirects correctly
+Consistent Navigation	Sidebar inside dashboard is built dynamically per role
+Unauthorized Access	Direct access without permission = redirect to login/403
+
+🌍 Example Navigation Journey
+User Action	URL Transition	What Happens
+Lands on website	/	Sees product info
+Clicks “Explore HRMS”	/modules/hrms	Sees HRMS benefits
+Clicks “Try HRMS Now”	/login?redirect=/dashboard/hrms	Gets redirected after login
+Logs in	/dashboard/hrms	Sees HRMS module UI if permitted
+Tries accessing Sales (not permitted)	/dashboard/sales	Redirected to /403 or back to dashboard
+Logs out	/logout → /	Back to public-facing site

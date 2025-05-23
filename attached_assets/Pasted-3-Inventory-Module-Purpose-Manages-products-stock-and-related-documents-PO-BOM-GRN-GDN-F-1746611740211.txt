@@ -1,0 +1,284 @@
+3. Inventory Module
+
+Purpose: Manages products, stock, and related documents (PO, BOM, GRN, GDN).
+
+Functionalities:
+
+
+
+
+
+Manage Product Groups and Product Masters.
+
+
+
+Create and track Purchase Orders (PO), Bills of Materials (BOM), Goods Received Notes (GRN), and Goods Delivery Notes (GDN).
+
+
+
+Set prefixes for documents (e.g., QUOT, INV) via setup master.
+
+
+
+Configure company branding for letterheads and PDF printing.
+
+
+
+Track stock levels and re-order levels with in-app notifications.
+
+
+
+Schedule tasks with role-based access (SuperAdmin, Admin, Manager).
+
+Fields:
+
+
+
+
+
+Product Group:
+
+
+
+
+
+group_id: UUID (Primary Key).
+
+
+
+name: String (Max 50 chars).
+
+
+
+description: Text (Optional).
+
+
+
+Product Master:
+
+
+
+
+
+product_id: UUID (Primary Key).
+
+
+
+group_id: Foreign Key (Product Group).
+
+
+
+name: String (Max 100 chars).
+
+
+
+sku: String (Unique, max 20 chars).
+
+
+
+unit_price: Decimal.
+
+
+
+stock_quantity: Integer.
+
+
+
+reorder_level: Integer.
+
+
+
+created_at: DateTime.
+
+
+
+Purchase Order (PO):
+
+
+
+
+
+po_id: UUID (Primary Key).
+
+
+
+po_number: String (e.g., PO-2025-0001).
+
+
+
+supplier_id: Foreign Key (Lead).
+
+
+
+items: JSON (List of product_id, quantity, unit_price).
+
+
+
+total_amount: Decimal.
+
+
+
+status: Enum (Draft, Approved, Completed).
+
+
+
+created_at: DateTime.
+
+
+
+created_by: Foreign Key (User).
+
+
+
+Bill of Materials (BOM):
+
+
+
+
+
+bom_id: UUID (Primary Key).
+
+
+
+product_id: Foreign Key (Product).
+
+
+
+components: JSON (List of component_id, quantity).
+
+
+
+created_at: DateTime.
+
+
+
+Goods Received Note (GRN):
+
+
+
+
+
+grn_id: UUID (Primary Key).
+
+
+
+po_id: Foreign Key (PO).
+
+
+
+received_items: JSON (List of product_id, quantity).
+
+
+
+created_at: DateTime.
+
+
+
+Goods Delivery Note (GDN):
+
+
+
+
+
+gdn_id: UUID (Primary Key).
+
+
+
+invoice_id: Foreign Key (Invoice, see Sales Module).
+
+
+
+delivered_items: JSON (List of product_id, quantity).
+
+
+
+created_at: DateTime.
+
+
+
+Setup Master:
+
+
+
+
+
+setup_id: UUID (Primary Key).
+
+
+
+module: String (e.g., Quotation, Invoice).
+
+
+
+prefix: String (e.g., QUOT, INV).
+
+
+
+parameters: JSON (UI control settings).
+
+
+
+Branding Master:
+
+
+
+
+
+branding_id: UUID (Primary Key).
+
+
+
+company_name: String.
+
+
+
+logo_url: String.
+
+
+
+address: Text.
+
+
+
+tax_id: String.
+
+APIs:
+
+
+
+
+
+POST /api/products: Create a product.
+
+
+
+GET /api/products: List products (filter by group, stock level).
+
+
+
+PUT /api/products/{product_id}: Update product details.
+
+
+
+POST /api/purchase-orders: Create a PO.
+
+
+
+GET /api/purchase-orders: List POs (filter by status).
+
+
+
+POST /api/grn: Create a GRN.
+
+
+
+POST /api/gdn: Create a GDN.
+
+
+
+POST /api/setup: Configure prefixes and parameters.
+
+
+
+POST /api/branding: Update branding details.
+

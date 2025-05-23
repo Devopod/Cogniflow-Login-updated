@@ -1,0 +1,1209 @@
+Modules and Functionalities
+
+Phase 1 includes eight core modules, each with specific functionalities and fields to support end-to-end ERP operations.
+
+1. User Accounts Management and Role-Based Access Control (RBAC) Module
+
+Purpose: Manages user accounts and enforces secure, role-based permissions.
+
+Functionalities:
+
+
+
+
+
+Create, update, and delete user accounts.
+
+
+
+Assign roles (SuperAdmin, Admin, Manager, Employee) with specific permissions.
+
+
+
+Implement JWT-based authentication.
+
+
+
+Audit user actions (e.g., who created/updated records).
+
+Fields:
+
+
+
+
+
+user_id: UUID (Primary Key, auto-generated).
+
+
+
+username: String (Unique, max 50 chars).
+
+
+
+email: String (Unique, validated email format).
+
+
+
+password_hash: String (Hashed password).
+
+
+
+role: Enum (SuperAdmin, Admin, Manager, Employee).
+
+
+
+first_name: String (Max 50 chars).
+
+
+
+last_name: String (Max 50 chars).
+
+
+
+created_at: DateTime.
+
+
+
+updated_at: DateTime.
+
+
+
+is_active: Boolean (Default: True).
+
+APIs:
+
+
+
+
+
+POST /api/users/register: Create a new user (Admin only).
+
+
+
+POST /api/users/login: Authenticate user and return JWT.
+
+
+
+GET /api/users: List users (Admin only).
+
+
+
+PUT /api/users/{user_id}: Update user details (Admin or self).
+
+
+
+DELETE /api/users/{user_id}: Deactivate user (Admin only).
+
+2. Leads Module
+
+Purpose: Manages customer and supplier data, with integration for lead generation.
+
+Functionalities:
+
+
+
+
+
+Maintain master screens for customers and suppliers.
+
+
+
+Import leads from Meta Forms, Google Forms, and Excel templates.
+
+
+
+Display real-time lead counts on a dashboard (manual, Facebook, Google sources).
+
+
+
+Future enhancement: Integration with Indian lead generation portals.
+
+Fields:
+
+
+
+
+
+lead_id: UUID (Primary Key).
+
+
+
+lead_type: Enum (Customer, Supplier).
+
+
+
+name: String (Max 100 chars).
+
+
+
+email: String (Optional, validated).
+
+
+
+phone: String (Optional, validated).
+
+
+
+address: Text (Optional).
+
+
+
+source: Enum (Manual, Facebook, Google, Excel).
+
+
+
+created_at: DateTime.
+
+
+
+created_by: Foreign Key (User).
+
+
+
+status: Enum (Active, Inactive, Converted).
+
+APIs:
+
+
+
+
+
+POST /api/leads: Create a new lead.
+
+
+
+GET /api/leads: List leads (filter by type, source).
+
+
+
+PUT /api/leads/{lead_id}: Update lead details.
+
+
+
+DELETE /api/leads/{lead_id}: Delete lead (Admin only).
+
+
+
+GET /api/leads/dashboard: Fetch lead count data for dashboard.
+
+3. Inventory Module
+
+Purpose: Manages products, stock, and related documents (PO, BOM, GRN, GDN).
+
+Functionalities:
+
+
+
+
+
+Manage Product Groups and Product Masters.
+
+
+
+Create and track Purchase Orders (PO), Bills of Materials (BOM), Goods Received Notes (GRN), and Goods Delivery Notes (GDN).
+
+
+
+Set prefixes for documents (e.g., QUOT, INV) via setup master.
+
+
+
+Configure company branding for letterheads and PDF printing.
+
+
+
+Track stock levels and re-order levels with in-app notifications.
+
+
+
+Schedule tasks with role-based access (SuperAdmin, Admin, Manager).
+
+Fields:
+
+
+
+
+
+Product Group:
+
+
+
+
+
+group_id: UUID (Primary Key).
+
+
+
+name: String (Max 50 chars).
+
+
+
+description: Text (Optional).
+
+
+
+Product Master:
+
+
+
+
+
+product_id: UUID (Primary Key).
+
+
+
+group_id: Foreign Key (Product Group).
+
+
+
+name: String (Max 100 chars).
+
+
+
+sku: String (Unique, max 20 chars).
+
+
+
+unit_price: Decimal.
+
+
+
+stock_quantity: Integer.
+
+
+
+reorder_level: Integer.
+
+
+
+created_at: DateTime.
+
+
+
+Purchase Order (PO):
+
+
+
+
+
+po_id: UUID (Primary Key).
+
+
+
+po_number: String (e.g., PO-2025-0001).
+
+
+
+supplier_id: Foreign Key (Lead).
+
+
+
+items: JSON (List of product_id, quantity, unit_price).
+
+
+
+total_amount: Decimal.
+
+
+
+status: Enum (Draft, Approved, Completed).
+
+
+
+created_at: DateTime.
+
+
+
+created_by: Foreign Key (User).
+
+
+
+Bill of Materials (BOM):
+
+
+
+
+
+bom_id: UUID (Primary Key).
+
+
+
+product_id: Foreign Key (Product).
+
+
+
+components: JSON (List of component_id, quantity).
+
+
+
+created_at: DateTime.
+
+
+
+Goods Received Note (GRN):
+
+
+
+
+
+grn_id: UUID (Primary Key).
+
+
+
+po_id: Foreign Key (PO).
+
+
+
+received_items: JSON (List of product_id, quantity).
+
+
+
+created_at: DateTime.
+
+
+
+Goods Delivery Note (GDN):
+
+
+
+
+
+gdn_id: UUID (Primary Key).
+
+
+
+invoice_id: Foreign Key (Invoice, see Sales Module).
+
+
+
+delivered_items: JSON (List of product_id, quantity).
+
+
+
+created_at: DateTime.
+
+
+
+Setup Master:
+
+
+
+
+
+setup_id: UUID (Primary Key).
+
+
+
+module: String (e.g., Quotation, Invoice).
+
+
+
+prefix: String (e.g., QUOT, INV).
+
+
+
+parameters: JSON (UI control settings).
+
+
+
+Branding Master:
+
+
+
+
+
+branding_id: UUID (Primary Key).
+
+
+
+company_name: String.
+
+
+
+logo_url: String.
+
+
+
+address: Text.
+
+
+
+tax_id: String.
+
+APIs:
+
+
+
+
+
+POST /api/products: Create a product.
+
+
+
+GET /api/products: List products (filter by group, stock level).
+
+
+
+PUT /api/products/{product_id}: Update product details.
+
+
+
+POST /api/purchase-orders: Create a PO.
+
+
+
+GET /api/purchase-orders: List POs (filter by status).
+
+
+
+POST /api/grn: Create a GRN.
+
+
+
+POST /api/gdn: Create a GDN.
+
+
+
+POST /api/setup: Configure prefixes and parameters.
+
+
+
+POST /api/branding: Update branding details.
+
+4. Sales Management Module
+
+Purpose: Manages sales processes, including quotations and invoices.
+
+Functionalities:
+
+
+
+
+
+Perform CRUD operations for sales tracking.
+
+
+
+Create, send, and track quotations.
+
+
+
+Generate invoices from quotations or sales orders.
+
+
+
+Link invoices to inventory for stock updates.
+
+Fields:
+
+
+
+
+
+Quotation:
+
+
+
+
+
+quotation_id: UUID (Primary Key).
+
+
+
+quotation_number: String (e.g., QUOT-2025-0001).
+
+
+
+customer_id: Foreign Key (Lead).
+
+
+
+items: JSON (List of product_id, quantity, unit_price, tax_rate).
+
+
+
+subtotal: Decimal.
+
+
+
+tax_amount: Decimal.
+
+
+
+total_amount: Decimal.
+
+
+
+status: Enum (Draft, Sent, Approved, Converted).
+
+
+
+created_at: DateTime.
+
+
+
+created_by: Foreign Key (User).
+
+
+
+Invoice:
+
+
+
+
+
+invoice_id: UUID (Primary Key).
+
+
+
+invoice_number: String (e.g., INV-2025-0001).
+
+
+
+quotation_id: Foreign Key (Quotation, optional).
+
+
+
+customer_id: Foreign Key (Lead).
+
+
+
+invoice_date: Date.
+
+
+
+due_date: Date.
+
+
+
+items: JSON (List of product_id, quantity, unit_price, tax_rate, line_total).
+
+
+
+subtotal: Decimal.
+
+
+
+tax_amount: Decimal.
+
+
+
+discount_amount: Decimal.
+
+
+
+total_amount: Decimal.
+
+
+
+status: Enum (Draft, Sent, Hawkins, Paid, Partially Paid, Overdue, Cancelled).
+
+
+
+payment_method: Enum (MPESA, Bank Transfer, Cash).
+
+
+
+payment_reference: String (Optional, e.g., MPESA transaction ID).
+
+
+
+company_details: JSON (Company name, address, logo, tax_id).
+
+
+
+customer_details: JSON (Name, address, email, phone).
+
+
+
+notes: Text (Optional).
+
+
+
+created_at: DateTime.
+
+
+
+created_by: Foreign Key (User).
+
+
+
+updated_at: DateTime.
+
+
+
+updated_by: Foreign Key (User).
+
+
+
+stock_updated: Boolean (Default: False).
+
+APIs:
+
+
+
+
+
+POST /api/quotations: Create a quotation.
+
+
+
+GET /api/quotations: List quotations (filter by status).
+
+
+
+PUT /api/quotations/{quotation_id}: Update quotation.
+
+
+
+POST /api/invoices: Create an invoice.
+
+
+
+GET /api/invoices: List invoices (filter by status, customer).
+
+
+
+PUT /api/invoices/{invoice_id}: Update invoice status or details.
+
+5. Purchase Management Module
+
+Purpose: Manages purchase requests and integrates with inventory.
+
+Functionalities:
+
+
+
+
+
+Create and approve purchase requests.
+
+
+
+Link purchase orders to inventory for stock updates.
+
+
+
+Manage re-order levels with in-app notifications (continued from Inventory Module).
+
+Fields:
+
+
+
+
+
+Purchase Request:
+
+
+
+
+
+request_id: UUID (Primary Key).
+
+
+
+product_id: Foreign Key (Product).
+
+
+
+quantity: Integer.
+
+
+
+status: Enum (Pending, Approved, Rejected).
+
+
+
+created_at: DateTime.
+
+
+
+created_by: Foreign Key (User).
+
+
+
+approved_by: Foreign Key (User, optional).
+
+APIs:
+
+
+
+
+
+POST /api/purchase-requests: Create a purchase request.
+
+
+
+GET /api/purchase-requests: List requests (filter by status).
+
+
+
+PUT /api/purchase-requests/{request_id}: Approve/reject request.
+
+6. Accounting Module
+
+Purpose: Manages financial transactions, payments, expenses, and reports.
+
+Functionalities:
+
+
+
+
+
+Manage accounts master, payments, and expenses.
+
+
+
+Integrate with MPESA for invoice payments.
+
+
+
+Generate reports (account group summary, ledger book, trial balance).
+
+
+
+Record invoice payments and link to sales.
+
+Fields:
+
+
+
+
+
+Account:
+
+
+
+
+
+account_id: UUID (Primary Key).
+
+
+
+name: String (Max 50 chars).
+
+
+
+type: Enum (Asset, Liability, Equity, Revenue, Expense).
+
+
+
+balance: Decimal.
+
+
+
+Payment:
+
+
+
+
+
+payment_id: UUID (Primary Key).
+
+
+
+invoice_id: Foreign Key (Invoice).
+
+
+
+amount: Decimal.
+
+
+
+method: Enum (MPESA, Bank Transfer, Cash).
+
+
+
+reference: String (e.g., MPESA transaction ID).
+
+
+
+created_at: DateTime.
+
+
+
+Expense:
+
+
+
+
+
+expense_id: UUID (Primary Key).
+
+
+
+account_id: Foreign Key (Account).
+
+
+
+amount: Decimal.
+
+
+
+description: Text.
+
+
+
+created_at: DateTime.
+
+APIs:
+
+
+
+
+
+POST /api/accounts: Create an account.
+
+
+
+GET /api/accounts: List accounts (filter by type).
+
+
+
+POST /api/payments: Record a payment.
+
+
+
+GET /api/payments: List payments (filter by invoice).
+
+
+
+POST /api/expenses: Record an expense.
+
+
+
+GET /api/reports/ledger: Generate ledger report.
+
+
+
+GET /api/reports/trial-balance: Generate trial balance.
+
+7. HR & Payroll Module
+
+Purpose: Manages employee records, attendance, leave, and payroll.
+
+Functionalities:
+
+
+
+
+
+Manage employee records.
+
+
+
+Log attendance and leave requests.
+
+
+
+Calculate and generate payroll.
+
+Fields:
+
+
+
+
+
+Employee:
+
+
+
+
+
+employee_id: UUID (Primary Key).
+
+
+
+user_id: Foreign Key (User, optional).
+
+
+
+name: String (Max 100 chars).
+
+
+
+email: String.
+
+
+
+phone: String.
+
+
+
+hire_date: Date.
+
+
+
+salary: Decimal.
+
+
+
+Attendance:
+
+
+
+
+
+attendance_id: UUID (Primary Key).
+
+
+
+employee_id: Foreign Key (Employee).
+
+
+
+date: Date.
+
+
+
+status: Enum (Present, Absent, Late).
+
+
+
+Leave:
+
+
+
+
+
+leave_id: UUID (Primary Key).
+
+
+
+employee_id: Foreign Key (Employee).
+
+
+
+start_date: Date.
+
+
+
+end_date: Date.
+
+
+
+type: Enum (Annual, Sick, Maternity).
+
+
+
+status: Enum (Pending, Approved, Rejected).
+
+
+
+Payroll:
+
+
+
+
+
+payroll_id: UUID (Primary Key).
+
+
+
+employee_id: Foreign Key (Employee).
+
+
+
+period: String (e.g., "2025-01").
+
+
+
+gross_salary: Decimal.
+
+
+
+deductions: Decimal.
+
+
+
+net_salary: Decimal.
+
+
+
+created_at: DateTime.
+
+APIs:
+
+
+
+
+
+POST /api/employees: Create an employee.
+
+
+
+GET /api/employees: List employees.
+
+
+
+POST /api/attendance: Log attendance.
+
+
+
+POST /api/leaves: Request a leave.
+
+
+
+PUT /api/leaves/{leave_id}: Approve/reject leave.
+
+
+
+POST /api/payroll: Generate payroll.
+
+8. Reports Management Module
+
+Purpose: Generates comprehensive reports for sales, inventory, payments, expenses, and HR.
+
+Functionalities:
+
+
+
+
+
+Generate reports inspired by ERPNext and SAP.
+
+
+
+Include invoice, stock, and financial data.
+
+
+
+Allow filtering and export (e.g., PDF, CSV).
+
+Reports:
+
+
+
+
+
+Sales Report: Total sales, top customers, invoice status.
+
+
+
+Stock Report: Stock levels, reorder alerts.
+
+
+
+Payment Report: Paid vs. overdue invoices.
+
+
+
+Expense Report: Expense breakdown by category.
+
+
+
+HR Report: Attendance, leave, payroll summary.
+
+APIs:
+
+
+
+
+
+GET /api/reports/sales: Generate sales report.
+
+
+
+GET /api/reports/stock: Generate stock report.
+
+
+
+GET /api/reports/payments: Generate payment report.
+
+
+
+GET /api/reports/expenses: Generate expense report.
+
+
+
+GET /api/reports/hr: Generate HR report.
+
+
+
+Database Schema
+
+The PostgreSQL database is designed with normalized tables to support all modules. Key tables include:
+
+
+
+
+
+Users: Stores user accounts and roles.
+
+
+
+Leads: Stores customer/supplier data.
+
+
+
+ProductGroups, Products: Manage inventory data.
+
+
+
+PurchaseOrders, BOMs, GRNs, GDNs: Track inventory documents.
+
+
+
+Quotations, Invoices: Manage sales processes.
+
+
+
+PurchaseRequests: Handle purchase workflows.
+
+
+
+Accounts, Payments, Expenses: Manage financial data.
+
+
+
+Employees, Attendance, Leaves, Payroll: Manage HR data.
+
+
+
+SetupMaster, BrandingMaster: Store configuration and branding.
+
+Constraints:
+
+
+
+
+
+Primary Keys: UUIDs for uniqueness.
+
+
+
+Foreign Keys: Ensure referential integrity (e.g., invoice.customer_id references leads.lead_id).
+
+
+
+Unique Constraints: For fields like username, sku, invoice_number.
+
+
+
+Indexes: On frequently queried fields (e.g., invoice.status, product.stock_quantity).
+
+
+
+Security
+
+
+
+
+
+Authentication: JWT tokens issued on login, validated for all API requests.
+
+
+
+Authorization: RBAC enforces permissions (e.g., only Admins can delete users).
+
+
+
+Data Validation: Input sanitization in Django forms and serializers.
+
+
+
+Encryption: Passwords hashed (bcrypt), sensitive data encrypted (e.g., MPESA API keys).
+
+
+
+Audit Logging: Track user actions (created_by, updated_by fields).
