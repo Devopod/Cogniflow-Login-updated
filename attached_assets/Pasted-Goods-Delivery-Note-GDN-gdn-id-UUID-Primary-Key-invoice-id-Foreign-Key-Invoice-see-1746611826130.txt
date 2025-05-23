@@ -1,0 +1,303 @@
+Goods Delivery Note (GDN):
+
+
+
+
+
+gdn_id: UUID (Primary Key).
+
+
+
+invoice_id: Foreign Key (Invoice, see Sales Module).
+
+
+
+delivered_items: JSON (List of product_id, quantity).
+
+
+
+created_at: DateTime.
+
+
+
+Setup Master:
+
+
+
+
+
+setup_id: UUID (Primary Key).
+
+
+
+module: String (e.g., Quotation, Invoice).
+
+
+
+prefix: String (e.g., QUOT, INV).
+
+
+
+parameters: JSON (UI control settings).
+
+
+
+Branding Master:
+
+
+
+
+
+branding_id: UUID (Primary Key).
+
+
+
+company_name: String.
+
+
+
+logo_url: String.
+
+
+
+address: Text.
+
+
+
+tax_id: String.
+
+APIs:
+
+
+
+
+
+POST /api/products: Create a product.
+
+
+
+GET /api/products: List products (filter by group, stock level).
+
+
+
+PUT /api/products/{product_id}: Update product details.
+
+
+
+POST /api/purchase-orders: Create a PO.
+
+
+
+GET /api/purchase-orders: List POs (filter by status).
+
+
+
+POST /api/grn: Create a GRN.
+
+
+
+POST /api/gdn: Create a GDN.
+
+
+
+POST /api/setup: Configure prefixes and parameters.
+
+
+
+POST /api/branding: Update branding details.
+
+4. Sales Management Module
+
+Purpose: Manages sales processes, including quotations and invoices.
+
+Functionalities:
+
+
+
+
+
+Perform CRUD operations for sales tracking.
+
+
+
+Create, send, and track quotations.
+
+
+
+Generate invoices from quotations or sales orders.
+
+
+
+Link invoices to inventory for stock updates.
+
+Fields:
+
+
+
+
+
+Quotation:
+
+
+
+
+
+quotation_id: UUID (Primary Key).
+
+
+
+quotation_number: String (e.g., QUOT-2025-0001).
+
+
+
+customer_id: Foreign Key (Lead).
+
+
+
+items: JSON (List of product_id, quantity, unit_price, tax_rate).
+
+
+
+subtotal: Decimal.
+
+
+
+tax_amount: Decimal.
+
+
+
+total_amount: Decimal.
+
+
+
+status: Enum (Draft, Sent, Approved, Converted).
+
+
+
+created_at: DateTime.
+
+
+
+created_by: Foreign Key (User).
+
+
+
+Invoice:
+
+
+
+
+
+invoice_id: UUID (Primary Key).
+
+
+
+invoice_number: String (e.g., INV-2025-0001).
+
+
+
+quotation_id: Foreign Key (Quotation, optional).
+
+
+
+customer_id: Foreign Key (Lead).
+
+
+
+invoice_date: Date.
+
+
+
+due_date: Date.
+
+
+
+items: JSON (List of product_id, quantity, unit_price, tax_rate, line_total).
+
+
+
+subtotal: Decimal.
+
+
+
+tax_amount: Decimal.
+
+
+
+discount_amount: Decimal.
+
+
+
+total_amount: Decimal.
+
+
+
+status: Enum (Draft, Sent, Hawkins, Paid, Partially Paid, Overdue, Cancelled).
+
+
+
+payment_method: Enum (MPESA, Bank Transfer, Cash).
+
+
+
+payment_reference: String (Optional, e.g., MPESA transaction ID).
+
+
+
+company_details: JSON (Company name, address, logo, tax_id).
+
+
+
+customer_details: JSON (Name, address, email, phone).
+
+
+
+notes: Text (Optional).
+
+
+
+created_at: DateTime.
+
+
+
+created_by: Foreign Key (User).
+
+
+
+updated_at: DateTime.
+
+
+
+updated_by: Foreign Key (User).
+
+
+
+stock_updated: Boolean (Default: False).
+
+APIs:
+
+
+
+
+
+POST /api/quotations: Create a quotation.
+
+
+
+GET /api/quotations: List quotations (filter by status).
+
+
+
+PUT /api/quotations/{quotation_id}: Update quotation.
+
+
+
+POST /api/invoices: Create an invoice.
+
+
+
+GET /api/invoices: List invoices (filter by status, customer).
+
+
+
+PUT /api/invoices/{invoice_id}: Update invoice status or details.

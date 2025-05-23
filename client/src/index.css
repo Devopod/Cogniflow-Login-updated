@@ -1,0 +1,282 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Form styles */
+.auth-form input {
+  color: #111827 !important; /* Set text color to black */
+}
+
+:root {
+  /* CogniFlow ERP vibrant color palette - bright and modern */
+  --background: 210 50% 98%;
+  --foreground: 225 25% 20%;
+  --muted: 210 40% 96.1%;
+  --muted-foreground: 215 16% 47%;
+  
+  --popover: 210 50% 98%;
+  --popover-foreground: 225 25% 20%;
+  
+  --card: 0 0% 100%;
+  --card-foreground: 225 25% 20%;
+  
+  --border: 214 32% 91%;
+  --input: 214 32% 91%;
+  
+  /* Vibrant blue for primary actions */
+  --primary: 220 85% 57%;
+  --primary-foreground: 0 0% 100%;
+  
+  --secondary: 208 100% 97%;
+  --secondary-foreground: 220 70% 40%;
+  
+  --accent: 190 95% 45%;
+  --accent-foreground: 0 0% 100%;
+  
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 0 0% 100%;
+  
+  --success: 142 76% 45%;
+  --success-foreground: 0 0% 100%;
+  
+  --warning: 38 95% 55%;
+  --warning-foreground: 0 0% 100%;
+  
+  --ring: 220 85% 57%;
+  --radius: 0.5rem;
+}
+
+.dark {
+  /* Dark mode with vibrant accent colors */
+  --background: 224 71% 4%;
+  --foreground: 210 20% 98%;
+  
+  --muted: 215 27% 16%;
+  --muted-foreground: 217 15% 65%;
+  
+  --popover: 224 71% 4%;
+  --popover-foreground: 210 20% 98%;
+  
+  --card: 224 71% 4%;
+  --card-foreground: 210 20% 98%;
+  
+  --border: 215 27% 16%;
+  --input: 215 27% 16%;
+  
+  /* Keeping the vibrant blue even in dark mode */
+  --primary: 220 85% 57%;
+  --primary-foreground: 0 0% 100%;
+  
+  --secondary: 220 70% 15%;
+  --secondary-foreground: 0 0% 100%;
+  
+  --accent: 190 95% 45%;
+  --accent-foreground: 0 0% 100%;
+  
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 0 0% 100%;
+  
+  --success: 142 76% 45%;
+  --success-foreground: 0 0% 100%;
+  
+  --warning: 38 95% 55%;
+  --warning-foreground: 0 0% 100%;
+  
+  --ring: 220 85% 57%;
+  --radius: 0.5rem;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    font-family: 'Puvi', 'Inter', sans-serif;
+    @apply antialiased bg-background text-foreground;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Puvi', 'Inter', sans-serif;
+    font-weight: 600;
+    @apply tracking-tight;
+  }
+}
+
+@layer components {
+  /* Modern SaaS Navigation Styles */
+  .mega-menu {
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-8px);
+    transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s;
+  }
+  
+  .nav-item:hover .mega-menu {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+  }
+
+  /* Gradient Hero Background - Modern Blue Gradient with subtle mesh */
+  .hero-gradient {
+    background: radial-gradient(circle at 30% 107%, rgba(32, 129, 226, 0.04) 0%, rgba(32, 129, 226, 0) 50%), 
+                linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+    background-size: cover;
+  }
+
+  /* Modern Card with subtle hover effects */
+  .feature-card {
+    @apply bg-white rounded-xl border border-gray-100 p-6 shadow-sm transition-all duration-300 relative overflow-hidden;
+  }
+  
+  .feature-card:hover {
+    @apply shadow-lg border-gray-200 -translate-y-1;
+  }
+  
+  .feature-card:after {
+    content: '';
+    @apply absolute -bottom-2 left-0 right-0 h-1 bg-transparent transition-all duration-300;
+  }
+  
+  .feature-card:hover:after {
+    @apply bg-gradient-to-r from-blue-600 to-blue-400;
+  }
+  
+  /* Hover Effects for Interactive Elements */
+  .interactive-hover {
+    @apply transition-transform duration-300 ease-out;
+  }
+  
+  .interactive-hover:hover {
+    transform: scale(1.03);
+  }
+  
+  /* Pill Badge */
+  .badge {
+    @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors;
+  }
+  
+  .badge-primary {
+    @apply bg-blue-100 text-blue-800;
+  }
+  
+  .badge-secondary {
+    @apply bg-gray-100 text-gray-800;
+  }
+  
+  .badge-success {
+    @apply bg-green-100 text-green-800;
+  }
+  
+  .badge-warning {
+    @apply bg-yellow-100 text-yellow-800;
+  }
+  
+  /* Buttons with Modern SaaS Design */
+  .btn {
+    @apply inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50;
+  }
+  
+  .btn-sm {
+    @apply h-9 px-3 rounded-md;
+  }
+  
+  .btn-md {
+    @apply h-10 px-4 py-2 rounded-md;
+  }
+  
+  .btn-lg {
+    @apply h-11 px-6 rounded-md;
+  }
+  
+  .btn-primary {
+    @apply bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm;
+  }
+  
+  .btn-secondary {
+    @apply bg-secondary text-secondary-foreground hover:bg-secondary/80;
+  }
+  
+  .btn-outline {
+    @apply border border-input bg-background hover:bg-accent hover:text-accent-foreground;
+  }
+  
+  .btn-ghost {
+    @apply hover:bg-accent hover:text-accent-foreground;
+  }
+  
+  .btn-white {
+    @apply bg-white text-primary hover:bg-gray-50 font-medium py-2.5 px-6 rounded-md shadow-sm transition-all duration-300;
+  }
+  
+  /* Glass Effect - for modern UI elements */
+  .glass {
+    @apply bg-white/80 backdrop-blur-md border border-white/20 shadow-sm;
+  }
+  
+  .glass-dark {
+    @apply bg-gray-900/80 backdrop-blur-md border border-gray-800/30 shadow-md;
+  }
+  
+  /* Scrollbar Styling - Minimal & Modern */
+  ::-webkit-scrollbar {
+    width: 10px;
+  }
+  
+  ::-webkit-scrollbar-track {
+    background: #f1f1f1;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 5px;
+  }
+  
+  ::-webkit-scrollbar-thumb:hover {
+    background: #a8a8a8;
+  }
+  
+  /* Authentication page styling */
+  .auth-form input {
+    @apply bg-gray-50 border-gray-200 !important;
+  }
+  
+  /* Animation Classes */
+  .animate-float {
+    animation: float 6s ease-in-out infinite;
+  }
+  
+  @keyframes float {
+    0% {
+      transform: translateY(0px);
+    }
+    50% {
+      transform: translateY(-20px);
+    }
+    100% {
+      transform: translateY(0px);
+    }
+  }
+  
+  /* Dot Pattern Background */
+  .dot-pattern {
+    background-image: radial-gradient(circle, #e5e7eb 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+  
+  /* Module Card Styling */
+  .module-card {
+    @apply bg-white rounded-xl shadow-sm border border-gray-100 p-6 transition-all duration-300;
+  }
+  
+  .module-card:hover {
+    @apply shadow-md border-gray-200;
+    transform: translateY(-5px);
+  }
+}
