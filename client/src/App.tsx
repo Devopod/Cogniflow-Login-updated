@@ -8,6 +8,7 @@ import LandingPage from "@/pages/landing-page";
 import HomePage from "@/pages/home-page";
 import AuthPage from "@/pages/auth-page";
 import DashboardPage from "@/pages/dashboard";
+import CompanyRegistrationPage from "@/pages/company-registration";
 import CRMPage from "@/pages/crm";
 import SalesManagement from "@/pages/sales";
 import QuotationsPage from "@/pages/sales/quotations";
@@ -29,6 +30,9 @@ function Router() {
       <Route path="/" component={LandingPage} />
       <Route path="/auth" component={AuthPage} />
       <Route path="/home" component={HomePage} />
+      
+      {/* Company Registration */}
+      <ProtectedRoute path="/company-registration" component={CompanyRegistrationPage} />
       
       {/* Protected Routes - ERP Modules */}
       <ProtectedRoute path="/dashboard" component={DashboardPage} />

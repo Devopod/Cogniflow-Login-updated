@@ -7,7 +7,7 @@ import { promisify } from "util";
 import { storage } from "./storage";
 import { User as UserType } from "@shared/schema";
 import { db } from "./db";
-import { users as usersTable } from "@shared/schema";
+import { users as usersTable, companies } from "@shared/schema";
 import { eq, and, gte } from "drizzle-orm";
 import { isWorkEmailSync } from "./utils/emailValidator";
 
@@ -129,6 +129,7 @@ export function setupAuth(app: Express) {
         isActive: true,
         emailVerified: false,
         emailVerificationToken: randomBytes(32).toString("hex"),
+        companyId: null, // Ensure no company is set initially
       });
   
       // Log the user in
@@ -144,26 +145,42 @@ export function setupAuth(app: Express) {
     }
   });
 
-  app.post("/api/login", (req, res, next) => {
+  app.post("/api/login", async (req, res, next) => {
     // Validate that the email is a work email
     const emailValidation = isWorkEmailSync(req.body.email);
     if (!emailValidation.isValid) {
       return res.status(400).json({ message: emailValidation.message });
     }
 
-    passport.authenticate("local", (err, user, info) => {
+    passport.authenticate("local", async (err, user, info) => {
       if (err) {
         return next(err);
       }
       if (!user) {
         return res.status(401).json({ message: info?.message || "Authentication failed" });
       }
-      req.login(user, (err) => {
+      req.login(user, async (err) => {
         if (err) {
           return next(err);
         }
         // Return user without sensitive data
         const { password, ...userWithoutPassword } = user;
+        
+        // Check if user has a company
+        if (user.companyId) {
+          try {
+            const [company] = await db.select().from(companies).where(eq(companies.id, user.companyId));
+            if (company) {
+              return res.status(200).json({
+                ...userWithoutPassword,
+                companyName: company.legalName
+              });
+            }
+          } catch (error) {
+            console.error("Error fetching company:", error);
+          }
+        }
+        
         return res.status(200).json(userWithoutPassword);
       });
     })(req, res, next);
@@ -176,12 +193,32 @@ export function setupAuth(app: Express) {
     });
   });
 
-  app.get("/api/user", (req, res) => {
+  app.get("/api/user", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ message: "Not authenticated" });
     }
+    
+    // Set cache headers (60 seconds)
+    res.setHeader('Cache-Control', 'private, max-age=60');
+    
     // Return user without sensitive data
-    const { password, ...userWithoutPassword } = req.user as User;
+    const { password, ...userWithoutPassword } = req.user as UserType;
+    
+    // Check if user has a company
+    if (req.user.companyId) {
+      try {
+        const [company] = await db.select().from(companies).where(eq(companies.id, req.user.companyId));
+        if (company) {
+          return res.json({
+            ...userWithoutPassword,
+            companyName: company.legalName
+          });
+        }
+      } catch (error) {
+        console.error("Error fetching company:", error);
+      }
+    }
+    
     res.json(userWithoutPassword);
   });
   

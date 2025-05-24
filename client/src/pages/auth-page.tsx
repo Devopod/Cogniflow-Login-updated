@@ -103,8 +103,13 @@ export default function AuthPage() {
         description: `Welcome back, ${userData.firstName || "User"}!`,
       });
       
-      // Redirect to dashboard
-      setLocation("/dashboard");
+      // Check if user has a company, if not redirect to company registration
+      if (!userData.companyId) {
+        setLocation("/company-registration");
+      } else {
+        // Redirect to dashboard
+        setLocation("/dashboard");
+      }
     } catch (error: any) {
       toast({
         title: "Login failed",
@@ -142,8 +147,8 @@ export default function AuthPage() {
         description: `Welcome to CogniFlow ERP, ${userData.firstName}!`,
       });
       
-      // Redirect to dashboard
-      setLocation("/dashboard");
+      // After registration, always redirect to company registration
+      setLocation("/company-registration");
     } catch (error: any) {
       toast({
         title: "Registration failed",
