@@ -34,9 +34,15 @@ const isAdmin = (req: Request, res: Response, next: NextFunction) => {
   res.status(403).json({ message: "Forbidden" });
 };
 
+// Import company routes
+import companyRoutes from './src/routes/company';
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Set up authentication
   setupAuth(app);
+
+  // Register company routes
+  app.use('/api/company', companyRoutes);
 
   // API routes with authentication
   

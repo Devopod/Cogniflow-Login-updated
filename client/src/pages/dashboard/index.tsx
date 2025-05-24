@@ -32,7 +32,8 @@ import {
   ArrowDownRight,
   DollarSign,
   Clock,
-  FileClock
+  FileClock,
+  Loader2
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -40,6 +41,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import ErpNavigation from "@/components/ErpNavigation";
 import { useEffect, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { useCompany } from "@/hooks/use-company";
 
 // Sample data for charts
 const salesData = [
@@ -123,6 +125,7 @@ const financialOverview = [
 
 export default function DashboardPage() {
   const { toast } = useToast();
+  const companyStatus = useCompany();
   const [dashboardData, setDashboardData] = useState({
     totalRevenue: { value: "$124,750", change: 7.2, isPositive: true },
     newCustomers: { value: "36", change: 12.5, isPositive: true },
@@ -153,11 +156,30 @@ export default function DashboardPage() {
     fetchDashboardData();
   }, [toast]);
 
+  // If company status is still loading, show a loading indicator
+  if (companyStatus.isLoading) {
+    return (
+      <ErpNavigation>
+        <div className="flex flex-col items-center justify-center min-h-screen">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <span className="mt-4">Loading dashboard data...</span>
+        </div>
+      </ErpNavigation>
+    );
+  }
+
   return (
     <ErpNavigation>
       <div>
         <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold">Dashboard</h1>
+          <div>
+            <h1 className="text-3xl font-bold">Dashboard</h1>
+            {companyStatus.companyName && (
+              <p className="text-muted-foreground">
+                {companyStatus.companyName}
+              </p>
+            )}
+          </div>
           <div className="flex space-x-2">
             <Button variant="outline" size="sm">
               <Calendar className="h-4 w-4 mr-2" />

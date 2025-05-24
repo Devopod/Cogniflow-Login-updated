@@ -3,6 +3,52 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
 
+// Company table for organization details
+export const companies = pgTable("companies", {
+  id: serial("id").primaryKey(),
+  legalName: varchar("legal_name", { length: 255 }).notNull(),
+  businessType: varchar("business_type", { length: 100 }).notNull(),
+  email: varchar("email", { length: 255 }).notNull(),
+  phone: varchar("phone", { length: 30 }).notNull(),
+  industryType: varchar("industry_type", { length: 100 }).notNull(),
+  country: varchar("country", { length: 100 }).notNull(),
+  taxIdNumber: varchar("tax_id_number", { length: 100 }),
+  taxRegistrationStatus: varchar("tax_registration_status", { length: 50 }),
+  taxCodes: jsonb("tax_codes"),
+  principalBusinessAddress: jsonb("principal_business_address"),
+  additionalBusinessAddresses: jsonb("additional_business_addresses"),
+  addressProofType: varchar("address_proof_type", { length: 100 }),
+  addressProofDocument: varchar("address_proof_document", { length: 500 }),
+  bankName: varchar("bank_name", { length: 255 }),
+  accountNumber: varchar("account_number", { length: 100 }),
+  routingCode: varchar("routing_code", { length: 100 }),
+  bankAddress: text("bank_address"),
+  bankDocument: varchar("bank_document", { length: 500 }),
+  signatoryName: varchar("signatory_name", { length: 255 }),
+  signatoryDesignation: varchar("signatory_designation", { length: 100 }),
+  signatoryTaxId: varchar("signatory_tax_id", { length: 100 }),
+  signatoryIdentificationNumber: varchar("signatory_identification_number", { length: 100 }),
+  signatoryPhoto: varchar("signatory_photo", { length: 500 }),
+  signatoryContact: jsonb("signatory_contact"),
+  businessRegistrationNumber: varchar("business_registration_number", { length: 100 }),
+  registrationCertificate: varchar("registration_certificate", { length: 500 }),
+  partnershipAgreement: varchar("partnership_agreement", { length: 500 }),
+  proofOfAppointment: varchar("proof_of_appointment", { length: 500 }),
+  taxRegistrationCertificate: varchar("tax_registration_certificate", { length: 500 }),
+  logo: varchar("logo", { length: 500 }),
+  businessSize: varchar("business_size", { length: 50 }),
+  preferredLanguage: varchar("preferred_language", { length: 50 }).default('English'),
+  currency: varchar("currency", { length: 3 }).default('USD'),
+  timeZone: varchar("time_zone", { length: 100 }),
+  smallBusinessRegistration: varchar("small_business_registration", { length: 255 }),
+  industryLicenses: jsonb("industry_licenses"),
+  eInvoicingRequirements: jsonb("e_invoicing_requirements"),
+  localTaxRegistrations: jsonb("local_tax_registrations"),
+  setupComplete: boolean("setup_complete").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // User and Authentication related tables
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -12,6 +58,7 @@ export const users = pgTable("users", {
   firstName: varchar("first_name", { length: 100 }).notNull(),
   lastName: varchar("last_name", { length: 100 }).notNull(),
   role: varchar("role", { length: 50 }).notNull().default('user'),
+  companyId: integer("company_id").references(() => companies.id),
   phone: varchar("phone", { length: 20 }),
   jobTitle: varchar("job_title", { length: 100 }),
   profileImage: varchar("profile_image", { length: 500 }),
@@ -1066,6 +1113,24 @@ export const insertPaymentSchema = createInsertSchema(payments).omit({
   updatedAt: true,
   paymentNumber: true,
   paymentDate: true,
+});
+
+// Company schema for validation
+export const insertCompanySchema = createInsertSchema(companies).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  setupComplete: true,
+});
+
+// Extended company schema with additional validations
+export const extendedCompanySchema = insertCompanySchema.extend({
+  email: z.string().email("Invalid email address"),
+  phone: z.string().min(10, "Phone number must be at least 10 characters"),
+  legalName: z.string().min(2, "Legal name must be at least 2 characters"),
+  businessType: z.string().min(2, "Business type must be at least 2 characters"),
+  industryType: z.string().min(2, "Industry type must be at least 2 characters"),
+  country: z.string().min(2, "Country must be at least 2 characters"),
 });
 
 // MPESA Schemas
