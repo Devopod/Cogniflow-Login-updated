@@ -41,6 +41,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Set up authentication
   setupAuth(app);
 
+  // Test endpoint
+  app.get('/api/test', (req, res) => {
+    console.log('Test endpoint called');
+    res.json({ message: 'API is working!' });
+  });
+
   // Register company routes
   app.use('/api/company', companyRoutes);
 
@@ -377,6 +383,377 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error creating invoice:", error);
       res.status(500).json({ message: "Failed to create invoice" });
+    }
+  });
+  
+  // Sales Module - Quotations Routes
+  app.get("/api/quotations", async (req, res) => {
+    try {
+      console.log("Fetching quotations...");
+      
+      // For testing purposes, return all quotations without authentication
+      try {
+        const quotations = await db.select().from(schema.quotations);
+        console.log("Quotations fetched:", quotations);
+        res.json(quotations);
+      } catch (err) {
+        if (err.code === '42P01') { // Table doesn't exist error code
+          console.log("Quotations table doesn't exist, creating it...");
+          
+          // Create the quotations table
+          await db.execute(`
+            CREATE TABLE IF NOT EXISTS quotations (
+              id SERIAL PRIMARY KEY,
+              user_id INTEGER NOT NULL REFERENCES users(id),
+              contact_id INTEGER REFERENCES contacts(id),
+              quotation_number VARCHAR(50) NOT NULL UNIQUE,
+              status VARCHAR(50) NOT NULL DEFAULT 'draft',
+              issue_date DATE NOT NULL,
+              expiry_date DATE NOT NULL,
+              total_amount DECIMAL(15, 2) NOT NULL DEFAULT 0,
+              notes TEXT,
+              terms TEXT,
+              converted_to_order BOOLEAN DEFAULT false,
+              converted_order_id INTEGER,
+              created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            )
+          `);
+          
+          // Return empty array since table was just created
+          res.json([]);
+        } else {
+          throw err;
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching quotations:", error);
+      res.status(500).json({ message: "Failed to fetch quotations" });
+    }
+  });
+  
+  // Sales Module - Orders Routes
+  app.get("/api/orders", async (req, res) => {
+    try {
+      console.log("Fetching orders...");
+      
+      // Check if orders table exists, if not create it
+      try {
+        // For testing purposes, return all orders without authentication
+        const orders = await db.select().from(schema.orders);
+        console.log("Orders fetched:", orders);
+        res.json(orders);
+      } catch (err) {
+        console.error("Error in orders query:", err);
+        if (err.code === '42P01') { // Table doesn't exist error code
+          console.log("Orders table doesn't exist, creating it...");
+          
+          // Create the orders table
+          await db.execute(`
+            CREATE TABLE IF NOT EXISTS orders (
+              id SERIAL PRIMARY KEY,
+              user_id INTEGER NOT NULL REFERENCES users(id),
+              contact_id INTEGER REFERENCES contacts(id),
+              order_number VARCHAR(50) NOT NULL UNIQUE,
+              order_date DATE NOT NULL DEFAULT CURRENT_DATE,
+              delivery_date DATE,
+              subtotal REAL NOT NULL,
+              tax_amount REAL,
+              discount_amount REAL,
+              total_amount REAL NOT NULL,
+              status VARCHAR(50) DEFAULT 'pending',
+              notes TEXT,
+              category VARCHAR(50),
+              payment_status VARCHAR(50) DEFAULT 'unpaid',
+              shipping_address TEXT,
+              billing_address TEXT,
+              currency VARCHAR(3) DEFAULT 'USD',
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+          `);
+          
+          // Create order items table
+          await db.execute(`
+            CREATE TABLE IF NOT EXISTS order_items (
+              id SERIAL PRIMARY KEY,
+              order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+              product_id INTEGER REFERENCES products(id),
+              description TEXT NOT NULL,
+              quantity REAL NOT NULL,
+              unit_price REAL NOT NULL,
+              tax_rate REAL,
+              tax_amount REAL,
+              discount_rate REAL,
+              discount_amount REAL,
+              subtotal REAL NOT NULL,
+              total_amount REAL NOT NULL,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+          `);
+          
+          // Return empty array after creating table
+          res.json([]);
+        } else {
+          throw err; // Re-throw if it's a different error
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching orders:", error);
+      res.status(500).json({ message: "Failed to fetch orders" });
+    }
+  });
+  
+  // Sales Module - Quotations Routes
+  app.get("/api/quotations", async (req, res) => {
+    try {
+      console.log("Fetching quotations...");
+      
+      // Check if quotations table exists, if not create it
+      try {
+        // For testing purposes, return all quotations without authentication
+        const quotations = await db.select().from(schema.quotations);
+        console.log("Quotations fetched:", quotations);
+        res.json(quotations);
+      } catch (err) {
+        if (err.code === '42P01') { // Table doesn't exist error code
+          console.log("Quotations table doesn't exist, creating it...");
+          
+          // Create the quotations table
+          await db.execute(`
+            CREATE TABLE IF NOT EXISTS quotations (
+              id SERIAL PRIMARY KEY,
+              user_id INTEGER NOT NULL REFERENCES users(id),
+              contact_id INTEGER REFERENCES contacts(id),
+              quotation_number VARCHAR(50) NOT NULL UNIQUE,
+              issue_date DATE NOT NULL DEFAULT CURRENT_DATE,
+              expiry_date DATE,
+              subtotal REAL NOT NULL,
+              tax_amount REAL,
+              discount_amount REAL,
+              total_amount REAL NOT NULL,
+              status VARCHAR(50) DEFAULT 'draft',
+              notes TEXT,
+              terms TEXT,
+              category VARCHAR(50),
+              currency VARCHAR(3) DEFAULT 'USD',
+              converted_to_order BOOLEAN DEFAULT FALSE,
+              converted_order_id INTEGER,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+          `);
+          
+          // Return empty array after creating table
+          res.json([]);
+        } else {
+          throw err; // Re-throw if it's a different error
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching quotations:", error);
+      res.status(500).json({ message: "Failed to fetch quotations" });
+    }
+  });
+  
+  app.get("/api/orders/:id", async (req, res) => {
+    try {
+      const order = await storage.getOrder(parseInt(req.params.id));
+      if (!order || order.userId !== req.user.id) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+      res.json(order);
+    } catch (error) {
+      console.error("Error fetching order:", error);
+      res.status(500).json({ message: "Failed to fetch order" });
+    }
+  });
+  
+  app.post("/api/orders", isAuthenticated, async (req, res) => {
+    try {
+      // Generate a unique order number
+      const orderNumber = `ORD-${new Date().getFullYear()}-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
+      
+      const order = await storage.createOrder({
+        ...req.body,
+        userId: req.user.id,
+        orderNumber,
+        orderDate: new Date()
+      });
+      res.status(201).json(order);
+    } catch (error) {
+      console.error("Error creating order:", error);
+      res.status(500).json({ message: "Failed to create order" });
+    }
+  });
+  
+  app.get("/api/orders/:id/items", isAuthenticated, async (req, res) => {
+    try {
+      const items = await storage.getOrderItemsByOrderId(parseInt(req.params.id));
+      res.json(items);
+    } catch (error) {
+      console.error("Error fetching order items:", error);
+      res.status(500).json({ message: "Failed to fetch order items" });
+    }
+  });
+  
+  app.post("/api/orders/:id/items", isAuthenticated, async (req, res) => {
+    try {
+      const orderId = parseInt(req.params.id);
+      const order = await storage.getOrder(orderId);
+      
+      if (!order || order.userId !== req.user.id) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+      
+      const item = await storage.createOrderItem({
+        ...req.body,
+        orderId
+      });
+      
+      res.status(201).json(item);
+    } catch (error) {
+      console.error("Error creating order item:", error);
+      res.status(500).json({ message: "Failed to create order item" });
+    }
+  });
+  
+  // Sales Module - Quotations Routes
+  app.get("/api/quotations", isAuthenticated, async (req, res) => {
+    try {
+      const quotations = await storage.getQuotationsByUser(req.user.id);
+      res.json(quotations);
+    } catch (error) {
+      console.error("Error fetching quotations:", error);
+      res.status(500).json({ message: "Failed to fetch quotations" });
+    }
+  });
+  
+  app.get("/api/quotations/:id", isAuthenticated, async (req, res) => {
+    try {
+      const quotation = await storage.getQuotation(parseInt(req.params.id));
+      if (!quotation || quotation.userId !== req.user.id) {
+        return res.status(404).json({ message: "Quotation not found" });
+      }
+      res.json(quotation);
+    } catch (error) {
+      console.error("Error fetching quotation:", error);
+      res.status(500).json({ message: "Failed to fetch quotation" });
+    }
+  });
+  
+  app.post("/api/quotations", isAuthenticated, async (req, res) => {
+    try {
+      // Generate a unique quotation number
+      const quotationNumber = `QUO-${new Date().getFullYear()}-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
+      
+      const quotation = await storage.createQuotation({
+        ...req.body,
+        userId: req.user.id,
+        quotationNumber,
+        issueDate: new Date()
+      });
+      res.status(201).json(quotation);
+    } catch (error) {
+      console.error("Error creating quotation:", error);
+      res.status(500).json({ message: "Failed to create quotation" });
+    }
+  });
+  
+  app.get("/api/quotations/:id/items", isAuthenticated, async (req, res) => {
+    try {
+      const items = await storage.getQuotationItemsByQuotationId(parseInt(req.params.id));
+      res.json(items);
+    } catch (error) {
+      console.error("Error fetching quotation items:", error);
+      res.status(500).json({ message: "Failed to fetch quotation items" });
+    }
+  });
+  
+  app.post("/api/quotations/:id/items", isAuthenticated, async (req, res) => {
+    try {
+      const quotationId = parseInt(req.params.id);
+      const quotation = await storage.getQuotation(quotationId);
+      
+      if (!quotation || quotation.userId !== req.user.id) {
+        return res.status(404).json({ message: "Quotation not found" });
+      }
+      
+      const item = await storage.createQuotationItem({
+        ...req.body,
+        quotationId
+      });
+      
+      res.status(201).json(item);
+    } catch (error) {
+      console.error("Error creating quotation item:", error);
+      res.status(500).json({ message: "Failed to create quotation item" });
+    }
+  });
+  
+  // Convert quotation to order
+  app.post("/api/quotations/:id/convert", isAuthenticated, async (req, res) => {
+    try {
+      const quotationId = parseInt(req.params.id);
+      const quotation = await storage.getQuotation(quotationId);
+      
+      if (!quotation || quotation.userId !== req.user.id) {
+        return res.status(404).json({ message: "Quotation not found" });
+      }
+      
+      if (quotation.convertedToOrder) {
+        return res.status(400).json({ message: "Quotation already converted to order" });
+      }
+      
+      // Generate a unique order number
+      const orderNumber = `ORD-${new Date().getFullYear()}-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
+      
+      // Create new order from quotation
+      const order = await storage.createOrder({
+        userId: req.user.id,
+        contactId: quotation.contactId,
+        orderNumber,
+        orderDate: new Date(),
+        subtotal: quotation.subtotal,
+        taxAmount: quotation.taxAmount,
+        discountAmount: quotation.discountAmount,
+        totalAmount: quotation.totalAmount,
+        notes: quotation.notes,
+        category: quotation.category,
+        currency: quotation.currency
+      });
+      
+      // Get quotation items
+      const quotationItems = await storage.getQuotationItemsByQuotationId(quotationId);
+      
+      // Create order items from quotation items
+      for (const item of quotationItems) {
+        await storage.createOrderItem({
+          orderId: order.id,
+          productId: item.productId,
+          description: item.description,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          taxRate: item.taxRate,
+          taxAmount: item.taxAmount,
+          discountRate: item.discountRate,
+          discountAmount: item.discountAmount,
+          subtotal: item.subtotal,
+          totalAmount: item.totalAmount
+        });
+      }
+      
+      // Update quotation as converted
+      await storage.updateQuotation(quotationId, {
+        convertedToOrder: true,
+        convertedOrderId: order.id
+      });
+      
+      res.status(201).json({ order, message: "Quotation successfully converted to order" });
+    } catch (error) {
+      console.error("Error converting quotation to order:", error);
+      res.status(500).json({ message: "Failed to convert quotation to order" });
     }
   });
   

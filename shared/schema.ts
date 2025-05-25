@@ -411,6 +411,86 @@ export const invoiceItems = pgTable("invoice_items", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Sales Module - Orders
+export const orders = pgTable("orders", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  contactId: integer("contact_id").references(() => contacts.id),
+  orderNumber: varchar("order_number", { length: 50 }).notNull().unique(),
+  orderDate: date("order_date").notNull().defaultNow(),
+  deliveryDate: date("delivery_date"),
+  subtotal: real("subtotal").notNull(),
+  taxAmount: real("tax_amount"),
+  discountAmount: real("discount_amount"),
+  totalAmount: real("total_amount").notNull(),
+  status: varchar("status", { length: 50 }).default('pending'),
+  notes: text("notes"),
+  category: varchar("category", { length: 50 }),
+  paymentStatus: varchar("payment_status", { length: 50 }).default('unpaid'),
+  shippingAddress: text("shipping_address"),
+  billingAddress: text("billing_address"),
+  currency: varchar("currency", { length: 3 }).default('USD'),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const orderItems = pgTable("order_items", {
+  id: serial("id").primaryKey(),
+  orderId: integer("order_id").notNull().references(() => orders.id, { onDelete: 'cascade' }),
+  productId: integer("product_id").references(() => products.id),
+  description: text("description").notNull(),
+  quantity: real("quantity").notNull(),
+  unitPrice: real("unit_price").notNull(),
+  taxRate: real("tax_rate"),
+  taxAmount: real("tax_amount"),
+  discountRate: real("discount_rate"),
+  discountAmount: real("discount_amount"),
+  subtotal: real("subtotal").notNull(),
+  totalAmount: real("total_amount").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Sales Module - Quotations
+export const quotations = pgTable("quotations", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  contactId: integer("contact_id").references(() => contacts.id),
+  quotationNumber: varchar("quotation_number", { length: 50 }).notNull().unique(),
+  issueDate: date("issue_date").notNull().defaultNow(),
+  expiryDate: date("expiry_date"),
+  subtotal: real("subtotal").notNull(),
+  taxAmount: real("tax_amount"),
+  discountAmount: real("discount_amount"),
+  totalAmount: real("total_amount").notNull(),
+  status: varchar("status", { length: 50 }).default('draft'),
+  notes: text("notes"),
+  terms: text("terms"),
+  category: varchar("category", { length: 50 }),
+  currency: varchar("currency", { length: 3 }).default('USD'),
+  convertedToOrder: boolean("converted_to_order").default(false),
+  convertedOrderId: integer("converted_order_id").references(() => orders.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const quotationItems = pgTable("quotation_items", {
+  id: serial("id").primaryKey(),
+  quotationId: integer("quotation_id").notNull().references(() => quotations.id, { onDelete: 'cascade' }),
+  productId: integer("product_id").references(() => products.id),
+  description: text("description").notNull(),
+  quantity: real("quantity").notNull(),
+  unitPrice: real("unit_price").notNull(),
+  taxRate: real("tax_rate"),
+  taxAmount: real("tax_amount"),
+  discountRate: real("discount_rate"),
+  discountAmount: real("discount_amount"),
+  subtotal: real("subtotal").notNull(),
+  totalAmount: real("total_amount").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // HRMS Module
 export const departments = pgTable("departments", {
   id: serial("id").primaryKey(),
@@ -758,6 +838,8 @@ export const usersRelations = relations(users, ({ many }) => ({
   accounts: many(accounts),
   transactions: many(transactions),
   invoices: many(invoices),
+  orders: many(orders),
+  quotations: many(quotations),
   departments: many(departments),
   positions: many(positions),
   suppliers: many(suppliers),
@@ -775,6 +857,8 @@ export const contactsRelations = relations(contacts, ({ one, many }) => ({
   }),
   deals: many(deals),
   invoices: many(invoices),
+  orders: many(orders),
+  quotations: many(quotations),
 }));
 
 export const dealsRelations = relations(deals, ({ one }) => ({
@@ -1002,6 +1086,60 @@ export const mpesaTransactionsRelations = relations(mpesaTransactions, ({ one })
   }),
 }));
 
+// Orders relations
+export const ordersRelations = relations(orders, ({ one, many }) => ({
+  user: one(users, {
+    fields: [orders.userId],
+    references: [users.id],
+  }),
+  contact: one(contacts, {
+    fields: [orders.contactId],
+    references: [contacts.id],
+  }),
+  items: many(orderItems),
+  quotation: many(quotations, { relationName: "convertedQuotation" }),
+}));
+
+export const orderItemsRelations = relations(orderItems, ({ one }) => ({
+  order: one(orders, {
+    fields: [orderItems.orderId],
+    references: [orders.id],
+  }),
+  product: one(products, {
+    fields: [orderItems.productId],
+    references: [products.id],
+  }),
+}));
+
+// Quotations relations
+export const quotationsRelations = relations(quotations, ({ one, many }) => ({
+  user: one(users, {
+    fields: [quotations.userId],
+    references: [users.id],
+  }),
+  contact: one(contacts, {
+    fields: [quotations.contactId],
+    references: [contacts.id],
+  }),
+  items: many(quotationItems),
+  convertedOrder: one(orders, {
+    fields: [quotations.convertedOrderId],
+    references: [orders.id],
+    relationName: "convertedQuotation",
+  }),
+}));
+
+export const quotationItemsRelations = relations(quotationItems, ({ one }) => ({
+  quotation: one(quotations, {
+    fields: [quotationItems.quotationId],
+    references: [quotations.id],
+  }),
+  product: one(products, {
+    fields: [quotationItems.productId],
+    references: [products.id],
+  }),
+}));
+
 // Input Schemas
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
@@ -1045,6 +1183,35 @@ export const insertInvoiceSchema = createInsertSchema(invoices).omit({
 });
 
 export const insertInvoiceItemSchema = createInsertSchema(invoiceItems).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+// Sales Management Schemas
+export const insertOrderSchema = createInsertSchema(orders).omit({
+  id: true,
+  orderNumber: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertOrderItemSchema = createInsertSchema(orderItems).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertQuotationSchema = createInsertSchema(quotations).omit({
+  id: true,
+  quotationNumber: true,
+  createdAt: true,
+  updatedAt: true,
+  convertedToOrder: true,
+  convertedOrderId: true,
+});
+
+export const insertQuotationItemSchema = createInsertSchema(quotationItems).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
@@ -1153,6 +1320,10 @@ export type InsertProduct = z.infer<typeof insertProductSchema>;
 export type InsertEmployee = z.infer<typeof insertEmployeeSchema>;
 export type InsertInvoice = z.infer<typeof insertInvoiceSchema>;
 export type InsertInvoiceItem = z.infer<typeof insertInvoiceItemSchema>;
+export type InsertOrder = z.infer<typeof insertOrderSchema>;
+export type InsertOrderItem = z.infer<typeof insertOrderItemSchema>;
+export type InsertQuotation = z.infer<typeof insertQuotationSchema>;
+export type InsertQuotationItem = z.infer<typeof insertQuotationItemSchema>;
 export type InsertSupplier = z.infer<typeof insertSupplierSchema>;
 export type InsertPurchaseRequest = z.infer<typeof insertPurchaseRequestSchema>;
 export type InsertPurchaseRequestItem = z.infer<typeof insertPurchaseRequestItemSchema>;
@@ -1169,6 +1340,10 @@ export type Product = typeof products.$inferSelect;
 export type Employee = typeof employees.$inferSelect;
 export type Invoice = typeof invoices.$inferSelect;
 export type InvoiceItem = typeof invoiceItems.$inferSelect;
+export type Order = typeof orders.$inferSelect;
+export type OrderItem = typeof orderItems.$inferSelect;
+export type Quotation = typeof quotations.$inferSelect;
+export type QuotationItem = typeof quotationItems.$inferSelect;
 export type Department = typeof departments.$inferSelect;
 export type Position = typeof positions.$inferSelect;
 export type Warehouse = typeof warehouses.$inferSelect;

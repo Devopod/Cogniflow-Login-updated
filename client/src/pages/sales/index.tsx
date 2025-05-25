@@ -112,7 +112,9 @@ const SalesManagement = () => {
   const { toast } = useToast();
 
   useEffect(() => {
-    const ws = new WebSocket(`wss://${window.location.host}/ws`);
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsHost = window.location.hostname === 'localhost' ? 'localhost:5000' : window.location.host;
+    const ws = new WebSocket(`${wsProtocol}//${wsHost}/ws`);
 
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
