@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { useQuery } from "@tanstack/react-query";
 import { Invoice } from "@shared/schema";
+import { useInvoices } from "@/hooks/use-finance-data";
 import {
   Table,
   TableBody,
@@ -58,10 +58,7 @@ export default function InvoicesList() {
     isLoading,
     isError,
     refetch,
-  } = useQuery<Invoice[]>({
-    queryKey: ["/api/invoices"],
-    retry: 1,
-  });
+  } = useInvoices();
 
   // Sample invoice data in case API doesn't return data yet
   const sampleInvoices = [

@@ -33,36 +33,26 @@ import {
   DollarSign,
   Clock,
   FileClock,
-  Loader2
+  Loader2,
+  ShoppingCart,
+  DollarSign as DollarSignIcon
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import ErpNavigation from "@/components/ErpNavigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useCompany } from "@/hooks/use-company";
+import { useOrders, useQuotations } from "@/hooks/use-sales-data";
+import { useSalesAnalytics, useQuotationAnalytics } from "@/hooks/use-sales-analytics";
+import { formatCurrency } from "@/lib/utils";
+import { Contact } from "@shared/schema";
 
-// Sample data for charts
-const salesData = [
-  { name: "Jan", sales: 4000, target: 4400 },
-  { name: "Feb", sales: 3000, target: 3200 },
-  { name: "Mar", sales: 2000, target: 1800 },
-  { name: "Apr", sales: 2780, target: 2400 },
-  { name: "May", sales: 1890, target: 2000 },
-  { name: "Jun", sales: 2390, target: 2200 },
-  { name: "Jul", sales: 3490, target: 3000 },
-];
-
-const pieData = [
-  { name: "Completed", value: 540 },
-  { name: "In Progress", value: 300 },
-  { name: "Pending", value: 200 },
-  { name: "Cancelled", value: 120 },
-];
-
+// Colors for charts
 const COLORS = ["#4ade80", "#60a5fa", "#f97316", "#f43f5e"];
 
+// Sample data for non-sales sections
 const recentActivities = [
   {
     id: 1,
@@ -94,13 +84,6 @@ const recentActivities = [
   },
 ];
 
-const topDeals = [
-  { id: 1, name: "Enterprise Software Package", value: "$120,000", probability: "80%", stage: "Negotiation" },
-  { id: 2, name: "Cloud Migration Services", value: "$85,000", probability: "65%", stage: "Proposal" },
-  { id: 3, name: "Annual Support Contract", value: "$45,000", probability: "90%", stage: "Closing" },
-  { id: 4, name: "Hardware Upgrade Project", value: "$72,500", probability: "75%", stage: "Qualified" },
-];
-
 const lowStockItems = [
   { id: 1, name: "Laptop - Pro Model", sku: "LT-PM-2023", available: 5, reorderPoint: 10 },
   { id: 2, name: "Network Router", sku: "NR-2000-X", available: 3, reorderPoint: 8 },
@@ -126,35 +109,53 @@ const financialOverview = [
 export default function DashboardPage() {
   const { toast } = useToast();
   const companyStatus = useCompany();
+  
+  // Fetch orders and quotations
+  const { data: orders, isLoading: isOrdersLoading, error: ordersError } = useOrders();
+  const { data: quotations, isLoading: isQuotationsLoading, error: quotationsError } = useQuotations();
+  
+  // Calculate sales analytics
+  const salesAnalytics = useSalesAnalytics(orders);
+  const quotationAnalytics = useQuotationAnalytics(quotations);
+  
+  // Format data for charts
+  const salesByCategoryData = useMemo(() => {
+    return Object.entries(salesAnalytics.salesByCategory).map(([name, value]) => ({
+      name,
+      value
+    }));
+  }, [salesAnalytics.salesByCategory]);
+  
+  const salesByDateData = useMemo(() => {
+    return Object.entries(salesAnalytics.salesByDate)
+      .map(([date, value]) => ({ date, sales: value }))
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+      .slice(-7); // Last 7 days
+  }, [salesAnalytics.salesByDate]);
+  
+  // Dashboard metrics
   const [dashboardData, setDashboardData] = useState({
-    totalRevenue: { value: "$124,750", change: 7.2, isPositive: true },
-    newCustomers: { value: "36", change: 12.5, isPositive: true },
-    inventoryItems: { value: "1,489", change: 4.2, isPositive: true },
-    employeeCount: { value: "64", change: 2.8, isPositive: true }
+    totalRevenue: { value: "$0", change: 0, isPositive: true },
+    newCustomers: { value: "0", change: 0, isPositive: true },
+    inventoryItems: { value: "0", change: 0, isPositive: true },
+    employeeCount: { value: "0", change: 0, isPositive: true }
   });
-
-  const [isLoading, setIsLoading] = useState(true);
-
+  
+  // Update dashboard data when sales analytics change
   useEffect(() => {
-    // In a real application, this would be replaced with an actual API call
-    const fetchDashboardData = async () => {
-      try {
-        // Simulate API request
-        await new Promise(resolve => setTimeout(resolve, 500));
-        setIsLoading(false);
-      } catch (error) {
-        console.error("Error fetching dashboard data:", error);
-        toast({
-          title: "Error",
-          description: "Failed to load dashboard data",
-          variant: "destructive",
-        });
-        setIsLoading(false);
-      }
-    };
+    if (salesAnalytics) {
+      setDashboardData(prev => ({
+        ...prev,
+        totalRevenue: { 
+          value: formatCurrency(salesAnalytics.totalSales), 
+          change: 7.2, // This would be calculated from historical data
+          isPositive: true 
+        }
+      }));
+    }
+  }, [salesAnalytics]);
 
-    fetchDashboardData();
-  }, [toast]);
+  const isLoading = isOrdersLoading || isQuotationsLoading;
 
   // If company status is still loading, show a loading indicator
   if (companyStatus.isLoading) {
@@ -326,16 +327,15 @@ export default function DashboardPage() {
                 <CardContent className="h-80">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart
-                      data={salesData}
+                      data={salesByDateData}
                       margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
                     >
                       <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-                      <XAxis dataKey="name" />
+                      <XAxis dataKey="date" />
                       <YAxis />
                       <Tooltip />
                       <Legend />
                       <Bar dataKey="sales" fill="#60a5fa" radius={[4, 4, 0, 0]} name="Actual Sales" />
-                      <Bar dataKey="target" fill="#93c5fd" radius={[4, 4, 0, 0]} name="Target" />
                     </BarChart>
                   </ResponsiveContainer>
                 </CardContent>
@@ -450,108 +450,255 @@ export default function DashboardPage() {
           </TabsContent>
           
           <TabsContent value="sales" className="space-y-6 mt-4">
+            {/* Sales Metrics Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">Total Sales</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <div className="text-2xl font-bold">{formatCurrency(salesAnalytics.totalSales)}</div>
+                      <div className="text-sm text-muted-foreground mt-1">
+                        From {orders?.length || 0} orders
+                      </div>
+                    </div>
+                    <div className="bg-green-100 p-3 rounded-full">
+                      <DollarSignIcon className="h-6 w-6 text-green-500" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">Quotations</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <div className="text-2xl font-bold">{quotations?.length || 0}</div>
+                      <div className="text-sm text-muted-foreground mt-1">
+                        Value: {formatCurrency(quotationAnalytics.totalQuotationValue)}
+                      </div>
+                    </div>
+                    <div className="bg-blue-100 p-3 rounded-full">
+                      <FileText className="h-6 w-6 text-blue-500" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">Average Order Value</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <div className="text-2xl font-bold">{formatCurrency(salesAnalytics.averageOrderValue)}</div>
+                      <div className="text-sm text-muted-foreground mt-1">
+                        Per order average
+                      </div>
+                    </div>
+                    <div className="bg-purple-100 p-3 rounded-full">
+                      <TrendingUp className="h-6 w-6 text-purple-500" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+            
+            {/* Recent Orders */}
             <Card>
               <CardHeader>
-                <CardTitle>Top Deals in Pipeline</CardTitle>
-                <CardDescription>Highest value opportunities currently in progress</CardDescription>
+                <CardTitle>Recent Orders</CardTitle>
+                <CardDescription>Latest orders from your customers</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="text-left border-b">
-                        <th className="pb-3 font-medium">Deal Name</th>
-                        <th className="pb-3 font-medium">Value</th>
-                        <th className="pb-3 font-medium">Probability</th>
-                        <th className="pb-3 font-medium">Stage</th>
-                        <th className="pb-3 font-medium">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {topDeals.map((deal) => (
-                        <tr key={deal.id} className="border-b last:border-none">
-                          <td className="py-3">{deal.name}</td>
-                          <td className="py-3 font-medium">{deal.value}</td>
-                          <td className="py-3">{deal.probability}</td>
-                          <td className="py-3">
-                            <span className={`px-2 py-1 rounded-full text-xs font-medium
-                              ${deal.stage === 'Qualified' ? 'bg-blue-100 text-blue-800' : ''}
-                              ${deal.stage === 'Proposal' ? 'bg-purple-100 text-purple-800' : ''}
-                              ${deal.stage === 'Negotiation' ? 'bg-yellow-100 text-yellow-800' : ''}
-                              ${deal.stage === 'Closing' ? 'bg-green-100 text-green-800' : ''}
-                            `}>
-                              {deal.stage}
-                            </span>
-                          </td>
-                          <td className="py-3">
-                            <Button variant="ghost" size="sm">View</Button>
-                          </td>
+                {isLoading ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  </div>
+                ) : salesAnalytics.recentOrders.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    No orders found. Create your first order to see it here.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="text-left border-b">
+                          <th className="pb-3 font-medium">Order Number</th>
+                          <th className="pb-3 font-medium">Date</th>
+                          <th className="pb-3 font-medium">Customer</th>
+                          <th className="pb-3 font-medium">Amount</th>
+                          <th className="pb-3 font-medium">Status</th>
+                          <th className="pb-3 font-medium">Actions</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {salesAnalytics.recentOrders.map((order) => (
+                          <tr key={order.id} className="border-b last:border-none">
+                            <td className="py-3">{order.orderNumber}</td>
+                            <td className="py-3">{new Date(order.orderDate).toLocaleDateString()}</td>
+                            <td className="py-3">Customer #{order.contactId || 'N/A'}</td>
+                            <td className="py-3 font-medium">{formatCurrency(order.totalAmount)}</td>
+                            <td className="py-3">
+                              <span className={`px-2 py-1 rounded-full text-xs font-medium
+                                ${order.status === 'completed' ? 'bg-green-100 text-green-800' : ''}
+                                ${order.status === 'pending' ? 'bg-yellow-100 text-yellow-800' : ''}
+                                ${order.status === 'cancelled' ? 'bg-red-100 text-red-800' : ''}
+                                ${order.status === 'processing' ? 'bg-blue-100 text-blue-800' : ''}
+                              `}>
+                                {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
+                              </span>
+                            </td>
+                            <td className="py-3">
+                              <Button variant="ghost" size="sm">View</Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                <div className="mt-6 text-center">
+                  <Button variant="outline" size="sm">View All Orders</Button>
                 </div>
               </CardContent>
             </Card>
             
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Sales by Category */}
               <Card>
                 <CardHeader>
                   <CardTitle>Sales by Category</CardTitle>
                   <CardDescription>Distribution of sales across product categories</CardDescription>
                 </CardHeader>
                 <CardContent className="h-80">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={pieData}
-                        cx="50%"
-                        cy="50%"
-                        labelLine={false}
-                        outerRadius={100}
-                        fill="#8884d8"
-                        dataKey="value"
-                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                      >
-                        {pieData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Legend />
-                      <Tooltip />
-                    </PieChart>
-                  </ResponsiveContainer>
+                  {isLoading ? (
+                    <div className="flex justify-center items-center h-full">
+                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                    </div>
+                  ) : salesByCategoryData.length === 0 ? (
+                    <div className="flex justify-center items-center h-full text-muted-foreground">
+                      No sales data available by category
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={salesByCategoryData}
+                          cx="50%"
+                          cy="50%"
+                          labelLine={false}
+                          outerRadius={100}
+                          fill="#8884d8"
+                          dataKey="value"
+                          label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                        >
+                          {salesByCategoryData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Legend />
+                        <Tooltip formatter={(value) => formatCurrency(value as number)} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  )}
                 </CardContent>
               </Card>
               
+              {/* Sales Performance */}
               <Card>
                 <CardHeader>
-                  <CardTitle>Sales Forecast</CardTitle>
-                  <CardDescription>Next 3 months sales projections</CardDescription>
+                  <CardTitle>Sales Performance</CardTitle>
+                  <CardDescription>Daily sales trend for the last 7 days</CardDescription>
                 </CardHeader>
                 <CardContent className="h-80">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart
-                      data={[
-                        { month: "May", actual: 45000, forecast: 45000 },
-                        { month: "Jun", forecast: 52000 },
-                        { month: "Jul", forecast: 58000 },
-                        { month: "Aug", forecast: 63000 },
-                      ]}
-                      margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-                      <XAxis dataKey="month" />
-                      <YAxis />
-                      <Tooltip />
-                      <Legend />
-                      <Line type="monotone" dataKey="actual" stroke="#4ade80" strokeWidth={2} dot={{ r: 6 }} name="Actual" />
-                      <Line type="monotone" dataKey="forecast" stroke="#60a5fa" strokeDasharray="5 5" strokeWidth={2} dot={{ r: 6 }} name="Forecast" />
-                    </LineChart>
-                  </ResponsiveContainer>
+                  {isLoading ? (
+                    <div className="flex justify-center items-center h-full">
+                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                    </div>
+                  ) : salesByDateData.length === 0 ? (
+                    <div className="flex justify-center items-center h-full text-muted-foreground">
+                      No sales data available for the selected period
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart
+                        data={salesByDateData}
+                        margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                        <XAxis 
+                          dataKey="date" 
+                          tickFormatter={(date) => new Date(date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                        />
+                        <YAxis tickFormatter={(value) => `$${value}`} />
+                        <Tooltip 
+                          labelFormatter={(date) => new Date(date).toLocaleDateString()}
+                          formatter={(value) => [`$${value}`, 'Sales']}
+                        />
+                        <Legend />
+                        <Line 
+                          type="monotone" 
+                          dataKey="sales" 
+                          stroke="#4ade80" 
+                          strokeWidth={2} 
+                          dot={{ r: 6 }} 
+                          name="Sales" 
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  )}
                 </CardContent>
               </Card>
             </div>
+            
+            {/* Top Customers */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Top Customers</CardTitle>
+                <CardDescription>Customers with highest order value</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {isLoading ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  </div>
+                ) : salesAnalytics.topCustomers.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    No customer data available
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="text-left border-b">
+                          <th className="pb-3 font-medium">Customer ID</th>
+                          <th className="pb-3 font-medium">Total Orders Value</th>
+                          <th className="pb-3 font-medium">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {salesAnalytics.topCustomers.map((customer) => (
+                          <tr key={customer.contactId} className="border-b last:border-none">
+                            <td className="py-3">Customer #{customer.contactId}</td>
+                            <td className="py-3 font-medium">{formatCurrency(customer.total)}</td>
+                            <td className="py-3">
+                              <Button variant="ghost" size="sm">View Details</Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
           
           <TabsContent value="operations" className="space-y-6 mt-4">
@@ -723,7 +870,13 @@ export default function DashboardPage() {
                         dataKey="value"
                         label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                       >
-                        {pieData.map((entry, index) => (
+                        {[
+                          { name: "Engineering", value: 24 },
+                          { name: "Sales", value: 16 },
+                          { name: "Marketing", value: 12 },
+                          { name: "Finance", value: 8 },
+                          { name: "HR", value: 4 },
+                        ].map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                         ))}
                       </Pie>

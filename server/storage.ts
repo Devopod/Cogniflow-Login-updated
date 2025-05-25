@@ -8,7 +8,11 @@ import {
   purchaseRequests, type PurchaseRequest, type InsertPurchaseRequest,
   purchaseRequestItems, type PurchaseRequestItem, type InsertPurchaseRequestItem,
   purchaseOrders, type PurchaseOrder, type InsertPurchaseOrder,
-  purchaseOrderItems, type PurchaseOrderItem, type InsertPurchaseOrderItem
+  purchaseOrderItems, type PurchaseOrderItem, type InsertPurchaseOrderItem,
+  orders, type Order, type InsertOrder,
+  orderItems, type OrderItem, type InsertOrderItem,
+  quotations, type Quotation, type InsertQuotation,
+  quotationItems, type QuotationItem, type InsertQuotationItem
 } from "@shared/schema";
 import { db } from "./db";
 import { eq } from "drizzle-orm";
@@ -26,7 +30,7 @@ export interface IStorage {
   getUserByUsername(username: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
-  updateUser(id: number, data: Partial<InsertUser>): Promise<User | undefined>;
+  updateUser(id: number, data: Partial<InsertUser> & Partial<Omit<User, keyof InsertUser>>): Promise<User | undefined>;
   
   // CRM
   getContact(id: number): Promise<Contact | undefined>;
@@ -55,6 +59,28 @@ export interface IStorage {
   createInvoice(invoice: InsertInvoice): Promise<Invoice>;
   updateInvoice(id: number, data: Partial<InsertInvoice>): Promise<Invoice | undefined>;
   deleteInvoice(id: number): Promise<boolean>;
+  
+  // Sales - Orders
+  getOrder(id: number): Promise<Order | undefined>;
+  getOrdersByUser(userId: number): Promise<Order[]>;
+  createOrder(order: InsertOrder): Promise<Order>;
+  updateOrder(id: number, data: Partial<InsertOrder>): Promise<Order | undefined>;
+  deleteOrder(id: number): Promise<boolean>;
+  getOrderItemsByOrderId(orderId: number): Promise<OrderItem[]>;
+  createOrderItem(item: InsertOrderItem): Promise<OrderItem>;
+  updateOrderItem(id: number, data: Partial<InsertOrderItem>): Promise<OrderItem | undefined>;
+  deleteOrderItem(id: number): Promise<boolean>;
+  
+  // Sales - Quotations
+  getQuotation(id: number): Promise<Quotation | undefined>;
+  getQuotationsByUser(userId: number): Promise<Quotation[]>;
+  createQuotation(quotation: InsertQuotation): Promise<Quotation>;
+  updateQuotation(id: number, data: Partial<InsertQuotation>): Promise<Quotation | undefined>;
+  deleteQuotation(id: number): Promise<boolean>;
+  getQuotationItemsByQuotationId(quotationId: number): Promise<QuotationItem[]>;
+  createQuotationItem(item: InsertQuotationItem): Promise<QuotationItem>;
+  updateQuotationItem(id: number, data: Partial<InsertQuotationItem>): Promise<QuotationItem | undefined>;
+  deleteQuotationItem(id: number): Promise<boolean>;
   
   // Purchase Management - Suppliers
   getSupplier(id: number): Promise<Supplier | undefined>;
@@ -131,7 +157,7 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
   
-  async updateUser(id: number, data: Partial<InsertUser>): Promise<User | undefined> {
+  async updateUser(id: number, data: Partial<InsertUser> & Partial<Omit<User, keyof InsertUser>>): Promise<User | undefined> {
     const [user] = await db
       .update(users)
       .set(data)
@@ -277,6 +303,134 @@ export class DatabaseStorage implements IStorage {
     await db
       .delete(invoices)
       .where(eq(invoices.id, id));
+    return true;
+  }
+  
+  // Order management (Sales)
+  async getOrder(id: number): Promise<Order | undefined> {
+    const [order] = await db.select().from(orders).where(eq(orders.id, id));
+    return order;
+  }
+  
+  async getOrdersByUser(userId: number): Promise<Order[]> {
+    const orderList = await db.select().from(orders).where(eq(orders.userId, userId));
+    return orderList;
+  }
+  
+  async createOrder(order: InsertOrder): Promise<Order> {
+    const [newOrder] = await db
+      .insert(orders)
+      .values(order)
+      .returning();
+    return newOrder;
+  }
+  
+  async updateOrder(id: number, data: Partial<InsertOrder>): Promise<Order | undefined> {
+    const [order] = await db
+      .update(orders)
+      .set(data)
+      .where(eq(orders.id, id))
+      .returning();
+    return order;
+  }
+  
+  async deleteOrder(id: number): Promise<boolean> {
+    await db
+      .delete(orders)
+      .where(eq(orders.id, id));
+    return true;
+  }
+  
+  async getOrderItemsByOrderId(orderId: number): Promise<OrderItem[]> {
+    const items = await db.select().from(orderItems).where(eq(orderItems.orderId, orderId));
+    return items;
+  }
+  
+  async createOrderItem(item: InsertOrderItem): Promise<OrderItem> {
+    const [newItem] = await db
+      .insert(orderItems)
+      .values(item)
+      .returning();
+    return newItem;
+  }
+  
+  async updateOrderItem(id: number, data: Partial<InsertOrderItem>): Promise<OrderItem | undefined> {
+    const [item] = await db
+      .update(orderItems)
+      .set(data)
+      .where(eq(orderItems.id, id))
+      .returning();
+    return item;
+  }
+  
+  async deleteOrderItem(id: number): Promise<boolean> {
+    await db
+      .delete(orderItems)
+      .where(eq(orderItems.id, id));
+    return true;
+  }
+  
+  // Quotation management (Sales)
+  async getQuotation(id: number): Promise<Quotation | undefined> {
+    const [quotation] = await db.select().from(quotations).where(eq(quotations.id, id));
+    return quotation;
+  }
+  
+  async getQuotationsByUser(userId: number): Promise<Quotation[]> {
+    const quotationList = await db.select().from(quotations).where(eq(quotations.userId, userId));
+    return quotationList;
+  }
+  
+  async createQuotation(quotation: InsertQuotation): Promise<Quotation> {
+    const [newQuotation] = await db
+      .insert(quotations)
+      .values(quotation)
+      .returning();
+    return newQuotation;
+  }
+  
+  async updateQuotation(id: number, data: Partial<InsertQuotation>): Promise<Quotation | undefined> {
+    const [quotation] = await db
+      .update(quotations)
+      .set(data)
+      .where(eq(quotations.id, id))
+      .returning();
+    return quotation;
+  }
+  
+  async deleteQuotation(id: number): Promise<boolean> {
+    await db
+      .delete(quotations)
+      .where(eq(quotations.id, id));
+    return true;
+  }
+  
+  async getQuotationItemsByQuotationId(quotationId: number): Promise<QuotationItem[]> {
+    const items = await db.select().from(quotationItems).where(eq(quotationItems.quotationId, quotationId));
+    return items;
+  }
+  
+  async createQuotationItem(item: InsertQuotationItem): Promise<QuotationItem> {
+    const [newItem] = await db
+      .insert(quotationItems)
+      .values(item)
+      .returning();
+    return newItem;
+  }
+  
+  async updateQuotationItem(id: number, data: Partial<InsertQuotationItem>): Promise<QuotationItem | undefined> {
+    const [item] = await db
+      .update(quotationItems)
+      .set(data)
+      .where(eq(quotationItems.id, id))
+      .returning();
+    return item;
+  }
+  
+  async deleteQuotationItem(id: number): Promise<boolean> {
+    await db
+      .delete(quotationItems)
+      .where(eq(quotationItems.id, id));
     return true;
   }
 

@@ -19,6 +19,7 @@ import SupplierManagement from "@/pages/suppliers";
 import PaymentsManagement from "@/pages/payments";
 import ReportsManagement from "@/pages/reports";
 import PurchaseManagement from "@/pages/purchase";
+import TestPage from "@/pages/test-page";
 import { ProtectedRoute } from "./lib/protected-route";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider } from "@/hooks/use-auth";
