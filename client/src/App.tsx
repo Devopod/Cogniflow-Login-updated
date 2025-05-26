@@ -1,4 +1,6 @@
+import React, { Suspense } from "react";
 import { Switch, Route, Redirect } from "wouter";
+import NewInvoicePage from "@/pages/finance/invoices/new";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -77,6 +79,7 @@ function Router() {
       <ProtectedRoute path="/finance" component={FinanceManagement} />
       <ProtectedRoute path="/finance/transactions" component={FinanceManagement} />
       <ProtectedRoute path="/finance/invoices" component={FinanceManagement} />
+      <ProtectedRoute path="/finance/invoices/new" component={NewInvoicePage} />
       <ProtectedRoute path="/finance/expenses" component={FinanceManagement} />
       <ProtectedRoute path="/finance/accounts" component={FinanceManagement} />
       <ProtectedRoute path="/finance/reports" component={FinanceManagement} />
@@ -130,7 +133,11 @@ function App() {
         <AuthProvider>
           <TooltipProvider>
             <Toaster />
-            <Router />
+            <Suspense fallback={<div className="flex items-center justify-center h-screen">Loading...</div>}>
+              <Suspense fallback={<div className="flex items-center justify-center h-screen">Loading...</div>}>
+              <Router />
+            </Suspense>
+            </Suspense>
           </TooltipProvider>
         </AuthProvider>
       </ThemeProvider>

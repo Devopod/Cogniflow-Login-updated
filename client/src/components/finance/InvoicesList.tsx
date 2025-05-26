@@ -1,6 +1,14 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { Invoice } from "@shared/schema";
+import { Invoice, Contact } from "@shared/schema";
+
+// Extended invoice type that includes the contact relation
+type InvoiceWithContact = Invoice & {
+  contact?: Contact;
+  // For sample data compatibility
+  customerName?: string;
+  amount?: number;
+};
 import { useInvoices } from "@/hooks/use-finance-data";
 import {
   Table,
@@ -54,22 +62,27 @@ export default function InvoicesList() {
 
   // Fetch invoices
   const {
-    data: invoices = [],
+    data: invoices = [] as InvoiceWithContact[],
     isLoading,
     isError,
     refetch,
-  } = useInvoices();
+  } = useInvoices() as { data: InvoiceWithContact[], isLoading: boolean, isError: boolean, refetch: () => void };
 
   // Sample invoice data in case API doesn't return data yet
-  const sampleInvoices = [
+  const sampleInvoices: InvoiceWithContact[] = [
     {
       id: 1,
       invoiceNumber: "INV-2023-001",
-      customerName: "Acme Corporation",
+      customerName: "Acme Corporation", // For backward compatibility with sample data
       issueDate: new Date("2023-05-01"),
       dueDate: new Date("2023-05-31"),
-      amount: 12500,
+      totalAmount: 12500,
       status: "paid",
+      contact: {
+        firstName: "John",
+        lastName: "Doe",
+        company: "Acme Corporation"
+      }
     },
     {
       id: 2,
@@ -77,8 +90,13 @@ export default function InvoicesList() {
       customerName: "Tech Solutions Inc",
       issueDate: new Date("2023-05-05"),
       dueDate: new Date("2023-06-04"),
-      amount: 8750,
+      totalAmount: 8750,
       status: "pending",
+      contact: {
+        firstName: "Jane",
+        lastName: "Smith",
+        company: "Tech Solutions Inc"
+      }
     },
     {
       id: 3,
@@ -86,8 +104,13 @@ export default function InvoicesList() {
       customerName: "Global Traders Ltd",
       issueDate: new Date("2023-05-10"),
       dueDate: new Date("2023-06-09"),
-      amount: 15200,
+      totalAmount: 15200,
       status: "overdue",
+      contact: {
+        firstName: "",
+        lastName: "",
+        company: "Global Traders Ltd"
+      }
     },
     {
       id: 4,
@@ -95,8 +118,13 @@ export default function InvoicesList() {
       customerName: "City Builders Co",
       issueDate: new Date("2023-05-15"),
       dueDate: new Date("2023-06-14"),
-      amount: 23600,
+      totalAmount: 23600,
       status: "pending",
+      contact: {
+        firstName: "Robert",
+        lastName: "Johnson",
+        company: "City Builders Co"
+      }
     },
     {
       id: 5,
@@ -104,21 +132,27 @@ export default function InvoicesList() {
       customerName: "First National Bank",
       issueDate: new Date("2023-05-20"),
       dueDate: new Date("2023-06-19"),
-      amount: 5800,
+      totalAmount: 5800,
       status: "paid",
+      contact: {
+        firstName: "Michael",
+        lastName: "Brown",
+        company: "First National Bank"
+      }
     },
   ];
 
   // Use the API data or sample data if API call is in progress
-  const displayInvoices = invoices.length > 0 ? invoices : sampleInvoices;
+  const displayInvoices: InvoiceWithContact[] = invoices.length > 0 ? invoices : sampleInvoices;
 
   // Format dates
-  const formatDate = (date: Date) => {
+  const formatDate = (date: Date | string) => {
+    const dateObj = date instanceof Date ? date : new Date(date);
     return new Intl.DateTimeFormat("en-US", {
       year: "numeric",
       month: "short",
       day: "numeric",
-    }).format(date);
+    }).format(dateObj);
   };
 
   // Format currency
@@ -149,9 +183,14 @@ export default function InvoicesList() {
 
   // Filter invoices based on search term and status
   const filteredInvoices = displayInvoices.filter((invoice) => {
+    // Get customer name from contact if available
+    const customerName = invoice.contact?.firstName && invoice.contact?.lastName 
+      ? `${invoice.contact.firstName} ${invoice.contact.lastName}`
+      : invoice.contact?.company || 'Unknown';
+    
     const matchesSearch =
       invoice.invoiceNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      invoice.customerName?.toLowerCase().includes(searchTerm.toLowerCase());
+      customerName.toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchesStatus = statusFilter === "all" || invoice.status === statusFilter;
 
@@ -289,10 +328,16 @@ export default function InvoicesList() {
               filteredInvoices.map((invoice) => (
                 <TableRow key={invoice.id} className="cursor-pointer hover:bg-muted/50" onClick={() => handleViewInvoice(invoice.id)}>
                   <TableCell className="font-medium">{invoice.invoiceNumber}</TableCell>
-                  <TableCell>{invoice.customerName}</TableCell>
+                  <TableCell>
+                    {invoice.contact 
+                      ? (invoice.contact.firstName && invoice.contact.lastName 
+                          ? `${invoice.contact.firstName} ${invoice.contact.lastName}`
+                          : invoice.contact.company || 'Unknown')
+                      : (invoice.customerName || 'Unknown') /* For sample data */}
+                  </TableCell>
                   <TableCell>{formatDate(invoice.issueDate)}</TableCell>
                   <TableCell>{formatDate(invoice.dueDate)}</TableCell>
-                  <TableCell>{formatCurrency(invoice.amount)}</TableCell>
+                  <TableCell>{formatCurrency(invoice.totalAmount || invoice.amount)}</TableCell>
                   <TableCell>{getStatusBadge(invoice.status)}</TableCell>
                   <TableCell className="text-right">
                     <DropdownMenu>
