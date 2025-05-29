@@ -22,7 +22,13 @@ export function log(message: string, source = "express") {
 export async function setupVite(app: Express, server: Server) {
   const serverOptions = {
     middlewareMode: true,
-    hmr: { server },
+    hmr: { 
+      server,
+      port: 5000, // Match the port in vite.config.ts
+      protocol: 'ws',
+      host: 'localhost',
+      path: '/__vite_hmr', // Use a specific path for HMR WebSockets
+    },
     allowedHosts: true,
   };
 
@@ -33,7 +39,12 @@ export async function setupVite(app: Express, server: Server) {
       ...viteLogger,
       error: (msg, options) => {
         viteLogger.error(msg, options);
-        process.exit(1);
+        // Don't exit the process on WebSocket errors
+        if (msg.includes('WebSocket') || msg.includes('ws error')) {
+          console.error('WebSocket error occurred:', msg);
+        } else {
+          process.exit(1);
+        }
       },
     },
     server: serverOptions,

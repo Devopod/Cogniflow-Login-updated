@@ -53,12 +53,21 @@ export interface IStorage {
   updateEmployee(id: number, data: Partial<InsertEmployee>): Promise<Employee | undefined>;
   deleteEmployee(id: number): Promise<boolean>;
   
-  // Finance
+  // Finance - Invoices
   getInvoice(id: number): Promise<Invoice | undefined>;
   getInvoicesByUser(userId: number): Promise<Invoice[]>;
   createInvoice(invoice: InsertInvoice): Promise<Invoice>;
   updateInvoice(id: number, data: Partial<InsertInvoice>): Promise<Invoice | undefined>;
   deleteInvoice(id: number): Promise<boolean>;
+  getInvoiceWithItems(id: number): Promise<Invoice & { items: InvoiceItem[] } | undefined>;
+  
+  // Finance - Payments
+  getPayment(id: number): Promise<Payment | undefined>;
+  getPaymentsByUser(userId: number): Promise<Payment[]>;
+  getPaymentsByInvoice(invoiceId: number): Promise<Payment[]>;
+  createPayment(payment: Partial<InsertPayment>): Promise<Payment>;
+  updatePayment(id: number, data: Partial<InsertPayment>): Promise<Payment | undefined>;
+  deletePayment(id: number): Promise<boolean>;
   
   // Sales - Orders
   getOrder(id: number): Promise<Order | undefined>;
@@ -278,7 +287,25 @@ export class DatabaseStorage implements IStorage {
   }
   
   async getInvoicesByUser(userId: number): Promise<Invoice[]> {
-    const invoiceList = await db.select().from(invoices).where(eq(invoices.userId, userId));
+    // Use a simple query without relations to avoid the error
+    const invoiceList = await db
+      .select({
+        id: invoices.id,
+        userId: invoices.userId,
+        contactId: invoices.contactId,
+        invoiceNumber: invoices.invoiceNumber,
+        issueDate: invoices.issueDate,
+        dueDate: invoices.dueDate,
+        status: invoices.status,
+        notes: invoices.notes,
+        terms: invoices.terms,
+        taxRate: invoices.taxRate,
+        discountRate: invoices.discountRate,
+        createdAt: invoices.createdAt,
+        updatedAt: invoices.updatedAt
+      })
+      .from(invoices)
+      .where(eq(invoices.userId, userId));
     return invoiceList;
   }
   
@@ -303,6 +330,153 @@ export class DatabaseStorage implements IStorage {
     await db
       .delete(invoices)
       .where(eq(invoices.id, id));
+    return true;
+  }
+  
+  async getInvoiceWithItems(id: number): Promise<Invoice & { items: InvoiceItem[] } | undefined> {
+    // Use explicit field selection to avoid relation inference issues
+    const [invoice] = await db
+      .select({
+        id: invoices.id,
+        userId: invoices.userId,
+        contactId: invoices.contactId,
+        invoiceNumber: invoices.invoiceNumber,
+        issueDate: invoices.issueDate,
+        dueDate: invoices.dueDate,
+        status: invoices.status,
+        notes: invoices.notes,
+        terms: invoices.terms,
+        taxRate: invoices.taxRate,
+        discountRate: invoices.discountRate,
+        createdAt: invoices.createdAt,
+        updatedAt: invoices.updatedAt
+      })
+      .from(invoices)
+      .where(eq(invoices.id, id));
+      
+    if (!invoice) return undefined;
+    
+    // Fetch items separately with explicit field selection
+    const items = await db
+      .select({
+        id: invoiceItems.id,
+        invoiceId: invoiceItems.invoiceId,
+        productId: invoiceItems.productId,
+        description: invoiceItems.description,
+        quantity: invoiceItems.quantity,
+        unitPrice: invoiceItems.unitPrice,
+        taxRate: invoiceItems.taxRate
+      })
+      .from(invoiceItems)
+      .where(eq(invoiceItems.invoiceId, id));
+      
+    return { ...invoice, items };
+  }
+  
+  // Payment management
+  async getPayment(id: number): Promise<Payment | undefined> {
+    const [payment] = await db.select().from(payments).where(eq(payments.id, id));
+    return payment;
+  }
+  
+  async getPaymentsByUser(userId: number): Promise<Payment[]> {
+    const paymentList = await db.select().from(payments).where(eq(payments.userId, userId));
+    return paymentList;
+  }
+  
+  async getPaymentsByInvoice(invoiceId: number): Promise<Payment[]> {
+    const paymentList = await db.select().from(payments)
+      .where(and(
+        eq(payments.relatedDocumentType, 'invoice'),
+        eq(payments.relatedDocumentId, invoiceId)
+      ));
+    return paymentList;
+  }
+  
+  async createPayment(payment: Partial<InsertPayment>): Promise<Payment> {
+    // Generate a unique payment number
+    const paymentNumber = `PAY-${new Date().getFullYear()}-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
+    
+    const [newPayment] = await db
+      .insert(payments)
+      .values({
+        ...payment,
+        paymentNumber,
+        paymentDate: new Date().toISOString(),
+      } as InsertPayment)
+      .returning();
+    
+    // If this is for an invoice, update the invoice's amount paid
+    if (payment.relatedDocumentType === 'invoice' && payment.relatedDocumentId) {
+      const [invoice] = await db.select().from(invoices).where(eq(invoices.id, payment.relatedDocumentId));
+      if (invoice) {
+        const newAmountPaid = (invoice.amountPaid || 0) + (payment.amount || 0);
+        let newStatus = invoice.status;
+        
+        // Update invoice status based on payment
+        if (newAmountPaid >= invoice.totalAmount) {
+          newStatus = 'paid';
+        } else if (newAmountPaid > 0) {
+          newStatus = 'partial';
+        }
+        
+        await db
+          .update(invoices)
+          .set({ 
+            amountPaid: newAmountPaid,
+            status: newStatus,
+            updatedAt: new Date().toISOString()
+          })
+          .where(eq(invoices.id, payment.relatedDocumentId));
+      }
+    }
+    
+    return newPayment;
+  }
+  
+  async updatePayment(id: number, data: Partial<InsertPayment>): Promise<Payment | undefined> {
+    const [payment] = await db
+      .update(payments)
+      .set(data)
+      .where(eq(payments.id, id))
+      .returning();
+    return payment;
+  }
+  
+  async deletePayment(id: number): Promise<boolean> {
+    // Get the payment first to update related invoice
+    const [payment] = await db.select().from(payments).where(eq(payments.id, id));
+    
+    if (payment && payment.relatedDocumentType === 'invoice' && payment.relatedDocumentId) {
+      const [invoice] = await db.select().from(invoices).where(eq(invoices.id, payment.relatedDocumentId));
+      if (invoice) {
+        const newAmountPaid = Math.max(0, (invoice.amountPaid || 0) - payment.amount);
+        let newStatus = invoice.status;
+        
+        // Update invoice status based on remaining payment
+        if (newAmountPaid === 0) {
+          newStatus = 'pending';
+          if (new Date(invoice.dueDate) < new Date()) {
+            newStatus = 'overdue';
+          }
+        } else if (newAmountPaid < invoice.totalAmount) {
+          newStatus = 'partial';
+        }
+        
+        await db
+          .update(invoices)
+          .set({ 
+            amountPaid: newAmountPaid,
+            status: newStatus,
+            updatedAt: new Date().toISOString()
+          })
+          .where(eq(invoices.id, payment.relatedDocumentId));
+      }
+    }
+    
+    await db
+      .delete(payments)
+      .where(eq(payments.id, id));
     return true;
   }
   
@@ -377,7 +551,31 @@ export class DatabaseStorage implements IStorage {
   }
   
   async getQuotationsByUser(userId: number): Promise<Quotation[]> {
-    const quotationList = await db.select().from(quotations).where(eq(quotations.userId, userId));
+    // Use a simple query without relations to avoid the error
+    const quotationList = await db
+      .select({
+        id: quotations.id,
+        userId: quotations.userId,
+        contactId: quotations.contactId,
+        quotationNumber: quotations.quotationNumber,
+        issueDate: quotations.issueDate,
+        expiryDate: quotations.expiryDate,
+        subtotal: quotations.subtotal,
+        taxAmount: quotations.taxAmount,
+        discountAmount: quotations.discountAmount,
+        totalAmount: quotations.totalAmount,
+        status: quotations.status,
+        notes: quotations.notes,
+        terms: quotations.terms,
+        category: quotations.category,
+        currency: quotations.currency,
+        convertedToOrder: quotations.convertedToOrder,
+        convertedOrderId: quotations.convertedOrderId,
+        createdAt: quotations.createdAt,
+        updatedAt: quotations.updatedAt
+      })
+      .from(quotations)
+      .where(eq(quotations.userId, userId));
     return quotationList;
   }
   

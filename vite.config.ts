@@ -18,9 +18,11 @@ export default defineConfig({
   ],
   server: {
     hmr: {
+      clientPort: 5000, // Use the same port as your Express server
+      port: 5000,
       protocol: 'ws',
       host: 'localhost',
-      port: 5000,
+      path: '/__vite_hmr',
     },
   },
   resolve: {

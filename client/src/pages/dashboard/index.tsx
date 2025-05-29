@@ -45,45 +45,16 @@ import { useEffect, useState, useMemo } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useCompany } from "@/hooks/use-company";
 import { useOrders, useQuotations } from "@/hooks/use-sales-data";
+import { useInvoices } from "@/hooks/use-finance-data";
 import { useSalesAnalytics, useQuotationAnalytics } from "@/hooks/use-sales-analytics";
+import { useFinanceAnalytics } from "@/hooks/use-finance-analytics";
 import { formatCurrency } from "@/lib/utils";
 import { Contact } from "@shared/schema";
 
 // Colors for charts
 const COLORS = ["#4ade80", "#60a5fa", "#f97316", "#f43f5e"];
 
-// Sample data for non-sales sections
-const recentActivities = [
-  {
-    id: 1,
-    type: "invoice",
-    title: "Invoice #INV-2023-001 paid",
-    amount: "$5,230.00",
-    time: "10 minutes ago",
-  },
-  {
-    id: 2,
-    type: "inventory",
-    title: "Inventory update: 50 new items added",
-    amount: null,
-    time: "2 hours ago",
-  },
-  {
-    id: 3,
-    type: "expense",
-    title: "New expense recorded",
-    amount: "$750.00",
-    time: "Yesterday",
-  },
-  {
-    id: 4,
-    type: "employee",
-    title: "New employee onboarded",
-    amount: null,
-    time: "2 days ago",
-  },
-];
-
+// Sample data for non-sales sections (we'll keep these for now)
 const lowStockItems = [
   { id: 1, name: "Laptop - Pro Model", sku: "LT-PM-2023", available: 5, reorderPoint: 10 },
   { id: 2, name: "Network Router", sku: "NR-2000-X", available: 3, reorderPoint: 8 },
@@ -97,26 +68,19 @@ const upcomingLeaves = [
   { id: 3, employee: "David Brown", department: "Marketing", from: "May 18", to: "May 25", status: "Approved" },
 ];
 
-const financialOverview = [
-  { month: "Jan", revenue: 56000, expenses: 40000 },
-  { month: "Feb", revenue: 62000, expenses: 45000 },
-  { month: "Mar", revenue: 58000, expenses: 42000 },
-  { month: "Apr", revenue: 70000, expenses: 48000 },
-  { month: "May", revenue: 65000, expenses: 43000 },
-  { month: "Jun", revenue: 75000, expenses: 50000 },
-];
-
 export default function DashboardPage() {
   const { toast } = useToast();
   const companyStatus = useCompany();
   
-  // Fetch orders and quotations
+  // Fetch orders, quotations, and invoices
   const { data: orders, isLoading: isOrdersLoading, error: ordersError } = useOrders();
   const { data: quotations, isLoading: isQuotationsLoading, error: quotationsError } = useQuotations();
+  const { data: invoices, isLoading: isInvoicesLoading, error: invoicesError } = useInvoices();
   
-  // Calculate sales analytics
+  // Calculate analytics
   const salesAnalytics = useSalesAnalytics(orders);
   const quotationAnalytics = useQuotationAnalytics(quotations);
+  const financeAnalytics = useFinanceAnalytics(invoices);
   
   // Format data for charts
   const salesByCategoryData = useMemo(() => {
@@ -133,6 +97,43 @@ export default function DashboardPage() {
       .slice(-7); // Last 7 days
   }, [salesAnalytics.salesByDate]);
   
+  // Format invoice status data for charts
+  const invoiceStatusData = useMemo(() => {
+    return Object.entries(financeAnalytics.invoicesByStatus).map(([name, value]) => ({
+      name,
+      value
+    }));
+  }, [financeAnalytics.invoicesByStatus]);
+  
+  // Generate recent activities from invoices
+  const recentActivities = useMemo(() => {
+    if (!invoices || invoices.length === 0) return [];
+    
+    return financeAnalytics.recentInvoices.map(invoice => {
+      const timeDiff = new Date().getTime() - new Date(invoice.updatedAt).getTime();
+      const days = Math.floor(timeDiff / (1000 * 60 * 60 * 24));
+      const hours = Math.floor(timeDiff / (1000 * 60 * 60));
+      const minutes = Math.floor(timeDiff / (1000 * 60));
+      
+      let timeAgo;
+      if (days > 0) {
+        timeAgo = `${days} day${days > 1 ? 's' : ''} ago`;
+      } else if (hours > 0) {
+        timeAgo = `${hours} hour${hours > 1 ? 's' : ''} ago`;
+      } else {
+        timeAgo = `${minutes} minute${minutes > 1 ? 's' : ''} ago`;
+      }
+      
+      return {
+        id: invoice.id,
+        type: "invoice",
+        title: `Invoice #${invoice.invoiceNumber} ${invoice.status}`,
+        amount: formatCurrency(invoice.totalAmount),
+        time: timeAgo,
+      };
+    });
+  }, [financeAnalytics.recentInvoices]);
+  
   // Dashboard metrics
   const [dashboardData, setDashboardData] = useState({
     totalRevenue: { value: "$0", change: 0, isPositive: true },
@@ -141,21 +142,35 @@ export default function DashboardPage() {
     employeeCount: { value: "0", change: 0, isPositive: true }
   });
   
-  // Update dashboard data when sales analytics change
+  // Update dashboard data when analytics change
   useEffect(() => {
-    if (salesAnalytics) {
+    if (financeAnalytics) {
+      // Calculate month-over-month change
+      const calculateChange = () => {
+        if (financeAnalytics.monthlyFinancialData.length < 2) return 0;
+        
+        const currentMonth = financeAnalytics.monthlyFinancialData[financeAnalytics.monthlyFinancialData.length - 1];
+        const previousMonth = financeAnalytics.monthlyFinancialData[financeAnalytics.monthlyFinancialData.length - 2];
+        
+        if (previousMonth.revenue === 0) return 100;
+        
+        return Math.round(((currentMonth.revenue - previousMonth.revenue) / previousMonth.revenue) * 100);
+      };
+      
+      const change = calculateChange();
+      
       setDashboardData(prev => ({
         ...prev,
         totalRevenue: { 
-          value: formatCurrency(salesAnalytics.totalSales), 
-          change: 7.2, // This would be calculated from historical data
-          isPositive: true 
+          value: formatCurrency(financeAnalytics.totalRevenue), 
+          change: change,
+          isPositive: change >= 0
         }
       }));
     }
-  }, [salesAnalytics]);
+  }, [financeAnalytics]);
 
-  const isLoading = isOrdersLoading || isQuotationsLoading;
+  const isLoading = isOrdersLoading || isQuotationsLoading || isInvoicesLoading;
 
   // If company status is still loading, show a loading indicator
   if (companyStatus.isLoading) {
@@ -349,7 +364,7 @@ export default function DashboardPage() {
                 <CardContent className="h-80">
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart
-                      data={financialOverview}
+                      data={financeAnalytics.monthlyFinancialData}
                       margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
                     >
                       <CartesianGrid strokeDasharray="3 3" opacity={0.15} />

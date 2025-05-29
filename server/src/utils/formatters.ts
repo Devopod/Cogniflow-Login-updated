@@ -1,42 +1,45 @@
-import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
-import { format, isValid } from "date-fns";
-
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
-
 /**
  * Format a number as currency
- * @param value The number to format
- * @param currency The currency code (default: USD)
+ * @param amount - The amount to format
+ * @param currency - The currency code (default: USD)
  * @returns Formatted currency string
  */
-export function formatCurrency(value: number, currency = 'USD'): string {
-  if (isNaN(value)) return '$0.00';
-  
+export function formatCurrency(amount: number, currency: string = 'USD'): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
-    currency,
+    currency: currency,
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
-  }).format(value);
+  }).format(amount);
 }
 
 /**
  * Format a date in a consistent way
  * @param date - The date to format
- * @param formatStr - The format string (default: 'MMM dd, yyyy')
+ * @param format - The format to use (default: 'medium')
  * @returns Formatted date string
  */
-export function formatDate(date: string | Date, formatStr: string = 'MMM dd, yyyy'): string {
+export function formatDate(date: string | Date, format: 'short' | 'medium' | 'long' = 'medium'): string {
   const dateObj = typeof date === 'string' ? new Date(date) : date;
   
-  if (!isValid(dateObj)) {
-    return 'Invalid date';
+  switch (format) {
+    case 'short':
+      return dateObj.toLocaleDateString('en-US');
+    case 'long':
+      return dateObj.toLocaleDateString('en-US', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+    case 'medium':
+    default:
+      return dateObj.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
   }
-  
-  return format(dateObj, formatStr);
 }
 
 /**
@@ -91,45 +94,6 @@ export function formatPhoneNumber(phone: string): string {
  * @returns Truncated text
  */
 export function truncateText(text: string, maxLength: number): string {
-  if (!text) return '';
   if (text.length <= maxLength) return text;
   return `${text.substring(0, maxLength)}...`;
-}
-
-/**
- * Generate a random color based on a string
- * @param str - The string to generate a color from
- * @returns A hex color code
- */
-export function stringToColor(str: string): string {
-  if (!str) return '#000000';
-  
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  
-  let color = '#';
-  for (let i = 0; i < 3; i++) {
-    const value = (hash >> (i * 8)) & 0xFF;
-    color += ('00' + value.toString(16)).substr(-2);
-  }
-  
-  return color;
-}
-
-/**
- * Get initials from a name
- * @param name - The name to get initials from
- * @returns The initials (up to 2 characters)
- */
-export function getInitials(name: string): string {
-  if (!name) return '';
-  
-  const parts = name.split(' ').filter(Boolean);
-  
-  if (parts.length === 0) return '';
-  if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
-  
-  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
 }

@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Invoice } from "@shared/schema";
+import { Invoice, InvoiceWithItems } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 
 // Hook to fetch all invoices
@@ -15,14 +15,24 @@ export function useInvoices() {
 
 // Hook to fetch a single invoice by ID
 export function useInvoice(id: number | string | null) {
-  return useQuery<Invoice>({
+  return useQuery<InvoiceWithItems>({
     queryKey: ["/api/invoices", id],
     queryFn: async () => {
       if (!id) return null;
-      const response = await apiRequest("GET", `/api/invoices/${id}`);
-      return response.json();
+      try {
+        console.log(`Fetching invoice with ID: ${id}`);
+        const response = await apiRequest("GET", `/api/invoices/${id}`);
+        const data = await response.json();
+        console.log(`Received invoice data:`, data);
+        return data;
+      } catch (error) {
+        console.error(`Error fetching invoice ${id}:`, error);
+        throw error;
+      }
     },
     enabled: !!id,
+    retry: 2,
+    retryDelay: 1000,
   });
 }
 

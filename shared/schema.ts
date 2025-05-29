@@ -912,6 +912,43 @@ export const invoicesRelations = relations(invoices, ({ one, many }) => ({
     references: [contacts.id],
   }),
   items: many(invoiceItems),
+  tokens: many(invoice_tokens),
+}));
+
+export const invoiceItemsRelations = relations(invoiceItems, ({ one }) => ({
+  invoice: one(invoices, {
+    fields: [invoiceItems.invoiceId],
+    references: [invoices.id],
+  }),
+  product: one(products, {
+    fields: [invoiceItems.productId],
+    references: [products.id],
+  }),
+}));
+
+// Invoice tokens for public sharing
+export const invoice_tokens = pgTable("invoice_tokens", {
+  id: serial("id").primaryKey(),
+  invoice_id: integer("invoice_id").notNull().references(() => invoices.id, { onDelete: 'cascade' }),
+  token: uuid("token").notNull().defaultRandom().unique(),
+  created_by: integer("created_by").notNull().references(() => users.id),
+  created_at: timestamp("created_at").defaultNow(),
+  expires_at: timestamp("expires_at"),
+  is_active: boolean("is_active").default(true),
+  access_count: integer("access_count").default(0),
+  last_accessed: timestamp("last_accessed"),
+  permissions: jsonb("permissions").default({}), // e.g., { view: true, pay: true, download: true }
+});
+
+export const invoice_tokensRelations = relations(invoice_tokens, ({ one }) => ({
+  invoice: one(invoices, {
+    fields: [invoice_tokens.invoice_id],
+    references: [invoices.id],
+  }),
+  creator: one(users, {
+    fields: [invoice_tokens.created_by],
+    references: [users.id],
+  }),
 }));
 
 export const employeesRelations = relations(employees, ({ one, many }) => ({
@@ -1191,7 +1228,6 @@ export const insertInvoiceItemSchema = createInsertSchema(invoiceItems).omit({
 // Sales Management Schemas
 export const insertOrderSchema = createInsertSchema(orders).omit({
   id: true,
-  orderNumber: true,
   createdAt: true,
   updatedAt: true,
 });
@@ -1340,6 +1376,7 @@ export type Product = typeof products.$inferSelect;
 export type Employee = typeof employees.$inferSelect;
 export type Invoice = typeof invoices.$inferSelect;
 export type InvoiceItem = typeof invoiceItems.$inferSelect;
+export type InvoiceWithItems = Invoice & { items?: InvoiceItem[] };
 export type Order = typeof orders.$inferSelect;
 export type OrderItem = typeof orderItems.$inferSelect;
 export type Quotation = typeof quotations.$inferSelect;
