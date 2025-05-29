@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import axios from '@/lib/axios';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -7,6 +7,7 @@ export default function TestPage() {
   const [testData, setTestData] = useState<any>(null);
   const [ordersData, setOrdersData] = useState<any>(null);
   const [quotationsData, setQuotationsData] = useState<any>(null);
+  const [invoiceData, setInvoiceData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -19,7 +20,7 @@ export default function TestPage() {
       setTestData(response.data);
     } catch (err: any) {
       console.error('Error fetching test data:', err);
-      setError(err.message || 'Failed to fetch test data');
+      setError(err.response?.data?.message || err.message || 'Failed to fetch test data');
     } finally {
       setLoading(false);
     }
@@ -34,7 +35,7 @@ export default function TestPage() {
       setOrdersData(response.data);
     } catch (err: any) {
       console.error('Error fetching orders:', err);
-      setError(err.message || 'Failed to fetch orders');
+      setError(err.response?.data?.message || err.message || 'Failed to fetch orders');
     } finally {
       setLoading(false);
     }
@@ -49,7 +50,22 @@ export default function TestPage() {
       setQuotationsData(response.data);
     } catch (err: any) {
       console.error('Error fetching quotations:', err);
-      setError(err.message || 'Failed to fetch quotations');
+      setError(err.response?.data?.message || err.message || 'Failed to fetch quotations');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchInvoice = async (id: number = 1) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await axios.get(`/api/invoices/${id}`);
+      console.log('Invoice response:', response.data);
+      setInvoiceData(response.data);
+    } catch (err: any) {
+      console.error('Error fetching invoice:', err);
+      setError(err.response?.data?.message || err.message || 'Failed to fetch invoice');
     } finally {
       setLoading(false);
     }
@@ -65,7 +81,7 @@ export default function TestPage() {
         </div>
       )}
       
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
         <Card>
           <CardHeader>
             <CardTitle>Test API</CardTitle>
@@ -74,7 +90,6 @@ export default function TestPage() {
             <Button onClick={fetchTestData} disabled={loading}>
               {loading ? 'Loading...' : 'Fetch Test Data'}
             </Button>
-            
             {testData && (
               <div className="mt-4">
                 <pre className="bg-gray-100 p-4 rounded">
@@ -93,7 +108,6 @@ export default function TestPage() {
             <Button onClick={fetchOrders} disabled={loading}>
               {loading ? 'Loading...' : 'Fetch Orders'}
             </Button>
-            
             {ordersData && (
               <div className="mt-4">
                 <pre className="bg-gray-100 p-4 rounded">
@@ -112,11 +126,28 @@ export default function TestPage() {
             <Button onClick={fetchQuotations} disabled={loading}>
               {loading ? 'Loading...' : 'Fetch Quotations'}
             </Button>
-            
             {quotationsData && (
               <div className="mt-4">
                 <pre className="bg-gray-100 p-4 rounded">
                   {JSON.stringify(quotationsData, null, 2)}
+                </pre>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardHeader>
+            <CardTitle>Invoice API</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Button onClick={() => fetchInvoice(1)} disabled={loading}>
+              {loading ? 'Loading...' : 'Fetch Invoice (ID: 1)'}
+            </Button>
+            {invoiceData && (
+              <div className="mt-4">
+                <pre className="bg-gray-100 p-4 rounded">
+                  {JSON.stringify(invoiceData, null, 2)}
                 </pre>
               </div>
             )}

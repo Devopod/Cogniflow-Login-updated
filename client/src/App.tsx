@@ -1,5 +1,5 @@
-import React, { Suspense } from "react";
-import { Switch, Route, Redirect } from "wouter";
+import React, { Suspense, lazy, Component } from "react";
+import { Switch, Route } from "wouter";
 import NewInvoicePage from "@/pages/finance/invoices/new";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -21,18 +21,59 @@ import SupplierManagement from "@/pages/suppliers";
 import PaymentsManagement from "@/pages/payments";
 import ReportsManagement from "@/pages/reports";
 import PurchaseManagement from "@/pages/purchase";
+import { PublicInvoiceView } from "@/pages/public/invoice-view";
+import { PaymentSuccessPage } from "@/pages/payment/success";
+import { PaymentCancelPage } from "@/pages/payment/cancel";
 import TestPage from "@/pages/test-page";
 import { ProtectedRoute } from "./lib/protected-route";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider } from "@/hooks/use-auth";
 
+// Error Boundary Component
+class ErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean }> {
+  state = { hasError: false };
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex items-center justify-center h-screen">
+          <div className="text-center">
+            <h2 className="text-2xl font-bold mb-4">Error Loading Page</h2>
+            <button
+              className="bg-blue-500 text-white px-4 py-2 rounded"
+              onClick={() => window.location.reload()}
+            >
+              Reload
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function Router() {
+  const InvoiceDetail = lazy(() => import("@/pages/finance/invoices/[id]").catch(() => {
+    console.error("Failed to load InvoiceDetailPage");
+    return { default: () => <div>Error loading invoice details</div> };
+  }));
+
   return (
     <Switch>
       {/* Public Routes */}
       <Route path="/" component={LandingPage} />
       <Route path="/auth" component={AuthPage} />
       <Route path="/home" component={HomePage} />
+      
+      {/* Public Invoice View */}
+      <Route path="/public/invoices/:token" component={PublicInvoiceView} />
+      
+      {/* Payment Result Pages */}
+      <Route path="/payment/success" component={PaymentSuccessPage} />
+      <Route path="/payment/cancel" component={PaymentCancelPage} />
       
       {/* Company Registration */}
       <ProtectedRoute path="/company-registration" component={CompanyRegistrationPage} />
@@ -80,6 +121,16 @@ function Router() {
       <ProtectedRoute path="/finance/transactions" component={FinanceManagement} />
       <ProtectedRoute path="/finance/invoices" component={FinanceManagement} />
       <ProtectedRoute path="/finance/invoices/new" component={NewInvoicePage} />
+      <ProtectedRoute 
+        path="/finance/invoices/:id" 
+        component={() => (
+          <ErrorBoundary>
+            <Suspense fallback={<div className="flex items-center justify-center h-screen">Loading...</div>}>
+              <InvoiceDetail />
+            </Suspense>
+          </ErrorBoundary>
+        )} 
+      />
       <ProtectedRoute path="/finance/expenses" component={FinanceManagement} />
       <ProtectedRoute path="/finance/accounts" component={FinanceManagement} />
       <ProtectedRoute path="/finance/reports" component={FinanceManagement} />
@@ -120,6 +171,9 @@ function Router() {
       <ProtectedRoute path="/settings" component={() => <div>Settings Coming Soon</div>} />
       <ProtectedRoute path="/support" component={() => <div>Support Coming Soon</div>} />
       
+      {/* Test Page */}
+      <ProtectedRoute path="/test" component={TestPage} />
+      
       {/* Fallback route */}
       <Route component={NotFound} />
     </Switch>
@@ -133,11 +187,11 @@ function App() {
         <AuthProvider>
           <TooltipProvider>
             <Toaster />
-            <Suspense fallback={<div className="flex items-center justify-center h-screen">Loading...</div>}>
+            <ErrorBoundary>
               <Suspense fallback={<div className="flex items-center justify-center h-screen">Loading...</div>}>
-              <Router />
-            </Suspense>
-            </Suspense>
+                <Router />
+              </Suspense>
+            </ErrorBoundary>
           </TooltipProvider>
         </AuthProvider>
       </ThemeProvider>

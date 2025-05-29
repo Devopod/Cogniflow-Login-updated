@@ -1,15 +1,13 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
 import { Invoice, Contact } from "@shared/schema";
 
 // Extended invoice type that includes the contact relation
 type InvoiceWithContact = Invoice & {
   contact?: Contact;
-  // For sample data compatibility
-  customerName?: string;
-  amount?: number;
 };
 import { useInvoices } from "@/hooks/use-finance-data";
+import { useFinanceAnalytics } from "@/hooks/use-finance-analytics";
 import {
   Table,
   TableBody,
@@ -68,82 +66,28 @@ export default function InvoicesList() {
     refetch,
   } = useInvoices() as { data: InvoiceWithContact[], isLoading: boolean, isError: boolean, refetch: () => void };
 
-  // Sample invoice data in case API doesn't return data yet
-  const sampleInvoices: InvoiceWithContact[] = [
-    {
-      id: 1,
-      invoiceNumber: "INV-2023-001",
-      customerName: "Acme Corporation", // For backward compatibility with sample data
-      issueDate: new Date("2023-05-01"),
-      dueDate: new Date("2023-05-31"),
-      totalAmount: 12500,
-      status: "paid",
-      contact: {
-        firstName: "John",
-        lastName: "Doe",
-        company: "Acme Corporation"
-      }
-    },
-    {
-      id: 2,
-      invoiceNumber: "INV-2023-002",
-      customerName: "Tech Solutions Inc",
-      issueDate: new Date("2023-05-05"),
-      dueDate: new Date("2023-06-04"),
-      totalAmount: 8750,
-      status: "pending",
-      contact: {
-        firstName: "Jane",
-        lastName: "Smith",
-        company: "Tech Solutions Inc"
-      }
-    },
-    {
-      id: 3,
-      invoiceNumber: "INV-2023-003",
-      customerName: "Global Traders Ltd",
-      issueDate: new Date("2023-05-10"),
-      dueDate: new Date("2023-06-09"),
-      totalAmount: 15200,
-      status: "overdue",
-      contact: {
-        firstName: "",
-        lastName: "",
-        company: "Global Traders Ltd"
-      }
-    },
-    {
-      id: 4,
-      invoiceNumber: "INV-2023-004",
-      customerName: "City Builders Co",
-      issueDate: new Date("2023-05-15"),
-      dueDate: new Date("2023-06-14"),
-      totalAmount: 23600,
-      status: "pending",
-      contact: {
-        firstName: "Robert",
-        lastName: "Johnson",
-        company: "City Builders Co"
-      }
-    },
-    {
-      id: 5,
-      invoiceNumber: "INV-2023-005",
-      customerName: "First National Bank",
-      issueDate: new Date("2023-05-20"),
-      dueDate: new Date("2023-06-19"),
-      totalAmount: 5800,
-      status: "paid",
-      contact: {
-        firstName: "Michael",
-        lastName: "Brown",
-        company: "First National Bank"
-      }
-    },
-  ];
-
-  // Use the API data or sample data if API call is in progress
-  const displayInvoices: InvoiceWithContact[] = invoices.length > 0 ? invoices : sampleInvoices;
+  // Get finance analytics
+  const analytics = useFinanceAnalytics(invoices);
+  
+  // Calculate invoice counts by status
+  const invoiceCounts = useMemo(() => {
+    const counts = {
+      total: invoices.length,
+      paid: 0,
+      pending: 0,
+      overdue: 0,
+      draft: 0
+    };
+    
+    invoices.forEach(invoice => {
+      if (invoice.status === 'paid') counts.paid++;
+      else if (invoice.status === 'pending') counts.pending++;
+      else if (invoice.status === 'overdue') counts.overdue++;
+      else if (invoice.status === 'draft') counts.draft++;
+    });
+    
+    return counts;
+  }, [invoices]);
 
   // Format dates
   const formatDate = (date: Date | string) => {
@@ -182,7 +126,7 @@ export default function InvoicesList() {
   };
 
   // Filter invoices based on search term and status
-  const filteredInvoices = displayInvoices.filter((invoice) => {
+  const filteredInvoices = invoices.filter((invoice) => {
     // Get customer name from contact if available
     const customerName = invoice.contact?.firstName && invoice.contact?.lastName 
       ? `${invoice.contact.firstName} ${invoice.contact.lastName}`
@@ -205,6 +149,16 @@ export default function InvoicesList() {
   // View invoice details
   const handleViewInvoice = (invoiceId: number) => {
     setLocation(`/finance/invoices/${invoiceId}`);
+  };
+  
+  // Mark invoice as paid
+  const handleMarkAsPaid = (e: React.MouseEvent, invoiceId: number) => {
+    e.stopPropagation();
+    // In a real implementation, this would call an API to update the invoice status
+    // For now, we'll just show a console message
+    console.log(`Marking invoice ${invoiceId} as paid`);
+    // After API call succeeds, you would refetch the data
+    // refetch();
   };
 
   if (isLoading) {
@@ -235,7 +189,7 @@ export default function InvoicesList() {
           <CardContent className="p-4">
             <div className="flex flex-col">
               <span className="text-sm text-muted-foreground">Total Invoices</span>
-              <span className="text-2xl font-bold">24</span>
+              <span className="text-2xl font-bold">{invoiceCounts.total}</span>
             </div>
           </CardContent>
         </Card>
@@ -243,7 +197,7 @@ export default function InvoicesList() {
           <CardContent className="p-4">
             <div className="flex flex-col">
               <span className="text-sm text-muted-foreground">Paid</span>
-              <span className="text-2xl font-bold text-green-600">16</span>
+              <span className="text-2xl font-bold text-green-600">{invoiceCounts.paid}</span>
             </div>
           </CardContent>
         </Card>
@@ -251,7 +205,7 @@ export default function InvoicesList() {
           <CardContent className="p-4">
             <div className="flex flex-col">
               <span className="text-sm text-muted-foreground">Pending</span>
-              <span className="text-2xl font-bold text-amber-600">5</span>
+              <span className="text-2xl font-bold text-amber-600">{invoiceCounts.pending}</span>
             </div>
           </CardContent>
         </Card>
@@ -259,7 +213,7 @@ export default function InvoicesList() {
           <CardContent className="p-4">
             <div className="flex flex-col">
               <span className="text-sm text-muted-foreground">Overdue</span>
-              <span className="text-2xl font-bold text-red-600">3</span>
+              <span className="text-2xl font-bold text-red-600">{invoiceCounts.overdue}</span>
             </div>
           </CardContent>
         </Card>
@@ -333,11 +287,11 @@ export default function InvoicesList() {
                       ? (invoice.contact.firstName && invoice.contact.lastName 
                           ? `${invoice.contact.firstName} ${invoice.contact.lastName}`
                           : invoice.contact.company || 'Unknown')
-                      : (invoice.customerName || 'Unknown') /* For sample data */}
+                      : 'Unknown'}
                   </TableCell>
                   <TableCell>{formatDate(invoice.issueDate)}</TableCell>
                   <TableCell>{formatDate(invoice.dueDate)}</TableCell>
-                  <TableCell>{formatCurrency(invoice.totalAmount || invoice.amount)}</TableCell>
+                  <TableCell>{formatCurrency(invoice.totalAmount || 0)}</TableCell>
                   <TableCell>{getStatusBadge(invoice.status)}</TableCell>
                   <TableCell className="text-right">
                     <DropdownMenu>
@@ -364,9 +318,11 @@ export default function InvoicesList() {
                           Send to customer
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={(e) => e.stopPropagation()}>
-                          Mark as paid
-                        </DropdownMenuItem>
+                        {invoice.status !== 'paid' && (
+                          <DropdownMenuItem onClick={(e) => handleMarkAsPaid(e, invoice.id)}>
+                            Mark as paid
+                          </DropdownMenuItem>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
