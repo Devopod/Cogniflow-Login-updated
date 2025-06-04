@@ -63,7 +63,7 @@ export class WSService {
       this.resourceConnections.get(resourceKey)?.add(connection);
       
       // Handle connection errors
-      ws.on('error', (error) => {
+      ws.on('error', (error: Error) => {
         console.error(`WebSocket error for ${resourceType}/${resourceId}:`, error.message);
         // Don't close the connection on error, let the client reconnect if needed
       });
@@ -98,7 +98,7 @@ export class WSService {
           resourceType,
           resourceId
         }));
-      } catch (error) {
+      } catch (error: unknown) {
         console.error(`Failed to send initial message to ${resourceType}/${resourceId}:`, error);
       }
     });
@@ -114,7 +114,7 @@ export class WSService {
         try {
           client.send(message);
           sentCount++;
-        } catch (error) {
+        } catch (error: unknown) {
           console.error(`Error broadcasting message:`, error);
         }
       }
@@ -144,7 +144,7 @@ export class WSService {
         try {
           ws.send(message);
           sentCount++;
-        } catch (error) {
+        } catch (error: unknown) {
           console.error(`Error broadcasting to ${resourceType}/${resourceId}:`, error);
         }
       }

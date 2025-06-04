@@ -155,22 +155,22 @@ router.post("/", authenticateUser, async (req, res) => {
     const [newInvoice] = await db
       .insert(invoices)
       .values({
-        user_id: req.user!.id,
-        contact_id,
-        invoice_number: finalInvoiceNumber,
-        issue_date: new Date(issue_date),
-        due_date: new Date(due_date),
+        userId: req.user!.id,
+        contactId: contact_id,
+        invoiceNumber: finalInvoiceNumber,
+        issueDate: new Date(issue_date),
+        dueDate: new Date(due_date),
         subtotal: subtotal || calculatedSubtotal,
-        tax_amount: tax_amount || calculatedTaxAmount,
-        discount_amount: discount_amount || 0,
-        total_amount: total_amount || calculatedTotalAmount,
-        amount_paid: 0,
+        taxAmount: tax_amount || calculatedTaxAmount,
+        discountAmount: discount_amount || 0,
+        totalAmount: total_amount || calculatedTotalAmount,
+        amountPaid: 0,
         status: status || 'draft',
         notes,
         terms,
         currency: currency || 'USD',
-        created_at: new Date(),
-        updated_at: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
       })
       .returning();
 
@@ -250,7 +250,7 @@ router.put("/:id", authenticateUser, async (req, res) => {
       return res.status(404).json({ message: "Invoice not found" });
     }
     
-    if (existingInvoice.user_id !== req.user!.id) {
+    if (existingInvoice.userId !== req.user!.id) {
       return res.status(403).json({ message: "You don't have permission to update this invoice" });
     }
     
@@ -363,7 +363,7 @@ router.delete("/:id", authenticateUser, async (req, res) => {
       return res.status(404).json({ message: "Invoice not found" });
     }
     
-    if (existingInvoice.user_id !== req.user!.id) {
+    if (existingInvoice.userId !== req.user!.id) {
       return res.status(403).json({ message: "You don't have permission to delete this invoice" });
     }
     
@@ -412,7 +412,7 @@ router.get("/:id/payments", authenticateUser, async (req, res) => {
       return res.status(404).json({ message: "Invoice not found" });
     }
     
-    if (invoice.user_id !== req.user!.id && req.user!.role !== 'admin') {
+    if (invoice.userId !== req.user!.id && req.user!.role !== 'admin') {
       return res.status(403).json({ message: "You don't have permission to view this invoice's payments" });
     }
     

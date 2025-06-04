@@ -1,0 +1,246 @@
+# CogniFlow ERP - Project Documentation
+
+## 1. Overview
+
+This document provides an overview of the CogniFlow ERP system, focusing on its real-time invoice processing capabilities. The system aims to offer a Zoho-like experience with features such as real-time updates, seamless user interactions, and robust data handling.
+
+The project is a full-stack application with a PostgreSQL database, a Node.js/Express backend, and a React frontend.
+
+## 2. System Architecture
+
+### 2.1. Database Layer
+- **Database Technology**: PostgreSQL
+- **ORM**: Drizzle ORM for type-safe queries.
+- **Key Schemas**:
+    - `companies`: Stores organization details.
+    - `users`: Manages user accounts, roles, and permissions.
+    - `contacts`: CRM feature for managing customer and lead information.
+    - `products`: Inventory management for product details.
+    - `warehouses`: Information about storage locations.
+    - `inventory`: Tracks stock levels for products in warehouses.
+    - `inventoryTransactions`: Logs all inventory movements.
+    - `accounts`, `accountGroups`, `journalEntries`, `journalItems`: Core finance and accounting tables.
+    - `fiscalYears`, `fiscalPeriods`: For managing financial reporting periods.
+    - `invoices`: Central table for invoice data, including status, amounts, and payment details. Contains `payment_portal_token` for public access.
+    - `invoiceItems`: Line items associated with each invoice.
+    - `payments`: Records all payment transactions related to invoices or other documents.
+    - `payment_reminders`: Tracks reminders sent for overdue payments.
+    - `payment_history`: Logs the history of payments.
+    - `orders`, `orderItems`: Sales order management.
+    - `quotations`, `quotationItems`: Sales quotation management.
+    - `payment_gateways`: Configuration for different payment gateways.
+    - `mpesa_transactions`: Specific table for MPESA payment gateway transactions.
+- **Relationships**: Foreign keys and constraints are used to maintain data integrity across tables.
+- **Indexing**: Indexes are implemented for efficient data retrieval, particularly for invoice and payment data.
+
+### 2.2. Backend Layer (Server)
+- **Framework**: Node.js with Express.
+- **Language**: TypeScript.
+- **API**: RESTful API for CRUD operations on all major entities (invoices, payments, contacts, products, etc.).
+- **Real-Time Communication**: WebSocket server (`ws` library) for instant updates to connected clients.
+- **Authentication**: JWT-based authentication for securing API requests and WebSocket connections.
+- **Business Logic**:
+    - Comprehensive invoice processing: creation, status tracking (draft, pending, partial, paid, overdue), automatic calculations.
+    - Payment handling: recording payments, partial payments, linking to invoices.
+    - Email notifications: Using `nodemailer` for sending invoice emails, payment reminders, etc. Configurable via environment variables for SMTP.
+- **Key Files**:
+    - `server/index.ts`: Main entry point for the backend server.
+    - `server/routes.ts`: Defines main API routes.
+    - `server/src/routes/`: Contains route handlers for different modules (invoices, payments, public, etc.).
+    - `server/src/services/`: Contains business logic services (email, payment, pdf generation, etc.).
+    - `server/auth.ts`: Handles authentication logic.
+    - `server/db.ts`: Database connection and Drizzle ORM setup.
+
+### 2.3. Frontend Layer (Client)
+- **Framework**: React with Vite as the build tool.
+- **Language**: TypeScript.
+- **UI Components**:
+    - Built using Shadcn UI (Radix UI primitives and Tailwind CSS).
+    - Modular components for displaying and managing invoices, payments, customer data, etc.
+- **State Management**: React Query for managing server state, caching, and data synchronization.
+- **Real-Time Hooks**: Custom React hooks (e.g., `useRealTimeInvoice`, `useInvoice`) to interact with the backend and handle real-time data updates via WebSockets.
+- **Routing**: `wouter` for client-side routing.
+- **Key Files**:
+    - `client/src/main.tsx`: Main entry point for the React application.
+    - `client/src/App.tsx`: Root application component, sets up routing.
+    - `client/src/pages/`: Contains components for different pages/views (e.g., finance, inventory, public invoice view).
+    - `client/src/components/`: Contains reusable UI components.
+        - `client/src/components/finance/invoice-detail-page.tsx`: Internal view for managing invoice details.
+        - `client/src/pages/public/invoice-view.tsx`: Public-facing page for customers to view and pay invoices.
+        - `client/src/components/payments/payment-gateway-selector.tsx`: Component for selecting and processing payments via Stripe, Razorpay.
+    - `client/src/hooks/`: Custom React hooks for data fetching, state management, and side effects.
+    - `client/src/lib/`: Utility functions, API request helpers (`apiRequest`), WebSocket setup.
+
+## 3. Key Features (Implemented & Planned)
+
+### 3.1. Invoice Management
+- Invoice creation with unique numbering, customer selection, line items, tax handling, due dates.
+- Comprehensive invoice viewing with real-time status, payment history, and activity log.
+- Invoice editing (details, line items, status, notes).
+- Invoice actions: Send via email, print/download PDF (puppeteer for PDF generation), duplicate, mark as paid, send payment reminders.
+
+### 3.2. Payment Processing
+- Recording payments with support for multiple methods, partial payments, reference tracking.
+- Viewing payment history, editing/deleting payments (permissions dependent).
+- Integration with payment gateways like Stripe, Razorpay, and MPESA.
+- Online payment processing and verification.
+
+### 3.3. Real-Time Updates
+- WebSocket communication for instant updates on invoice creation, modification, deletion, and payment activities.
+- Resource-specific connections for targeted updates.
+- Planned offline handling and graceful degradation.
+
+### 3.4. Other Modules
+- **CRM**: Contact and Deal management.
+- **Inventory**: Product catalog, stock management, warehouses, inventory transactions.
+- **Sales**: Order and Quotation management.
+- **HRMS**: (Placeholder, structure exists)
+- **Purchase**: (Placeholder, structure exists)
+- **Reports**: (Placeholder, structure exists)
+
+## 4. Technologies Used
+
+### 4.1. Backend
+- Node.js
+- Express.js
+- TypeScript
+- PostgreSQL (Database)
+- Drizzle ORM (Type-safe SQL)
+- `ws` (WebSocket library)
+- `jsonwebtoken` (for JWT authentication, assumed from "JWT-based authentication")
+- `passport`, `passport-local` (Authentication strategies)
+- `nodemailer` (Email sending)
+- `dotenv` (Environment variable management)
+- `tsx` (TypeScript execution)
+- `esbuild` (TypeScript bundling for production)
+
+### 4.2. Frontend
+- React
+- TypeScript
+- Vite (Build tool)
+- Tailwind CSS (Styling)
+- Shadcn UI (Component library based on Radix UI)
+- React Query (Server state management)
+- `wouter` (Routing)
+- `axios` (HTTP client, used by `apiRequest`)
+- Stripe.js, React Stripe.js (Stripe integration)
+- Razorpay (Razorpay integration)
+- `date-fns` (Date utility)
+- `lucide-react` (Icons)
+
+### 4.3. Shared
+- `zod` (Schema validation)
+- `drizzle-zod` (Generate Zod schemas from Drizzle schemas)
+
+## 5. Setup and Running the Project
+
+### 5.1. Prerequisites
+- Node.js (check `package.json` for version, though not specified, LTS usually works)
+- npm or yarn (npm is used in examples)
+- PostgreSQL server running and accessible.
+
+### 5.2. Environment Variables
+Create a `.env` file in the root directory with the following (refer to `server/src/services/email.ts` and database connection logic for more):
+```
+# Database
+DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE_NAME"
+
+# Server
+NODE_ENV="development" # or "production"
+PORT="3000" # Or your desired backend port
+SESSION_SECRET="your_strong_session_secret"
+
+# Email (for production, see server/src/services/email.ts for Ethereal in dev)
+EMAIL_HOST="smtp.example.com"
+EMAIL_PORT="587"
+EMAIL_SECURE="false" # true for SSL on port 465
+EMAIL_USER="your_smtp_username"
+EMAIL_PASS="your_smtp_password"
+EMAIL_FROM="Your App <noreply@example.com>"
+APP_URL="http://localhost:5000" # Frontend URL for links in emails
+
+# Payment Gateways (example, actual keys needed)
+STRIPE_SECRET_KEY="sk_test_..."
+STRIPE_PUBLISHABLE_KEY="pk_test_..."
+RAZORPAY_KEY_ID="rzp_test_..."
+RAZORPAY_KEY_SECRET="your_razorpay_secret"
+# ... other necessary API keys
+```
+
+### 5.3. Installation
+1. Clone the repository.
+2. Navigate to the project root.
+3. Install dependencies: `npm install`
+
+### 5.4. Database Setup
+1. Ensure your PostgreSQL server is running and you have created a database.
+2. Update the `DATABASE_URL` in your `.env` file.
+3. Apply database migrations:
+   - Generate migration files (if schema changes are made): `npx drizzle-kit generate` (or a custom script if available)
+   - Push schema changes to the database: `npm run db:push` (This uses `drizzle-kit push`)
+   - Run specific migration scripts if needed: `npm run migrate` (This runs `tsx server/run-migration.ts`)
+
+### 5.5. Running the Application
+- **Development**: `npm run dev`
+  - This starts the backend server with `tsx` for live reloading and the frontend Vite dev server. The frontend is typically served on a different port (e.g., 5000 or 5173) and proxies API requests to the backend.
+- **Production Build**: `npm run build`
+  - This builds the frontend assets using Vite and bundles the backend server code using esbuild into the `dist` directory.
+- **Start Production**: `npm run start`
+  - This starts the production-ready Node.js server from the `dist` directory.
+
+### 5.6. Available Scripts (from `package.json`)
+- `dev`: Starts the development server (backend with `tsx`, frontend with Vite).
+- `build`: Builds the application for production.
+- `start`: Starts the production server.
+- `check`: Runs TypeScript type checking.
+- `db:push`: Pushes Drizzle schema changes to the database.
+- `migrate`: Runs custom migration scripts (e.g., `server/run-migration.ts`).
+
+## 6. Project Structure Highlights
+
+- **`client/`**: Frontend React application.
+  - `src/components/`: Reusable UI components.
+  - `src/pages/`: Page-level components.
+  - `src/hooks/`: Custom React hooks.
+  - `src/lib/`: Client-side libraries and utilities.
+- **`server/`**: Backend Node.js/Express application.
+  - `src/routes/`: API route definitions.
+  - `src/services/`: Business logic services.
+  - `index.ts`: Server entry point.
+  - `db.ts`: Database connection setup.
+- **`shared/`**: Code shared between frontend and backend.
+  - `schema.ts`: Drizzle ORM database schema definitions.
+- **`migrations/`**: Drizzle ORM generated migration files.
+- **`prisma/migrations/`**: Older Prisma migration files (project seems to have transitioned to Drizzle).
+- **`scripts/`**: Utility scripts (e.g., `add-payment-columns.js`).
+- **`attached_assets/`**: Contains images and text snippets, likely used during development or for specific features.
+
+## 7. Security Considerations (from README)
+- Authentication: JWT for API and WebSockets.
+- Authorization: Users access their own data.
+- Input Validation: Client and server-side.
+- Data Sanitization.
+- HTTPS for all communications.
+- Rate Limiting for API endpoints.
+
+## 8. Performance Optimizations (from README)
+- Efficient database queries with indexing.
+- Database connection pooling.
+- Strategic caching.
+- Lazy loading of components and data.
+- Pagination for large datasets.
+- Targeted WebSocket updates.
+
+## 9. Future Enhancements (from README)
+- Advanced reporting and analytics.
+- Recurring invoices.
+- Multi-currency support.
+- Advanced tax handling.
+- Customer self-service portal.
+- Native mobile application.
+- Batch operations for invoices/payments.
+- Full-text search.
+- Document attachments.
+- Integration with accounting software.
+
+This document provides a snapshot based on the available files. Further detailed documentation for specific modules or functionalities might exist within their respective code comments or dedicated documents.

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useCompany } from '@/hooks/use-company';
 import { useParams, useLocation } from 'wouter';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -16,6 +17,7 @@ export function PublicInvoiceView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showPayment, setShowPayment] = useState(false);
+  const { companyName, isLoading: companyLoading, error: companyError } = useCompany();
 
   useEffect(() => {
     const fetchInvoice = async () => {
@@ -67,7 +69,7 @@ export function PublicInvoiceView() {
     setError('Payment failed: ' + (error.message || 'Unknown error'));
   };
 
-  if (loading) {
+  if (loading || companyLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -76,7 +78,7 @@ export function PublicInvoiceView() {
     );
   }
 
-  if (error) {
+  if (error || companyError) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen p-4">
         <Card className="w-full max-w-md">
@@ -84,7 +86,7 @@ export function PublicInvoiceView() {
             <CardTitle className="text-red-500">Error</CardTitle>
           </CardHeader>
           <CardContent>
-            <p>{error}</p>
+            <p>{error || companyError}</p>
           </CardContent>
           <CardFooter>
             <Button variant="outline" onClick={() => window.location.reload()}>
@@ -152,7 +154,8 @@ export function PublicInvoiceView() {
               {/* From (Company) */}
               <div>
                 <h3 className="font-semibold mb-2">From</h3>
-                <p>Your Company Name</p>
+                <p>{companyName || 'Your Company Name'}</p>
+                {/* TODO: Add dynamic company address and email once available in useCompany */}
                 <p>123 Business Street</p>
                 <p>City, State ZIP</p>
                 <p>accounts@yourcompany.com</p>

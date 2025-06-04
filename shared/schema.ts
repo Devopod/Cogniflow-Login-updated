@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, varchar, real, date, jsonb, uuid, unique } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, varchar, real, date, jsonb, uuid, unique, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
@@ -155,6 +155,8 @@ export const contacts = pgTable("contacts", {
   source: varchar("source", { length: 100 }),
   status: varchar("status", { length: 50 }).default('active'),
   type: varchar("type", { length: 50 }).default('lead'),
+  payment_portal_token: varchar("payment_portal_token", { length: 255 }),
+  saved_payment_methods: jsonb("saved_payment_methods"), // Stores saved cards or bank accounts
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -317,7 +319,7 @@ export const journalItems = pgTable("journal_items", {
 export const fiscalYears = pgTable("fiscal_years", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull().references(() => users.id),
-  name: varchar("name", { length: 100 }).notNull(), 
+  name: varchar("name", { length: 100 }).notNull(),
   startDate: date("start_date").notNull(),
   endDate: date("end_date").notNull(),
   isClosed: boolean("is_closed").default(false),
@@ -385,13 +387,32 @@ export const invoices = pgTable("invoices", {
   discountAmount: real("discount_amount"),
   totalAmount: real("total_amount").notNull(),
   amountPaid: real("amount_paid").default(0),
-  status: varchar("status", { length: 50 }).default('draft'),
+  status: varchar("status", { length: 50 }).default('draft'), // document status (draft, sent, etc.)
+  payment_status: varchar("payment_status", { length: 50, enum: ["Unpaid", "Partial Payment", "Paid", "Void", "Refunded", "Overdue"] }).default('Unpaid'),
+  last_payment_date: timestamp("last_payment_date"),
+  last_payment_amount: real("last_payment_amount"),
+  last_payment_method: varchar("last_payment_method", { length: 50 }),
+  payment_due_reminder_sent: boolean("payment_due_reminder_sent").default(false),
+  payment_overdue_reminder_sent: boolean("payment_overdue_reminder_sent").default(false),
+  payment_thank_you_sent: boolean("payment_thank_you_sent").default(false),
+  allow_partial_payment: boolean("allow_partial_payment").default(true),
+  allow_online_payment: boolean("allow_online_payment").default(true),
+  enabled_payment_methods: jsonb("enabled_payment_methods"), // Array of allowed payment methods
+  payment_instructions: text("payment_instructions"),
   notes: text("notes"),
   terms: text("terms"),
   currency: varchar("currency", { length: 3 }).default('USD'),
-  paymentMethod: varchar("payment_method", { length: 50 }),
+  recurring_invoice_id: integer("recurring_invoice_id"), // For recurring invoices
+  recurring_schedule: jsonb("recurring_schedule"), // For recurring invoices
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+  payment_portal_token: text("payment_portal_token"), // Added for payment portal access
+}, (table) => {
+  return {
+    paymentStatusIdx: index("payment_status_idx").on(table.payment_status),
+    dueDateIdx: index("invoice_due_date_idx").on(table.dueDate),
+    contactIdIdx: index("invoice_contact_id_idx").on(table.contactId),
+  };
 });
 
 export const invoiceItems = pgTable("invoice_items", {
@@ -785,19 +806,39 @@ export const expenses = pgTable("expenses", {
 export const payments = pgTable("payments", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull().references(() => users.id),
-  accountId: integer("account_id").notNull().references(() => accounts.id),
+  accountId: integer("account_id").references(() => accounts.id), // Made optional for direct invoice payments
   contactId: integer("contact_id").references(() => contacts.id),
+  invoiceId: integer("invoice_id").references(() => invoices.id), // Link payment to a specific invoice
   paymentDate: timestamp("payment_date").defaultNow(),
   paymentNumber: varchar("payment_number", { length: 50 }).notNull().unique(),
   amount: real("amount").notNull(),
-  paymentMethod: varchar("payment_method", { length: 50 }).notNull(),
+  payment_method: varchar("payment_method", { length: 50 }).notNull(), // e.g., card, ACH, cash
+  payment_gateway: varchar("payment_gateway", { length: 50 }), // e.g., Stripe, PayPal
+  transaction_id: varchar("transaction_id", { length: 255 }), // For online payments
+  gateway_fee: real("gateway_fee"), // Fee charged by payment gateway
+  gateway_response: jsonb("gateway_response"), // Store the raw response from the gateway
   reference: varchar("reference", { length: 100 }),
   description: text("description"),
-  status: varchar("status", { length: 20 }).default('completed'),
-  relatedDocumentType: varchar("related_document_type", { length: 50 }),  // invoice, expense, etc.
-  relatedDocumentId: integer("related_document_id"),
+  status: varchar("status", { length: 20 }).default('completed'), // e.g., completed, pending, failed, refunded
+  refund_status: varchar("refund_status", { length: 20 }), // e.g., none, partial, full
+  refund_amount: real("refund_amount"),
+  refund_transaction_id: varchar("refund_transaction_id", { length: 255 }),
+  refund_date: timestamp("refund_date"),
+  refund_reason: text("refund_reason"),
+  is_recurring: boolean("is_recurring").default(false),
+  recurring_profile_id: varchar("recurring_profile_id", { length: 255 }),
+  relatedDocumentType: varchar("related_document_type", { length: 50 }),  // invoice, expense, etc. - kept for broader use
+  relatedDocumentId: integer("related_document_id"), // kept for broader use
+  metadata: jsonb("metadata"), // For additional payment data
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => {
+  return {
+    paymentGatewayIdx: index("payment_gateway_idx").on(table.payment_gateway),
+    invoiceIdIdx: index("payments_invoice_id_idx").on(table.invoiceId),
+    statusIdx: index("payments_status_idx").on(table.status),
+    paymentDateIdx: index("payments_date_idx").on(table.paymentDate),
+  };
 });
 
 // MPESA Integration
@@ -827,6 +868,59 @@ export const mpesaTransactions = pgTable("mpesa_transactions", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+export const payment_reminders = pgTable("payment_reminders", {
+  id: serial("id").primaryKey(),
+  invoiceId: integer("invoice_id").notNull().references(() => invoices.id, { onDelete: 'cascade' }),
+  reminder_date: date("reminder_date").notNull(),
+  status: varchar("status", { length: 50 }).default('pending'), // pending, sent, failed
+  channel: varchar("channel", { length: 50 }).notNull(), // email, SMS
+  template_used: varchar("template_used", { length: 100 }),
+  sent_at: timestamp("sent_at"),
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow(),
+  // Configuration for reminder schedule (e.g., days before/after due date)
+  days_offset: integer("days_offset"), // e.g., -3 for 3 days before, 7 for 7 days after
+  offset_type: varchar("offset_type", { length: 20}), // 'before_due', 'after_due', 'on_due'
+}, (table) => {
+  return {
+    invoiceIdIdx: index("payment_reminders_invoice_id_idx").on(table.invoiceId),
+    reminderDateIdx: index("payment_reminders_reminder_date_idx").on(table.reminder_date),
+    statusIdx: index("payment_reminders_status_idx").on(table.status),
+  };
+});
+
+export const payment_history = pgTable("payment_history", {
+  id: serial("id").primaryKey(),
+  invoiceId: integer("invoice_id").notNull().references(() => invoices.id, { onDelete: 'cascade' }),
+  paymentId: integer("payment_id").references(() => payments.id), // Optional, if direct payment record exists
+  event_type: varchar("event_type", { length: 100 }).notNull(), // e.g., 'payment_recorded', 'status_changed_to_paid', 'reminder_sent', 'refund_processed'
+  event_timestamp: timestamp("event_timestamp").defaultNow(),
+  details: jsonb("details"), // Store relevant data like old_status, new_status, amount, gateway_response
+  user_id: integer("user_id").references(() => users.id), // User who initiated or system event
+  created_at: timestamp("created_at").defaultNow(),
+}, (table) => {
+  return {
+    eventTimestampIdx: index("payment_history_event_timestamp_idx").on(table.event_timestamp),
+    invoiceIdIdx: index("payment_history_invoice_id_idx").on(table.invoiceId),
+    paymentIdIdx: index("payment_history_payment_id_idx").on(table.paymentId),
+  };
+});
+
+export const payment_gateway_settings = pgTable("payment_gateway_settings", {
+  id: serial("id").primaryKey(),
+  gateway_name: varchar("gateway_name", { length: 100 }).notNull().unique(), // e.g., 'Stripe', 'PayPal'
+  api_key_public: varchar("api_key_public", { length: 255 }),
+  api_key_secret: varchar("api_key_secret", { length: 255 }), // Ensure this is stored securely
+  webhook_secret: varchar("webhook_secret", {length: 255}),
+  is_enabled: boolean("is_enabled").default(false),
+  supported_currencies: jsonb("supported_currencies"), // e.g., ['USD', 'EUR']
+  transaction_fees: jsonb("transaction_fees"), // e.g., { percentage: 2.9, fixed: 0.30 }
+  additional_config: jsonb("additional_config"), // For gateway-specific settings
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow(),
+});
+
+
 // Establish relations
 export const usersRelations = relations(users, ({ many }) => ({
   roles: many(userRoles),
@@ -848,6 +942,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   expenses: many(expenses),
   payments: many(payments),
   mpesaTransactions: many(mpesaTransactions),
+  payment_history_entries: many(payment_history, { relationName: "payment_history_user" }),
 }));
 
 export const contactsRelations = relations(contacts, ({ one, many }) => ({
@@ -913,6 +1008,9 @@ export const invoicesRelations = relations(invoices, ({ one, many }) => ({
   }),
   items: many(invoiceItems),
   tokens: many(invoice_tokens),
+  payment_reminders: many(payment_reminders),
+  payment_history_entries: many(payment_history, { relationName: "invoice_payment_history" }), // Renamed relation for clarity
+  payments: many(payments), // Added relation to payments
 }));
 
 export const invoiceItemsRelations = relations(invoiceItems, ({ one }) => ({
@@ -1100,12 +1198,12 @@ export const expensesRelations = relations(expenses, ({ one }) => ({
   }),
 }));
 
-export const paymentsRelations = relations(payments, ({ one }) => ({
+export const paymentsRelations = relations(payments, ({ one, many }) => ({
   user: one(users, {
     fields: [payments.userId],
     references: [users.id],
   }),
-  account: one(accounts, {
+  account: one(accounts, { // Kept for now, might be optional if linking directly to invoice
     fields: [payments.accountId],
     references: [accounts.id],
   }),
@@ -1113,7 +1211,38 @@ export const paymentsRelations = relations(payments, ({ one }) => ({
     fields: [payments.contactId],
     references: [contacts.id],
   }),
+  invoice: one(invoices, {
+    fields: [payments.invoiceId],
+    references: [invoices.id],
+  }),
+  history_entries: many(payment_history),
 }));
+
+export const paymentRemindersRelations = relations(payment_reminders, ({ one }) => ({
+  invoice: one(invoices, {
+    fields: [payment_reminders.invoiceId],
+    references: [invoices.id],
+  }),
+}));
+
+export const paymentHistoryRelations = relations(payment_history, ({ one }) => ({
+  invoice: one(invoices, {
+    fields: [payment_history.invoiceId],
+    references: [invoices.id],
+    relationName: "invoice_payment_history" // Ensure this matches the one in invoicesRelations
+  }),
+  payment: one(payments, {
+    fields: [payment_history.paymentId],
+    references: [payments.id],
+  }),
+  user: one(users, {
+    fields: [payment_history.user_id],
+    references: [users.id],
+    relationName: "payment_history_user"
+  }),
+}));
+
+// No direct relations for payment_gateway_settings as it's a configuration table.
 
 // MPESA Relations
 export const mpesaTransactionsRelations = relations(mpesaTransactions, ({ one }) => ({
@@ -1314,9 +1443,29 @@ export const insertPaymentSchema = createInsertSchema(payments).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
-  paymentNumber: true,
-  paymentDate: true,
+  // paymentNumber: true, // Should be generated by backend
+  // paymentDate: true, // Should be set by backend
 });
+
+export const insertPaymentReminderSchema = createInsertSchema(payment_reminders).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  sent_at: true,
+});
+
+export const insertPaymentHistorySchema = createInsertSchema(payment_history).omit({
+  id: true,
+  createdAt: true,
+  event_timestamp: true,
+});
+
+export const insertPaymentGatewaySettingSchema = createInsertSchema(payment_gateway_settings).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 
 // Company schema for validation
 export const insertCompanySchema = createInsertSchema(companies).omit({
@@ -1369,6 +1518,10 @@ export type InsertAccountCategory = z.infer<typeof insertAccountCategorySchema>;
 export type InsertExpense = z.infer<typeof insertExpenseSchema>;
 export type InsertPayment = z.infer<typeof insertPaymentSchema>;
 export type InsertMpesaTransaction = z.infer<typeof insertMpesaTransactionSchema>;
+export type InsertPaymentReminder = z.infer<typeof insertPaymentReminderSchema>;
+export type InsertPaymentHistory = z.infer<typeof insertPaymentHistorySchema>;
+export type InsertPaymentGatewaySetting = z.infer<typeof insertPaymentGatewaySettingSchema>;
+
 
 export type User = typeof users.$inferSelect;
 export type Contact = typeof contacts.$inferSelect;
@@ -1394,3 +1547,6 @@ export type AccountCategory = typeof accountCategories.$inferSelect;
 export type Expense = typeof expenses.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
 export type MpesaTransaction = typeof mpesaTransactions.$inferSelect;
+export type PaymentReminder = typeof payment_reminders.$inferSelect;
+export type PaymentHistory = typeof payment_history.$inferSelect;
+export type PaymentGatewaySetting = typeof payment_gateway_settings.$inferSelect;

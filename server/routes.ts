@@ -45,6 +45,9 @@ import invoiceRoutes from './src/routes/invoices';
 import publicRoutes from './src/routes/public';
 import webhookRoutes from './src/routes/webhooks';
 import adminRoutes from './src/routes/admin';
+import paymentRoutes from './src/routes/payments';
+import paymentReminderRoutes from './src/routes/payment-reminders';
+import paymentGatewayRoutes from './src/routes/payment-gateways';
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Create HTTP server
@@ -77,6 +80,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Register invoice routes
   app.use('/api/invoices', invoiceRoutes);
+  
+  // Register payment routes
+  app.use('/api/payments', paymentRoutes);
+  
+  // Register payment reminder routes
+  app.use('/api/payment-reminders', paymentReminderRoutes);
+  
+  // Register payment gateway routes
+  app.use('/api/payment-gateways', paymentGatewayRoutes);
   
   // Register public routes
   app.use('/public', publicRoutes);

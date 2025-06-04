@@ -4,11 +4,12 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { CreditCard, Clock, CheckCircle, AlertTriangle, FileText, DollarSign, Trash2, Edit } from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { CreditCard, Clock, CheckCircle, AlertTriangle, FileText, DollarSign, Trash2, Edit, Loader2, RefreshCw, FileDown, AlertCircle } from "lucide-react";
+import { formatCurrency, formatDate, formatDateTime, formatPaymentMethod, formatRelativeTime } from "@/lib/format";
 import { format } from "date-fns";
 import { Payment, Invoice } from "@shared/schema";
-import { useDeletePayment } from "@/hooks/use-payments";
+import { useDeletePayment, useInvoicePayments } from "@/hooks/use-payments";
 import { useToast } from "@/hooks/use-toast";
 import { PaymentForm } from "./payment-form";
 

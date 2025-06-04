@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { useCompany } from "@/hooks/use-company";
 import {
   Card,
   CardContent,
@@ -175,6 +176,7 @@ const BrandingMaster = () => {
   
   // For preview on template dialog
   const [previewTemplate, setPreviewTemplate] = useState<any>(null);
+  const { companyName, companyId } = useCompany(); // Assuming useCompany provides these
 
   // Query for template data
   const { data: templatesData, isLoading, isError } = useQuery({
@@ -202,11 +204,12 @@ const BrandingMaster = () => {
       const defaultTemplate = {
         name: "",
         isDefault: false,
-        companyName: "Your Company Name",
-        logo: "/company-logo.png",
-        slogan: "Your Company Slogan",
-        primaryColor: "#4f46e5",
+        companyName: companyName || "Your Company Name", // Use fetched company name
+        logo: companyId ? `/api/company/${companyId}/logo` : "/company-logo.png", // Placeholder for dynamic logo
+        slogan: "Your Company Slogan", // This might need to come from company settings too
+        primaryColor: "#4f46e5", // These could also be dynamic
         secondaryColor: "#6366f1",
+        // TODO: Populate address, phone, email, website, reg numbers from useCompany once available
         address: "123 Your Street\nYour City, YC 12345",
         phone: "+1 (123) 456-7890",
         email: "info@yourcompany.com",

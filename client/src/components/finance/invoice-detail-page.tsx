@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, ArrowLeft, Printer, Send, FileDown, Edit, CreditCard, AlertTriangle, CheckCircle2, Clock, Copy, RefreshCw } from "lucide-react";
+import { Loader2, ArrowLeft, Printer, Send, FileDown, Edit, CreditCard, AlertTriangle, CheckCircle2, Clock, Copy, RefreshCw, ExternalLink } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { v4 as uuidv4 } from 'uuid';
 import { Invoice, InvoiceWithItems, Payment } from "@shared/schema";
@@ -117,7 +117,13 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: number | null }) {
       if (contact?.email) {
         setEmailTo(contact.email);
         setEmailSubject(`Invoice ${invoice.invoiceNumber} from Your Company`);
-        setEmailBody(`Dear ${contact.firstName || contact.company},\n\nPlease find attached invoice ${invoice.invoiceNumber} for ${formatCurrency(invoice.totalAmount)}.\n\nDue date: ${format(new Date(invoice.dueDate), 'MMMM dd, yyyy')}\n\nThank you for your business.\n\nRegards,\nYour Company`);
+        let body = `Dear ${contact.firstName || contact.company},\n\nPlease find attached invoice ${invoice.invoiceNumber} for ${formatCurrency(invoice.totalAmount)}.\n\nDue date: ${format(new Date(invoice.dueDate), 'MMMM dd, yyyy')}.`;
+        if (invoice.payment_portal_token) {
+          const paymentLink = `${window.location.origin}/invoices/view/${invoice.payment_portal_token}`;
+          body += `\n\nYou can view and pay your invoice online here: ${paymentLink}`;
+        }
+        body += `\n\nThank you for your business.\n\nRegards,\nYour Company`;
+        setEmailBody(body);
       }
     }
   }, [invoice, contacts]);
@@ -486,6 +492,15 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: number | null }) {
                 <Send className="h-4 w-4 mr-2" />
                 Email
               </Button>
+              {invoice?.payment_portal_token && (
+                <Button
+                  variant="outline"
+                  onClick={() => window.open(`/invoices/view/${invoice.payment_portal_token}`, '_blank')}
+                >
+                  <ExternalLink className="h-4 w-4 mr-2" />
+                  View Public Page
+                </Button>
+              )}
               <Button variant="outline" onClick={() => setIsEditMode(true)}>
                 <Edit className="h-4 w-4 mr-2" />
                 Edit

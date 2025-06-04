@@ -83,16 +83,16 @@ export async function sendInvoiceEmail(options: {
   // Generate HTML for the email
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-      <h2>Invoice #${invoice.invoice_number}</h2>
+      <h2>Invoice #${invoice.invoiceNumber}</h2>
       <p>${message}</p>
       <div style="margin: 20px 0; padding: 20px; border: 1px solid #eee; border-radius: 5px;">
-        <p><strong>Amount Due:</strong> ${new Intl.NumberFormat('en-US', { style: 'currency', currency: invoice.currency || 'USD' }).format(invoice.total_amount)}</p>
-        <p><strong>Due Date:</strong> ${new Date(invoice.due_date).toLocaleDateString()}</p>
+        <p><strong>Amount Due:</strong> ${new Intl.NumberFormat('en-US', { style: 'currency', currency: invoice.currency || 'USD' }).format(invoice.totalAmount)}</p>
+        <p><strong>Due Date:</strong> ${new Date(invoice.dueDate).toLocaleDateString()}</p>
         <p><strong>Status:</strong> ${invoice.status}</p>
       </div>
       <p>Thank you for your business!</p>
       <p>
-        <a href="${process.env.APP_URL || 'http://localhost:5000'}/public/invoices/${invoice.id}" style="display: inline-block; padding: 10px 20px; background-color: #4CAF50; color: white; text-decoration: none; border-radius: 5px;">
+        <a href="${process.env.APP_URL || 'http://localhost:5000'}/invoices/view/${invoice.payment_portal_token}" style="display: inline-block; padding: 10px 20px; background-color: #4CAF50; color: white; text-decoration: none; border-radius: 5px;">
           View Invoice
         </a>
       </p>
@@ -103,7 +103,7 @@ export async function sendInvoiceEmail(options: {
   const attachments = includeAttachment ? [
     // In a real implementation, you would generate a PDF here
     // {
-    //   filename: `Invoice-${invoice.invoice_number}.pdf`,
+    //   filename: `Invoice-${invoice.invoiceNumber}.pdf`,
     //   content: pdfBuffer,
     //   contentType: 'application/pdf',
     // }

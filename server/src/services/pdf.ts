@@ -5,6 +5,22 @@ import path from 'path';
 import { Invoice } from '@shared/schema';
 import { formatCurrency } from '../utils/formatters';
 
+// Define an interface for company data to be used in PDF
+interface CompanyPdfData {
+  legalName: string;
+  principalBusinessAddress?: {
+    street?: string;
+    city?: string;
+    state?: string;
+    zipCode?: string;
+    country?: string;
+  };
+  phone?: string;
+  email?: string;
+  logo?: string; // Path or URL to the logo
+  // Add any other relevant company fields from the schema
+}
+
 // Register Handlebars helpers
 handlebars.registerHelper('formatDate', function(date: string) {
   return new Date(date).toLocaleDateString('en-US', {
@@ -69,11 +85,17 @@ const loadTemplate = () => {
         </div>
         
         <div class="company-details">
-          <div class="company-name">Your Company Name</div>
-          <div>123 Business Street</div>
-          <div>City, State ZIP</div>
-          <div>Phone: (123) 456-7890</div>
-          <div>Email: accounts@yourcompany.com</div>
+          {{#if company.logo}}
+          <img src="{{company.logo}}" alt="{{company.legalName}} Logo" style="max-height: 70px; margin-bottom: 10px;" />
+          {{/if}}
+          <div class="company-name">{{company.legalName}}</div>
+          {{#with company.principalBusinessAddress}}
+          <div>{{street}}</div>
+          <div>{{city}}{{#if state}}, {{state}}{{/if}} {{zipCode}}</div>
+          <div>{{country}}</div>
+          {{/with}}
+          {{#if company.phone}}<div>Phone: {{company.phone}}</div>{{/if}}
+          {{#if company.email}}<div>Email: {{company.email}}</div>{{/if}}
         </div>
         
         <div class="client-details">
@@ -179,15 +201,18 @@ const loadTemplate = () => {
 };
 
 // Generate PDF from invoice data
-export async function generateInvoicePdf(invoice: any): Promise<Buffer> {
+export async function generateInvoicePdf(invoice: any, company: CompanyPdfData): Promise<Buffer> {
   try {
     // Prepare data for template
     const templateData = {
       invoice,
       contact: invoice.contact,
       items: invoice.items,
+      company, // Add company data to template
       formatCurrency,
-      subtract: (a: number, b: number) => a - b
+      subtract: (a: number, b: number) => a - b,
+      // Helper to check if an object has properties (for principalBusinessAddress)
+      hasProps: (obj: any) => obj && Object.keys(obj).length > 0,
     };
     
     // Compile template
@@ -196,7 +221,7 @@ export async function generateInvoicePdf(invoice: any): Promise<Buffer> {
     
     // Launch browser
     const browser = await puppeteer.launch({
-      headless: 'new',
+      headless: true, // Changed from 'new' to true
       args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
     
@@ -219,7 +244,7 @@ export async function generateInvoicePdf(invoice: any): Promise<Buffer> {
     // Close browser
     await browser.close();
     
-    return pdf;
+    return Buffer.from(pdf); // Convert Uint8Array to Buffer
   } catch (error) {
     console.error('Error generating invoice PDF:', error);
     throw new Error('Failed to generate invoice PDF');
@@ -272,11 +297,21 @@ export function ensureTemplateDirectoryExists() {
         </div>
         
         <div class="company-details">
-          <div class="company-name">Your Company Name</div>
-          <div>123 Business Street</div>
-          <div>City, State ZIP</div>
-          <div>Phone: (123) 456-7890</div>
-          <div>Email: accounts@yourcompany.com</div>
+          {{#if company.logo}}
+          <img src="{{company.logo}}" alt="{{company.legalName}} Logo" style="max-height: 70px; margin-bottom: 10px;" />
+          {{/if}}
+          <div class="company-name">{{company.legalName}}</div>
+          {{#if (hasProps company.principalBusinessAddress)}}
+          {{#with company.principalBusinessAddress}}
+          <div>{{street}}</div>
+          <div>{{city}}{{#if state}}, {{state}}{{/if}} {{zipCode}}</div>
+          <div>{{country}}</div>
+          {{/with}}
+          {{else}}
+          <div>Company address not available</div>
+          {{/if}}
+          {{#if company.phone}}<div>Phone: {{company.phone}}</div>{{/if}}
+          {{#if company.email}}<div>Email: {{company.email}}</div>{{/if}}
         </div>
         
         <div class="client-details">

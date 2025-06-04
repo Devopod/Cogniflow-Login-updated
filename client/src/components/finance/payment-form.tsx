@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2, CreditCard, Check } from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency } from "@/lib/format";
 import { Invoice } from "@shared/schema";
 
 interface PaymentFormProps {
@@ -58,7 +58,7 @@ export function PaymentForm({ invoice, balanceDue, onPaymentRecorded, onCancel }
     
     createPayment({
       amount: paymentAmount,
-      paymentMethod,
+      payment_method: paymentMethod,
       reference,
       description: notes, // Use description field instead of notes
       paymentDate: new Date(paymentDate), // Convert string to Date object

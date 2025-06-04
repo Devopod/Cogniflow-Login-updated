@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useCompany } from "@/hooks/use-company";
 import { useLocation } from "wouter";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -69,6 +70,7 @@ type InvoiceFormValues = z.infer<typeof invoiceFormSchema>;
 // Invoice Preview Component
 function InvoicePreview({ data }: { data: InvoiceFormValues }) {
   const { data: contacts = [] } = useContacts();
+  const { companyName } = useCompany();
   return (
     <div className="bg-white rounded-lg border shadow-sm p-8 max-w-4xl mx-auto">
       <div className="flex justify-between items-start mb-8">
@@ -77,21 +79,11 @@ function InvoicePreview({ data }: { data: InvoiceFormValues }) {
           <p className="text-muted-foreground">{data.invoiceNumber}</p>
         </div>
         <div className="text-right">
-          {data.contactId ? (() => {
-            const contact = contacts.find(c => c.id === data.contactId);
-            return contact ? (
-              <>
-                <p className="font-bold">Your Company Name</p>
-                <p>123 Business Street</p>
-                <p>City, State 12345</p>
-                <p>contact@yourcompany.com</p>
-              </>
-            ) : (
-              <p className="font-medium">Company details not available</p>
-            );
-          })() : (
-            <p className="font-medium">Company details</p>
-          )}
+          {/* TODO: Add full company address and email from useCompany once available */}
+          <p className="font-bold">{companyName || "Your Company Name"}</p>
+          <p>123 Business Street</p>
+          <p>City, State 12345</p>
+          <p>contact@yourcompany.com</p>
         </div>
       </div>
 
