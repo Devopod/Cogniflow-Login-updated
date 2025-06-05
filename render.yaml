@@ -1,11 +1,9 @@
 services:
-  # Web Service
   - type: web
     name: cogniflow-erp
     runtime: node
     buildCommand: npm install && npm run build
     startCommand: npm start
-    plan: free
     envVars:
       - key: NODE_ENV
         value: production
@@ -15,11 +13,8 @@ services:
           property: connectionString
       - key: SESSION_SECRET
         generateValue: true
-      - key: PORT
-        value: 10000
 
 databases:
   - name: cogniflow-db
     databaseName: cogniflow_erp
     user: cogniflow_user
-    plan: free
