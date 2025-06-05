@@ -11,6 +11,7 @@
     "db:push": "drizzle-kit push",
     "migrate": "tsx server/run-migration.ts",
     "heroku-postbuild": "npm run build",
+    "render-postbuild": "npm run build",
     "postinstall": "npm run migrate"
   },
   "dependencies": {

@@ -1,0 +1,34 @@
+services:
+  # Web Service
+  - type: web
+    name: cogniflow-erp
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: cogniflow-db
+          property: connectionString
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: PORT
+        value: 10000
+
+  # Database
+  - type: pserv
+    name: cogniflow-db
+    runtime: postgresql
+    plan: free
+    databaseName: cogniflow_erp
+    user: cogniflow_user
+
+# Optional: Static site for documentation
+# - type: static
+#   name: cogniflow-docs
+#   buildCommand: npm run build:docs
+#   publishPath: ./docs/dist
