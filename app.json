@@ -1,0 +1,33 @@
+{
+  "name": "CogniFlow ERP",
+  "description": "A comprehensive ERP system with invoice management, inventory, and more",
+  "repository": "https://github.com/your-username/cogniflow-erp",
+  "logo": "",
+  "keywords": ["node", "express", "react", "erp", "invoice"],
+  "image": "heroku/nodejs",
+  "addons": [
+    {
+      "plan": "heroku-postgresql:mini"
+    }
+  ],
+  "env": {
+    "NODE_ENV": {
+      "description": "Node environment",
+      "value": "production"
+    },
+    "DATABASE_URL": {
+      "description": "Database connection string (automatically set by Heroku Postgres)"
+    }
+  },
+  "formation": {
+    "web": {
+      "quantity": 1,
+      "size": "basic"
+    }
+  },
+  "buildpacks": [
+    {
+      "url": "heroku/nodejs"
+    }
+  ]
+}
