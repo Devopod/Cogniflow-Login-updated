@@ -11,8 +11,7 @@
     "db:push": "drizzle-kit push",
     "migrate": "tsx server/run-migration.ts",
     "heroku-postbuild": "npm run build",
-    "render-postbuild": "npm run build",
-    "postinstall": "npm run migrate"
+    "render-postbuild": "npm run build"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -93,7 +92,8 @@
     "wouter": "^3.7.0",
     "ws": "^8.18.2",
     "zod": "^3.24.4",
-    "zod-validation-error": "^3.4.0"
+    "zod-validation-error": "^3.4.0",
+    "tsx": "^4.19.1"
   },
   "devDependencies": {
     "@replit/vite-plugin-cartographer": "^0.1.2",
@@ -116,7 +116,6 @@
     "esbuild": "^0.25.0",
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.17",
-    "tsx": "^4.19.1",
     "typescript": "5.6.3",
     "vite": "^5.4.14"
   },
@@ -124,7 +123,7 @@
     "bufferutil": "^4.0.8"
   },
   "engines": {
-    "node": "18.x",
-    "npm": "9.x"
+    "node": "20.x",
+    "npm": "10.x"
   }
 }
