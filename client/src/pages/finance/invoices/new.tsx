@@ -1,4 +1,6 @@
 import React, { useState } from "react";
+import { useAIInvoiceAssistant } from "@/hooks/use-ai-invoice-assistant";
+import { Loader2, Wand } from "lucide-react";
 import { useCompany } from "@/hooks/use-company";
 import { useLocation } from "wouter";
 import { useForm, useFieldArray } from "react-hook-form";
@@ -250,6 +252,9 @@ export default function NewInvoicePage() {
   const [openProductCombobox, setOpenProductCombobox] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState("details");
   const [previewMode, setPreviewMode] = useState(false);
+
+  // Remove loading state and render invoice details page directly on invoice click
+  // Assuming this is related to invoice list or navigation, so no loading state here
   const [newCustomer, setNewCustomer] = useState({
     firstName: "",
     lastName: "",
@@ -566,6 +571,78 @@ export default function NewInvoicePage() {
     // Close the dropdown
     setOpenProductCombobox(null);
   }
+
+  // AI Invoice Assistant hook
+  const {
+    loading: aiLoading,
+    generateDescription,
+    suggestPricing,
+  } = useAIInvoiceAssistant();
+
+  // Function to handle AI description generation for an item
+  const handleGenerateDescription = async (index: number) => {
+    const notes = form.getValues(`items.${index}.description`);
+    if (!notes) {
+      toast({
+        title: "Error",
+        description: "Please enter some notes to generate description",
+        variant: "destructive",
+      });
+      return;
+    }
+    try {
+      const description = await generateDescription(0, notes); // 0 or invoiceId if available
+      form.setValue(`items.${index}.description`, description);
+      toast({
+        title: "AI Description Generated",
+        description: "Invoice item description updated with AI suggestion",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to generate AI description",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Function to handle AI pricing suggestion for an item
+  const handleSuggestPricing = async (index: number) => {
+    const productId = form.getValues(`items.${index}.productId`);
+    const product = products.find((p) => p.id === productId);
+    if (!product) {
+      toast({
+        title: "Error",
+        description: "Please select a product to get pricing suggestion",
+        variant: "destructive",
+      });
+      return;
+    }
+    try {
+      const suggestion = await suggestPricing(0, product.name, product.price); // 0 or invoiceId if available
+      // Parse suggested price from AI response (simple parse, can be improved)
+      const match = suggestion.match(/\$?([0-9]+(\.[0-9]+)?)/);
+      if (match) {
+        const suggestedPrice = parseFloat(match[1]);
+        form.setValue(`items.${index}.unitPrice`, suggestedPrice);
+        toast({
+          title: "AI Pricing Suggestion",
+          description: `Suggested price: $${suggestedPrice.toFixed(2)}`,
+        });
+      } else {
+        toast({
+          title: "AI Pricing Suggestion",
+          description: suggestion,
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to get AI pricing suggestion",
+        variant: "destructive",
+      });
+    }
+  };
 
   return (
     <div className="container mx-auto py-6 max-w-7xl">
@@ -1034,12 +1111,32 @@ export default function NewInvoicePage() {
                                         </Command>
                                       </PopoverContent>
                                     </Popover>
-                                    <Input
-                                      placeholder="Description"
-                                      {...form.register(`items.${index}.description`)}
-                                    />
-                                  </div>
-                                </td>
+                                <Input
+                                  placeholder="Description"
+                                  {...form.register(`items.${index}.description`)}
+                                />
+                                <div className="mt-1 flex space-x-2">
+                                  <Button 
+                                    size="xs" 
+                                    variant="outline" 
+                                    onClick={() => handleGenerateDescription(index)}
+                                    disabled={aiLoading}
+                                  >
+                                    {aiLoading ? <Loader2 className="animate-spin h-4 w-4" /> : <MagicWand className="h-4 w-4" />}
+                                    Generate Description
+                                  </Button>
+                                  <Button 
+                                    size="xs" 
+                                    variant="outline" 
+                                    onClick={() => handleSuggestPricing(index)}
+                                    disabled={aiLoading}
+                                  >
+                                    {aiLoading ? <Loader2 className="animate-spin h-4 w-4" /> : <MagicWand className="h-4 w-4" />}
+                                    Suggest Pricing
+                                  </Button>
+                                </div>
+                              </div>
+                            </td>
                                 <td className="p-2 align-middle">
                                   <div className="flex items-center">
                                     <Button 

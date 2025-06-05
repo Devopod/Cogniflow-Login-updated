@@ -22,7 +22,7 @@ export function PublicInvoiceView() {
   useEffect(() => {
     const fetchInvoice = async () => {
       try {
-        const response = await fetch(`/public/invoices/${token}`);
+        const response = await fetch(`/api/public/invoices/${token}`);
         
         if (!response.ok) {
           const errorData = await response.json();
@@ -42,13 +42,13 @@ export function PublicInvoiceView() {
   }, [token]);
 
   const handleDownloadPdf = () => {
-    window.open(`/public/invoices/${token}/pdf`, '_blank');
+    window.open(`/api/public/invoices/${token}/pdf`, '_blank');
   };
 
   const handlePaymentSuccess = () => {
     // Refresh the invoice data to show updated payment status
     setLoading(true);
-    fetch(`/public/invoices/${token}`)
+    fetch(`/api/public/invoices/${token}`)
       .then(response => {
         if (!response.ok) throw new Error('Failed to refresh invoice');
         return response.json();

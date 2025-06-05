@@ -60,7 +60,9 @@ export async function sendEmail(options: {
     
     // Preview URL for development
     if (process.env.NODE_ENV !== 'production' && testAccount) {
-      console.log('Preview URL: %s', nodemailer.getTestMessageUrl(info));
+      const previewUrl = nodemailer.getTestMessageUrl(info);
+      console.log('📧 EMAIL PREVIEW URL: %s', previewUrl);
+      console.log('🔗 Copy this URL to view the email in your browser');
     }
     
     return info;

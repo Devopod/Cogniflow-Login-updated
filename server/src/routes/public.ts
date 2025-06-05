@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db } from "../../db";
 import { invoices, invoice_items, payments, invoice_tokens, payment_gateway_settings, payment_history, contacts, users, companies } from "@shared/schema";
 import { eq, and, desc } from "drizzle-orm";
-import { generateInvoicePdf } from "../services/pdf";
+import { generateInvoicePdf, CompanyPdfData } from "../services/pdf";
 import { createCheckoutSession, verifyRazorpayPayment, verifyPayment, processPayment } from "../services/payment";
 import { sendEmail } from "../services/email";
 import { formatCurrency } from "../utils/format";
@@ -131,9 +131,8 @@ router.get("/invoices/:token/pdf", async (req, res) => {
       columns: { companyId: true }
     });
 
-    let companyDataForPdf = {
+    let companyDataForPdf: CompanyPdfData = {
       legalName: "Your Company Name", // Fallback
-      // principalBusinessAddress will be undefined if not found, handled by template
     };
 
     if (user && user.companyId) {
@@ -143,10 +142,10 @@ router.get("/invoices/:token/pdf", async (req, res) => {
       if (company) {
         companyDataForPdf = {
           legalName: company.legalName,
-          principalBusinessAddress: company.principalBusinessAddress as any, // Cast to any if type mismatch
+          principalBusinessAddress: company.principalBusinessAddress,
           phone: company.phone,
           email: company.email,
-          logo: company.logo ? `/uploads/company/${company.logo}` : undefined, // Assuming logo is stored in uploads/company
+          logo: company.logo ? `/uploads/company/${company.logo}` : undefined,
         };
       }
     }

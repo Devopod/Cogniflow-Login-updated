@@ -1,12 +1,15 @@
+
 import { Router } from "express";
 import { db } from "../../db";
-import { invoices, invoiceItems, payments } from "@shared/schema";
+import { invoices, invoiceItems, payments, invoice_tokens, users } from "@shared/schema";
 import { eq, and, sql, desc, asc } from "drizzle-orm";
 import { authenticateUser } from "../middleware/auth";
 import { WSService } from "../../websocket";
 import { v4 as uuidv4 } from 'uuid';
 import { sendEmail } from "../services/email";
 import { storage } from "../../storage";
+import crypto from 'crypto';
+import { aiInvoiceAssistant } from "../services/ai-invoice-assistant";
 
 // Get the WebSocket service instance.
 let wsService: WSService;
@@ -34,6 +37,57 @@ router.get("/", authenticateUser, async (req, res) => {
   } catch (error) {
     console.error("Error fetching invoices:", error);
     return res.status(500).json({ message: "Failed to fetch invoices" });
+  }
+});
+
+// Debug route: Check current user info (development only)
+router.get("/debug/user-info", authenticateUser, async (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(404).json({ message: "Not found" });
+  }
+  
+  try {
+    return res.json({
+      user: {
+        id: req.user!.id,
+        email: req.user!.email,
+        role: req.user!.role,
+        firstName: req.user!.firstName,
+        lastName: req.user!.lastName
+      }
+    });
+  } catch (error) {
+    console.error("Error fetching user info:", error);
+    return res.status(500).json({ message: "Failed to fetch user info" });
+  }
+});
+
+// Debug route: Make current user admin (development only)
+router.post("/debug/make-admin", authenticateUser, async (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(404).json({ message: "Not found" });
+  }
+  
+  try {
+    // Update current user to admin
+    const [updatedUser] = await db.update(users)
+      .set({ role: 'admin' })
+      .where(eq(users.id, req.user!.id))
+      .returning();
+    
+    return res.json({
+      message: "User role updated to admin",
+      user: {
+        id: updatedUser.id,
+        email: updatedUser.email,
+        role: updatedUser.role,
+        firstName: updatedUser.firstName,
+        lastName: updatedUser.lastName
+      }
+    });
+  } catch (error) {
+    console.error("Error updating user role:", error);
+    return res.status(500).json({ message: "Failed to update user role" });
   }
 });
 
@@ -453,7 +507,7 @@ router.post("/:id/payments", authenticateUser, async (req, res) => {
       return res.status(404).json({ message: "Invoice not found" });
     }
     
-    if (invoice.user_id !== req.user!.id && req.user!.role !== 'admin') {
+    if (invoice.userId !== req.user!.id && req.user!.role !== 'admin') {
       return res.status(403).json({ message: "You don't have permission to add payments to this invoice" });
     }
     
@@ -584,7 +638,7 @@ router.post("/:id/send", authenticateUser, async (req, res) => {
       return res.status(404).json({ message: "Invoice not found" });
     }
     
-    if (invoice.user_id !== req.user!.id && req.user!.role !== 'admin') {
+    if (invoice.userId !== req.user!.id && req.user!.role !== 'admin') {
       return res.status(403).json({ message: "You don't have permission to send this invoice" });
     }
     
@@ -636,8 +690,26 @@ router.post("/:id/public-link", authenticateUser, async (req, res) => {
       return res.status(404).json({ message: "Invoice not found" });
     }
     
-    if (invoice.user_id !== req.user!.id && req.user!.role !== 'admin') {
-      return res.status(403).json({ message: "You don't have permission to generate a link for this invoice" });
+    // Debug information
+    console.log('Permission check debug:', {
+      invoiceUserId: invoice.userId,
+      currentUserId: req.user!.id,
+      userRole: req.user!.role,
+      userEmail: req.user!.email,
+      isOwner: invoice.userId === req.user!.id,
+      isAdmin: req.user!.role === 'admin'
+    });
+    
+    if (invoice.userId !== req.user!.id && req.user!.role !== 'admin') {
+      return res.status(403).json({ 
+        message: "You don't have permission to generate a link for this invoice",
+        debug: {
+          invoiceUserId: invoice.userId,
+          currentUserId: req.user!.id,
+          userRole: req.user!.role,
+          userEmail: req.user!.email
+        }
+      });
     }
     
     // Calculate expiration date (default: 30 days)
@@ -720,7 +792,7 @@ router.post("/:id/actions", authenticateUser, async (req, res) => {
       return res.status(404).json({ message: "Invoice not found" });
     }
     
-    if (invoice.user_id !== req.user!.id && req.user!.role !== 'admin') {
+    if (invoice.userId !== req.user!.id && req.user!.role !== 'admin') {
       return res.status(403).json({ message: "You don't have permission to perform actions on this invoice" });
     }
     
@@ -835,21 +907,21 @@ router.get("/statistics", authenticateUser, async (req, res) => {
       count: sql`COUNT(*)`,
     })
     .from(invoices)
-    .where(eq(invoices.user_id, req.user!.id));
+    .where(eq(invoices.userId, req.user!.id));
     
     // Get total amount
     const totalAmount = await db.select({
       sum: sql`SUM(${invoices.total_amount})`,
     })
     .from(invoices)
-    .where(eq(invoices.user_id, req.user!.id));
+    .where(eq(invoices.userId, req.user!.id));
     
     // Get total paid
     const totalPaid = await db.select({
       sum: sql`SUM(${invoices.amount_paid})`,
     })
     .from(invoices)
-    .where(eq(invoices.user_id, req.user!.id));
+    .where(eq(invoices.userId, req.user!.id));
     
     // Get overdue invoices
     const overdueInvoices = await db.select({
@@ -857,8 +929,8 @@ router.get("/statistics", authenticateUser, async (req, res) => {
     })
     .from(invoices)
     .where(and(
-      eq(invoices.user_id, req.user!.id),
-      sql`${invoices.due_date} < CURRENT_DATE`,
+      eq(invoices.userId, req.user!.id),
+      sql`${invoices.dueDate} < CURRENT_DATE`,
       sql`${invoices.status} != 'paid'`,
       sql`${invoices.status} != 'void'`
     ));
@@ -869,7 +941,7 @@ router.get("/statistics", authenticateUser, async (req, res) => {
       count: sql`COUNT(*)`,
     })
     .from(invoices)
-    .where(eq(invoices.user_id, req.user!.id))
+    .where(eq(invoices.userId, req.user!.id))
     .groupBy(invoices.status);
     
     return res.json({
@@ -886,6 +958,200 @@ router.get("/statistics", authenticateUser, async (req, res) => {
   } catch (error) {
     console.error("Error fetching invoice statistics:", error);
     return res.status(500).json({ message: "Failed to fetch invoice statistics" });
+  }
+});
+
+
+
+// Debug route: Get payment link for testing (development only)
+router.get("/:id/debug/payment-link", authenticateUser, async (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(404).json({ message: "Not found" });
+  }
+  
+  try {
+    const { id } = req.params;
+    const userId = req.user?.id;
+    
+    // Check if invoice exists and belongs to user
+    const invoice = await db.select()
+      .from(invoices)
+      .where(and(eq(invoices.id, parseInt(id)), eq(invoices.userId, userId)))
+      .limit(1);
+    
+    if (invoice.length === 0) {
+      return res.status(404).json({ message: "Invoice not found" });
+    }
+    
+    // Generate token directly
+    const tokenValue = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 30); // 30 days from now
+    
+    const permissions = { view: true, pay: true, download: true };
+    
+    // Insert token into database
+    const [token] = await db.insert(invoice_tokens).values({
+      token: tokenValue,
+      invoiceId: parseInt(id),
+      expiresAt: expiresAt,
+      permissions: JSON.stringify(permissions),
+      createdAt: new Date(),
+    }).returning();
+    
+    const publicLink = `${req.protocol}://${req.get('host')}/public/invoices/${token.token}`;
+    
+    // Update invoice notes
+    await db.update(invoices)
+      .set({
+        notes: invoice[0].notes ? 
+          `${invoice[0].notes}\n[${new Date().toISOString()}] Debug payment link generated (expires: ${expiresAt.toISOString()})` : 
+          `[${new Date().toISOString()}] Debug payment link generated (expires: ${expiresAt.toISOString()})`,
+        updated_at: new Date(),
+      })
+      .where(eq(invoices.id, parseInt(id)));
+    
+    return res.json({
+      message: "🔗 Payment link generated for testing",
+      paymentLink: publicLink,
+      token: token.token,
+      expiresAt: expiresAt,
+      instructions: [
+        "1. Copy the payment link below",
+        "2. Open it in a new browser tab/window",
+        "3. Test the payment flow as a client",
+        "4. No email required!"
+      ],
+      permissions
+    });
+  } catch (error) {
+    console.error("Error generating debug payment link:", error);
+    return res.status(500).json({ message: "Failed to generate debug link" });
+  }
+});
+
+
+router.post("/:id/ai/generate-description", authenticateUser, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { notes } = req.body;
+
+    if (!notes) {
+      return res.status(400).json({ message: "Notes are required for description generation" });
+    }
+
+    // Check invoice ownership
+    const invoice = await db.query.invoices.findFirst({
+      where: eq(invoices.id, parseInt(id)),
+    });
+
+    if (!invoice) {
+      return res.status(404).json({ message: "Invoice not found" });
+    }
+
+    if (invoice.userId !== req.user!.id && req.user!.role !== 'admin') {
+      return res.status(403).json({ message: "You don't have permission to access this invoice" });
+    }
+
+    const description = await aiInvoiceAssistant.generateInvoiceDescription(notes);
+
+    return res.json({ description });
+  } catch (error) {
+    console.error("Error generating invoice description:", error);
+    return res.status(500).json({ message: "Failed to generate invoice description" });
+  }
+});
+
+router.post("/:id/ai/suggest-pricing", authenticateUser, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { productName, currentPrice } = req.body;
+
+    if (!productName || currentPrice === undefined) {
+      return res.status(400).json({ message: "Product name and current price are required" });
+    }
+
+    // Check invoice ownership
+    const invoice = await db.query.invoices.findFirst({
+      where: eq(invoices.id, parseInt(id)),
+    });
+
+    if (!invoice) {
+      return res.status(404).json({ message: "Invoice not found" });
+    }
+
+    if (invoice.userId !== req.user!.id && req.user!.role !== 'admin') {
+      return res.status(403).json({ message: "You don't have permission to access this invoice" });
+    }
+
+    const suggestion = await aiInvoiceAssistant.suggestPricing(productName, currentPrice);
+
+    return res.json({ suggestion });
+  } catch (error) {
+    console.error("Error suggesting pricing:", error);
+    return res.status(500).json({ message: "Failed to suggest pricing" });
+  }
+});
+
+router.post("/:id/ai/predict-payment-delay", authenticateUser, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { clientName, paymentHistorySummary } = req.body;
+
+    if (!clientName || !paymentHistorySummary) {
+      return res.status(400).json({ message: "Client name and payment history summary are required" });
+    }
+
+    // Check invoice ownership
+    const invoice = await db.query.invoices.findFirst({
+      where: eq(invoices.id, parseInt(id)),
+    });
+
+    if (!invoice) {
+      return res.status(404).json({ message: "Invoice not found" });
+    }
+
+    if (invoice.userId !== req.user!.id && req.user!.role !== 'admin') {
+      return res.status(403).json({ message: "You don't have permission to access this invoice" });
+    }
+
+    const prediction = await aiInvoiceAssistant.predictPaymentDelay(clientName, paymentHistorySummary);
+
+    return res.json({ prediction });
+  } catch (error) {
+    console.error("Error predicting payment delay:", error);
+    return res.status(500).json({ message: "Failed to predict payment delay" });
+  }
+});
+
+router.post("/:id/ai/categorize-expenses", authenticateUser, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { expenseList } = req.body;
+
+    if (!expenseList) {
+      return res.status(400).json({ message: "Expense list is required" });
+    }
+
+    // Check invoice ownership
+    const invoice = await db.query.invoices.findFirst({
+      where: eq(invoices.id, parseInt(id)),
+    });
+
+    if (!invoice) {
+      return res.status(404).json({ message: "Invoice not found" });
+    }
+
+    if (invoice.userId !== req.user!.id && req.user!.role !== 'admin') {
+      return res.status(403).json({ message: "You don't have permission to access this invoice" });
+    }
+
+    const categories = await aiInvoiceAssistant.categorizeExpenses(expenseList);
+
+    return res.json({ categories });
+  } catch (error) {
+    console.error("Error categorizing expenses:", error);
+    return res.status(500).json({ message: "Failed to categorize expenses" });
   }
 });
 

@@ -6,7 +6,7 @@ import { Invoice } from '@shared/schema';
 import { formatCurrency } from '../utils/formatters';
 
 // Define an interface for company data to be used in PDF
-interface CompanyPdfData {
+export interface CompanyPdfData {
   legalName: string;
   principalBusinessAddress?: {
     street?: string;

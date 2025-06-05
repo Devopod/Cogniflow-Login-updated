@@ -98,7 +98,7 @@ export function PaymentGatewaySelector({
         return;
       }
 
-      const response = await apiRequest('POST', `/public/invoices/${tokenId}/pay`, {
+      const response = await apiRequest('POST', `/api/public/invoices/${tokenId}/pay`, {
         successUrl: `${window.location.origin}${window.location.pathname}?session_id={CHECKOUT_SESSION_ID}&gateway=${gateway}`,
         cancelUrl: `${window.location.origin}${window.location.pathname}?canceled=true&gateway=${gateway}`,
         gateway,

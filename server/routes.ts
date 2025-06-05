@@ -91,7 +91,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use('/api/payment-gateways', paymentGatewayRoutes);
   
   // Register public routes
-  app.use('/public', publicRoutes);
+  app.use('/api/public', publicRoutes);
   
   // Register webhook routes
   app.use('/webhooks', webhookRoutes);
