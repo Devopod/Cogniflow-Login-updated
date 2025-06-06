@@ -1122,7 +1122,7 @@ export default function NewInvoicePage() {
                                     onClick={() => handleGenerateDescription(index)}
                                     disabled={aiLoading}
                                   >
-                                    {aiLoading ? <Loader2 className="animate-spin h-4 w-4" /> : <MagicWand className="h-4 w-4" />}
+                                    {aiLoading ? <Loader2 className="animate-spin h-4 w-4" /> : <Wand className="h-4 w-4" />}
                                     Generate Description
                                   </Button>
                                   <Button 
@@ -1131,7 +1131,7 @@ export default function NewInvoicePage() {
                                     onClick={() => handleSuggestPricing(index)}
                                     disabled={aiLoading}
                                   >
-                                    {aiLoading ? <Loader2 className="animate-spin h-4 w-4" /> : <MagicWand className="h-4 w-4" />}
+                                    {aiLoading ? <Loader2 className="animate-spin h-4 w-4" /> : <Wand className="h-4 w-4" />}
                                     Suggest Pricing
                                   </Button>
                                 </div>

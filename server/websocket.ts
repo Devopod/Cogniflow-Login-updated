@@ -47,7 +47,7 @@ export class WSService {
     });
     
     // Handle new connections
-    this.wss.on('connection', (ws, request, { resourceType, resourceId }) => {
+    this.wss.on('connection', (ws: WebSocket, request: any, { resourceType, resourceId }: { resourceType: string; resourceId: string }) => {
       console.log(`WebSocket connection established for ${resourceType}/${resourceId}`);
       
       // Add to general clients
@@ -61,6 +61,19 @@ export class WSService {
       
       const connection: ResourceConnection = { ws, resourceType, resourceId };
       this.resourceConnections.get(resourceKey)?.add(connection);
+      
+      // Handle incoming messages
+      ws.on('message', (message: WebSocket.Data) => {
+        try {
+          const parsed = JSON.parse(message.toString());
+          if (parsed.type === 'new_order') {
+            // Broadcast new_order event to all clients
+            this.broadcast('new_order', parsed.data);
+          }
+        } catch (error) {
+          console.error('Error parsing WebSocket message:', error);
+        }
+      });
       
       // Handle connection errors
       ws.on('error', (error: Error) => {

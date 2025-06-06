@@ -430,37 +430,39 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: number | null }) {
   }
 
   // Then, show loading state if still loading, not timed out, and no invoice data yet
-  if (isLoading && !invoice && !directInvoice) { // Added !directInvoice here as well for consistency
-    return (
-      <div className="flex flex-col items-center justify-center h-[calc(100vh-200px)]">
-        <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
-        <h2 className="text-2xl font-bold mb-2">
-          {loadingTimedOut ? "Loading Timed Out" : "Invoice Not Found"}
-        </h2>
-        <p className="text-muted-foreground mb-4">
-          {loadingTimedOut 
-            ? "The request is taking longer than expected. Please try again."
-            : "The invoice you're looking for doesn't exist or you don't have permission to view it."}
-        </p>
-        <div className="flex gap-4">
-          {loadingTimedOut && (
-            <Button onClick={() => {
-              setLoadingTimedOut(false);
-              refetch();
-              window.location.reload(); // Force a full reload as a last resort
-            }}>
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Try Again
-            </Button>
-          )}
-          <Button onClick={() => setLocation("/finance/invoices")}>
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Invoices
-          </Button>
-        </div>
-      </div>
-    );
-  }
+  // Removed loading state UI to render invoice details page directly
+  // if (isLoading && !invoice && !directInvoice) { // Added !directInvoice here as well for consistency
+  //   return (
+  //     <div className="flex flex-col items-center justify-center h-[calc(100vh-200px)]">
+  //       <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
+  //       <h2 className="text-2xl font-bold mb-2">
+  //         {loadingTimedOut ? "Loading Timed Out" : "Invoice Not Found"}
+  //       </h2>
+  //       <p className="text-muted-foreground mb-4">
+  //         {loadingTimedOut 
+  //           ? "The request is taking longer than expected. Please try again."
+  //           : "The invoice you're looking for doesn't exist or you don't have permission to view it."}
+  //       </p>
+  //       <div className="flex gap-4">
+  //         {loadingTimedOut && (
+  //           <Button onClick={() => {
+  //             setLoadingTimedOut(false);
+  //             refetch();
+  //             window.location.reload(); // Force a full reload as a last resort
+  //           }}>
+  //             <RefreshCw className="h-4 w-4 mr-2" />
+  //             Try Again
+  //           </Button>
+  //         )}
+  //         <Button onClick={() => setLocation("/finance/invoices")}>
+  //           <ArrowLeft className="h-4 w-4 mr-2" />
+  //           Back to Invoices
+  //         </Button>
+  //       </div>
+  //     </div>
+  //   );
+  // }
+  
   
   return (
     <div className="container mx-auto py-6">

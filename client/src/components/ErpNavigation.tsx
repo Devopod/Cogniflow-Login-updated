@@ -237,11 +237,9 @@ export const Sidebar = ({ isCollapsed, toggleSidebar, activePath }: SidebarProps
                       <DropdownMenuSeparator />
                       {item.subItems.map((subItem) => (
                         <DropdownMenuItem key={subItem.path} asChild>
-                          <Link href={subItem.path}>
-                            <a className="flex items-center cursor-pointer w-full">
-                              {subItem.icon}
-                              <span className="ml-2">{subItem.title}</span>
-                            </a>
+                          <Link href={subItem.path} className="flex items-center cursor-pointer w-full">
+                            {subItem.icon}
+                            <span className="ml-2">{subItem.title}</span>
                           </Link>
                         </DropdownMenuItem>
                       ))}
