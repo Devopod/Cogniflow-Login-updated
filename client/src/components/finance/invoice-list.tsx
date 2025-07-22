@@ -14,11 +14,13 @@ import { Calendar } from "@/components/ui/calendar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { Loader2, Plus, Search, FileDown, Filter, ArrowUpDown, Eye, Calendar as CalendarIcon, X, Download } from "lucide-react";
+import { Loader2, Plus, Search, FileDown, Filter, ArrowUpDown, Eye, Calendar as CalendarIcon, X, Download, Trash2 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { format, isValid } from "date-fns";
 import { Invoice } from "@shared/schema";
 import { WebSocketManager } from "@/lib/websocket";
+import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription, DialogClose } from "@/components/ui/dialog";
+import { useDeleteInvoice } from "@/hooks/use-finance-data";
 
 export function InvoiceList() {
   const [, setLocation] = useLocation();
@@ -26,6 +28,9 @@ export function InvoiceList() {
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [sortField, setSortField] = useState<string>("dueDate");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+  const { mutate: deleteInvoice, isLoading: isDeleting } = useDeleteInvoice();
   
   // Fetch invoices
   const { data: invoices = [], isLoading, refetch } = useInvoices();
@@ -331,7 +336,7 @@ export function InvoiceList() {
                   <TableCell>{formatDate(invoice.dueDate)}</TableCell>
                   <TableCell className="text-right">{formatCurrency(invoice.totalAmount)}</TableCell>
                   <TableCell>{getStatusBadge(invoice.status)}</TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="text-right flex gap-2 justify-end">
                     <Button
                       variant="ghost"
                       size="icon"
@@ -342,6 +347,53 @@ export function InvoiceList() {
                     >
                       <Eye className="h-4 w-4" />
                     </Button>
+                    <Dialog open={deleteDialogOpen && selectedInvoice?.id === invoice.id} onOpenChange={(open) => {
+                      setDeleteDialogOpen(open);
+                      if (!open) setSelectedInvoice(null);
+                    }}>
+                      <DialogTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedInvoice(invoice);
+                            setDeleteDialogOpen(true);
+                          }}
+                          aria-label="Delete Invoice"
+                        >
+                          <Trash2 className="h-4 w-4 text-red-500" />
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent>
+                        <DialogHeader>
+                          <DialogTitle>Delete Invoice</DialogTitle>
+                          <DialogDescription>
+                            Are you sure you want to delete invoice <b>{invoice.invoiceNumber}</b>? This action cannot be undone.
+                          </DialogDescription>
+                        </DialogHeader>
+                        <DialogFooter>
+                          <DialogClose asChild>
+                            <Button variant="outline" disabled={isDeleting}>Cancel</Button>
+                          </DialogClose>
+                          <Button
+                            variant="destructive"
+                            disabled={isDeleting}
+                            onClick={() => {
+                              if (!invoice.id) return;
+                              deleteInvoice(invoice.id, {
+                                onSuccess: () => {
+                                  setDeleteDialogOpen(false);
+                                  setSelectedInvoice(null);
+                                },
+                              });
+                            }}
+                          >
+                            {isDeleting ? "Deleting..." : "Delete"}
+                          </Button>
+                        </DialogFooter>
+                      </DialogContent>
+                    </Dialog>
                   </TableCell>
                 </TableRow>
               ))

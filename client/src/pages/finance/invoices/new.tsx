@@ -409,20 +409,35 @@ export default function NewInvoicePage() {
     }, 0);
     const totalAmount = subtotal - discountAmount + taxAmount;
 
-    // Prepare the invoice data
+    // Map camelCase fields to snake_case for backend
     const invoiceData = {
-      ...data,
+      contact_id: data.contactId,
+      invoice_number: data.invoiceNumber,
+      issue_date: data.issueDate.toISOString(),
+      due_date: data.dueDate.toISOString(),
+      status: data.status,
+      notes: data.notes,
+      terms: data.terms,
+      currency: data.currency,
       subtotal,
-      taxAmount,
-      discountAmount,
-      totalAmount,
-      // Format dates as ISO strings for the API
-      issueDate: data.issueDate.toISOString(),
-      dueDate: data.dueDate.toISOString(),
-      recurringEndDate: data.recurringEndDate ? data.recurringEndDate.toISOString() : undefined,
+      tax_amount: taxAmount,
+      discount_amount: discountAmount,
+      total_amount: totalAmount,
+      is_recurring: data.isRecurring,
+      recurring_frequency: data.recurringFrequency,
+      recurring_end_date: data.recurringEndDate ? data.recurringEndDate.toISOString() : undefined,
+      items: data.items.map((item) => ({
+        product_id: item.productId,
+        description: item.description,
+        quantity: item.quantity,
+        unit_price: item.unitPrice,
+        tax_rate: item.taxRate,
+        discount: item.discountRate ? (item.quantity * item.unitPrice) * (item.discountRate / 100) : 0,
+        // subtotal and totalAmount are calculated on backend
+      })),
     };
 
-    console.log("Submitting invoice:", invoiceData);
+    console.log("Submitting invoice (snake_case):", invoiceData);
 
     createInvoice(invoiceData, {
       onSuccess: () => {
@@ -430,12 +445,28 @@ export default function NewInvoicePage() {
           title: "Invoice created",
           description: `Invoice ${data.invoiceNumber} has been created successfully.`,
         });
-        navigate("/finance/invoices");
+        console.log("Invoice created successfully! Redirecting to /invoices...");
+        window.location.href = "/invoices";
       },
-      onError: (error) => {
+      onError: async (error: any) => {
+        let errorMsg = error.message || "There was an error creating the invoice. Please try again.";
+        // Try to extract backend error message if available
+        if (error.response) {
+          try {
+            const errJson = await error.response.json();
+            errorMsg = errJson.message || errorMsg;
+            // Log full backend error for debugging
+            console.error("Backend error:", errJson);
+          } catch (e) {
+            // Ignore JSON parse errors
+          }
+        } else {
+          // Log the error object for debugging
+          console.error("Error creating invoice:", error);
+        }
         toast({
           title: "Error creating invoice",
-          description: error.message || "There was an error creating the invoice. Please try again.",
+          description: errorMsg,
           variant: "destructive",
         });
       },
@@ -1117,7 +1148,7 @@ export default function NewInvoicePage() {
                                 />
                                 <div className="mt-1 flex space-x-2">
                                   <Button 
-                                    size="xs" 
+                                    size="sm" 
                                     variant="outline" 
                                     onClick={() => handleGenerateDescription(index)}
                                     disabled={aiLoading}
@@ -1126,7 +1157,7 @@ export default function NewInvoicePage() {
                                     Generate Description
                                   </Button>
                                   <Button 
-                                    size="xs" 
+                                    size="sm" 
                                     variant="outline" 
                                     onClick={() => handleSuggestPricing(index)}
                                     disabled={aiLoading}
