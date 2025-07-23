@@ -1,6 +1,20 @@
-import { Express } from "express";
+import { Express, Request, Response, NextFunction } from "express";
 import { extendedStorage } from "./storage-extensions";
-import { isAuthenticated } from "./auth";
+
+// Authentication middleware
+const isAuthenticated = (req: Request, res: Response, next: NextFunction) => {
+  if (req.isAuthenticated() && req.user) {
+    return next();
+  }
+  res.status(401).json({ error: "Authentication required" });
+};
+
+const requireAdmin = (req: Request, res: Response, next: NextFunction) => {
+  if (req.isAuthenticated() && req.user && req.user.role === "admin") {
+    return next();
+  }
+  res.status(403).json({ error: "Admin access required" });
+};
 
 export function registerDynamicRoutes(app: Express, wsService: any) {
   // System Modules API

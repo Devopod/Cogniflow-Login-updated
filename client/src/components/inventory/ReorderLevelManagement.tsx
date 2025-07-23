@@ -196,7 +196,6 @@ const ReorderLevelManagement = () => {
   const [showEditProductDialog, setShowEditProductDialog] = useState<boolean>(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [showHistoryDialog, setShowHistoryDialog] = useState<boolean>(false);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
   const [selectedSuppliers, setSelectedSuppliers] = useState<string[]>([]);
   const [isGeneratingPO, setIsGeneratingPO] = useState<boolean>(false);
 
