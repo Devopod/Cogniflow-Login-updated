@@ -76,7 +76,7 @@ import {
 
 import { OrderForm } from "@/components/sales/OrderForm";
 import { useQuery } from '@tanstack/react-query';
-import { io } from 'socket.io-client';
+import { useSalesWebSocket } from '@/hooks/use-websocket';
 
 const SalesManagement = () => {
   const [location, setLocation] = useLocation();
@@ -87,7 +87,6 @@ const SalesManagement = () => {
   const { data: salesMetrics = {}, refetch: refetchSalesMetrics } = useQuery({
     queryKey: ['salesMetrics'],
     queryFn: async () => {
-      // TODO: Replace with your actual backend endpoint
       const res = await fetch('/api/sales/metrics');
       if (!res.ok) throw new Error('Failed to fetch sales metrics');
       return res.json();
@@ -98,7 +97,6 @@ const SalesManagement = () => {
   const { data: recentOrders = [], refetch: refetchRecentOrders } = useQuery({
     queryKey: ['recentOrders'],
     queryFn: async () => {
-      // TODO: Replace with your actual backend endpoint
       const res = await fetch('/api/sales/recent-orders');
       if (!res.ok) throw new Error('Failed to fetch recent orders');
       return res.json();
@@ -109,7 +107,6 @@ const SalesManagement = () => {
   const { data: salesData = [], refetch: refetchSalesData } = useQuery({
     queryKey: ['salesData'],
     queryFn: async () => {
-      // TODO: Replace with your actual backend endpoint
       const res = await fetch('/api/sales/monthly-sales');
       if (!res.ok) throw new Error('Failed to fetch sales data');
       return res.json();
@@ -120,7 +117,6 @@ const SalesManagement = () => {
   const { data: salesByCategory = [], refetch: refetchSalesByCategory } = useQuery({
     queryKey: ['salesByCategory'],
     queryFn: async () => {
-      // TODO: Replace with your actual backend endpoint
       const res = await fetch('/api/sales/by-category');
       if (!res.ok) throw new Error('Failed to fetch sales by category');
       return res.json();
@@ -131,7 +127,6 @@ const SalesManagement = () => {
   const { data: topCustomers = [], refetch: refetchTopCustomers } = useQuery({
     queryKey: ['topCustomers'],
     queryFn: async () => {
-      // TODO: Replace with your actual backend endpoint
       const res = await fetch('/api/sales/top-customers');
       if (!res.ok) throw new Error('Failed to fetch top customers');
       return res.json();
@@ -142,31 +137,14 @@ const SalesManagement = () => {
   const { data: orders = [], refetch: refetchOrders } = useQuery({
     queryKey: ['orders'],
     queryFn: async () => {
-      // TODO: Replace with your actual backend endpoint
       const res = await fetch('/api/sales/orders');
       if (!res.ok) throw new Error('Failed to fetch orders');
       return res.json();
     },
   });
 
-  // Real-time updates via Socket.IO
-  useEffect(() => {
-    const socket = io('http://localhost:4000'); // TODO: Replace with your backend URL
-    socket.on('orders_updated', () => {
-      refetchRecentOrders();
-      refetchOrders();
-    });
-    socket.on('sales_metrics_updated', refetchSalesMetrics); // Refetch sales metrics
-    socket.on('sales_data_updated', refetchSalesData); // Refetch sales performance chart
-    socket.on('recent_orders_updated', refetchRecentOrders); // Refetch recent orders
-    socket.on('top_customers_updated', refetchTopCustomers); // Refetch top customers
-    socket.on('sales_by_category_updated', refetchSalesByCategory); // Refetch sales by category
-    // If you have a separate query for all orders, add refetchOrders here
-    // If dashboard needs to update, emit/trigger dashboard update event as well
-    return () => {
-      socket.disconnect();
-    };
-  }, [refetchSalesMetrics, refetchRecentOrders, refetchSalesData, refetchTopCustomers, refetchSalesByCategory, refetchOrders]);
+  // Real-time updates via WebSocket
+  useSalesWebSocket();
 
   const { toast } = useToast();
 

@@ -111,37 +111,63 @@ export function OrderForm({ open, onClose }: OrderFormProps) {
   const handleFormSubmit = async () => {
     try {
       if (activeTab === "manual") {
+        // Create order via API call instead of direct WebSocket
         const orderData = {
-          id: `ORD-${Date.now()}`,
-          customer: isNewCustomer ? newCustomer.name : MOCK_CUSTOMERS.find(c => c.id === selectedCustomer)?.name,
-          items: orderItems,
-          total: calculateTotal(),
-          status: "Pending",
-          date: new Date().toISOString()
+          contactId: selectedCustomer ? parseInt(selectedCustomer) : null,
+          subtotal: calculateTotal() / 1.18, // Remove tax from total to get subtotal
+          taxAmount: calculateTotal() - (calculateTotal() / 1.18),
+          totalAmount: calculateTotal(),
+          status: "pending",
+          notes: `Order created with ${orderItems.length} items`,
+          category: "sales",
+          paymentStatus: "unpaid",
+          currency: "INR"
         };
 
-        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsHost = window.location.hostname === 'localhost' ? 'localhost:5000' : window.location.host;
-        const ws = new WebSocket(`${wsProtocol}//${wsHost}/ws`);
-        
-        ws.addEventListener('open', () => {
-          ws.send(JSON.stringify({
-            type: 'new_order',
-            data: orderData
-          }));
-          setTimeout(() => ws.close(), 1000);
+        // Make API call to create order
+        const response = await fetch('/api/orders', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(orderData),
         });
+
+        if (!response.ok) {
+          throw new Error('Failed to create order');
+        }
+
+        const newOrder = await response.json();
+
+        // Create order items
+        for (const item of orderItems) {
+          await fetch(`/api/orders/${newOrder.id}/items`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              description: item.productName,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              taxRate: 0.18,
+              taxAmount: item.tax,
+              discountRate: 0,
+              discountAmount: item.discount,
+              subtotal: item.unitPrice * item.quantity,
+              totalAmount: item.total
+            }),
+          });
+        }
 
         toast({
           title: "Order created successfully",
-          description: `Order total: ₹${calculateTotal().toLocaleString()}`,
+          description: `Order ${newOrder.orderNumber} created with total: ₹${calculateTotal().toLocaleString()}`,
         });
-        queryClient.invalidateQueries(['orders']);
-        queryClient.invalidateQueries(['salesMetrics']);
-        queryClient.invalidateQueries(['salesData']);
-        queryClient.invalidateQueries(['recentOrders']);
-        queryClient.invalidateQueries(['topCustomers']);
-        queryClient.invalidateQueries(['salesByCategory']);
+
+        // The API will handle WebSocket broadcasts automatically
+        // Query invalidation will be handled by WebSocket listeners in parent component
+        
       } else if (activeTab === "metaForm" || activeTab === "googleForm") {
         // Handle form integration
         toast({
@@ -157,6 +183,7 @@ export function OrderForm({ open, onClose }: OrderFormProps) {
       }
       onClose();
     } catch (error) {
+      console.error('Error creating order:', error);
       toast({
         title: "Error creating order",
         description: "Something went wrong. Please try again.",

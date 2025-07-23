@@ -51,7 +51,7 @@ import { useFinanceAnalytics } from "@/hooks/use-finance-analytics";
 import { formatCurrency } from "@/lib/utils";
 import { Contact } from "@shared/schema";
 import { useQuery } from '@tanstack/react-query';
-import { io } from 'socket.io-client';
+import { useDashboardWebSocket } from '@/hooks/use-websocket';
 
 // Colors for charts
 const COLORS = ["#4ade80", "#60a5fa", "#f97316", "#f43f5e"];
@@ -247,21 +247,7 @@ export default function DashboardPage() {
   });
 
   // Real-time updates for all sections
-  useEffect(() => {
-    const socket = io('http://localhost:4000');
-    socket.on('inventory_updated', refetchLowStock);
-    socket.on('leave_updated', refetchLeaves);
-    socket.on('warehouse_capacity_updated', refetchWarehouseCapacity);
-    socket.on('delivery_performance_updated', refetchDeliveryPerformance);
-    socket.on('department_headcount_updated', refetchDepartmentHeadcount);
-    socket.on('attendance_trends_updated', refetchAttendanceTrends);
-    socket.on('finance_cards_updated', refetchFinanceCards);
-    socket.on('alerts_updated', refetchAlerts);
-    socket.on('activity_updated', refetchRecentActivity);
-    return () => {
-      socket.disconnect();
-    };
-  }, [refetchLowStock, refetchLeaves, refetchWarehouseCapacity, refetchDeliveryPerformance, refetchDepartmentHeadcount, refetchAttendanceTrends, refetchFinanceCards, refetchAlerts, refetchRecentActivity]);
+  useDashboardWebSocket();
 
   // Now, you can do conditional rendering
   if (companyStatus.isLoading) {
