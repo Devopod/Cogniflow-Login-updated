@@ -50,38 +50,42 @@ import { useSalesAnalytics, useQuotationAnalytics } from "@/hooks/use-sales-anal
 import { useFinanceAnalytics } from "@/hooks/use-finance-analytics";
 import { formatCurrency } from "@/lib/utils";
 import { Contact } from "@shared/schema";
+import { useQuery } from '@tanstack/react-query';
+import { io } from 'socket.io-client';
 
 // Colors for charts
 const COLORS = ["#4ade80", "#60a5fa", "#f97316", "#f43f5e"];
 
 // Sample data for non-sales sections (we'll keep these for now)
-const lowStockItems = [
-  { id: 1, name: "Laptop - Pro Model", sku: "LT-PM-2023", available: 5, reorderPoint: 10 },
-  { id: 2, name: "Network Router", sku: "NR-2000-X", available: 3, reorderPoint: 8 },
-  { id: 3, name: "Wireless Keyboard", sku: "KB-WL-102", available: 7, reorderPoint: 15 },
-  { id: 4, name: "24\" LCD Monitor", sku: "MON-24-HD", available: 4, reorderPoint: 12 },
-];
+// REMOVE static data for lowStockItems and upcomingLeaves
+// const lowStockItems = [
+//   { id: 1, name: "Laptop - Pro Model", sku: "LT-PM-2023", available: 5, reorderPoint: 10 },
+//   { id: 2, name: "Network Router", sku: "NR-2000-X", available: 3, reorderPoint: 8 },
+//   { id: 3, name: "Wireless Keyboard", sku: "KB-WL-102", available: 7, reorderPoint: 15 },
+//   { id: 4, name: "24\" LCD Monitor", sku: "MON-24-HD", available: 4, reorderPoint: 12 },
+// ];
 
-const upcomingLeaves = [
-  { id: 1, employee: "John Smith", department: "Development", from: "May 10", to: "May 15", status: "Approved" },
-  { id: 2, employee: "Emily Johnson", department: "Design", from: "May 12", to: "May 14", status: "Pending" },
-  { id: 3, employee: "David Brown", department: "Marketing", from: "May 18", to: "May 25", status: "Approved" },
-];
+// const upcomingLeaves = [
+//   { id: 1, employee: "John Smith", department: "Development", from: "May 10", to: "May 15", status: "Approved" },
+//   { id: 2, employee: "Emily Johnson", department: "Design", from: "May 12", to: "May 14", status: "Pending" },
+//   { id: 3, employee: "David Brown", department: "Marketing", from: "May 18", to: "May 25", status: "Approved" },
+// ];
 
 export default function DashboardPage() {
+  // All hooks at the top!
   const { toast } = useToast();
   const companyStatus = useCompany();
-  
+
   // Fetch orders, quotations, and invoices
   const { data: orders, isLoading: isOrdersLoading, error: ordersError } = useOrders();
   const { data: quotations, isLoading: isQuotationsLoading, error: quotationsError } = useQuotations();
   const { data: invoices, isLoading: isInvoicesLoading, error: invoicesError } = useInvoices();
-  
+
   // Calculate analytics
   const salesAnalytics = useSalesAnalytics(orders);
   const quotationAnalytics = useQuotationAnalytics(quotations);
   const financeAnalytics = useFinanceAnalytics(invoices);
-  
+
   // Format data for charts
   const salesByCategoryData = useMemo(() => {
     return Object.entries(salesAnalytics.salesByCategory).map(([name, value]) => ({
@@ -89,14 +93,14 @@ export default function DashboardPage() {
       value
     }));
   }, [salesAnalytics.salesByCategory]);
-  
+
   const salesByDateData = useMemo(() => {
     return Object.entries(salesAnalytics.salesByDate)
       .map(([date, value]) => ({ date, sales: value }))
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
       .slice(-7); // Last 7 days
   }, [salesAnalytics.salesByDate]);
-  
+
   // Format invoice status data for charts
   const invoiceStatusData = useMemo(() => {
     return Object.entries(financeAnalytics.invoicesByStatus).map(([name, value]) => ({
@@ -104,17 +108,15 @@ export default function DashboardPage() {
       value
     }));
   }, [financeAnalytics.invoicesByStatus]);
-  
+
   // Generate recent activities from invoices
   const recentActivities = useMemo(() => {
     if (!invoices || invoices.length === 0) return [];
-    
     return financeAnalytics.recentInvoices.map(invoice => {
       const timeDiff = new Date().getTime() - new Date(invoice.updatedAt).getTime();
       const days = Math.floor(timeDiff / (1000 * 60 * 60 * 24));
       const hours = Math.floor(timeDiff / (1000 * 60 * 60));
       const minutes = Math.floor(timeDiff / (1000 * 60));
-      
       let timeAgo;
       if (days > 0) {
         timeAgo = `${days} day${days > 1 ? 's' : ''} ago`;
@@ -123,7 +125,6 @@ export default function DashboardPage() {
       } else {
         timeAgo = `${minutes} minute${minutes > 1 ? 's' : ''} ago`;
       }
-      
       return {
         id: invoice.id,
         type: "invoice",
@@ -133,7 +134,7 @@ export default function DashboardPage() {
       };
     });
   }, [financeAnalytics.recentInvoices]);
-  
+
   // Dashboard metrics
   const [dashboardData, setDashboardData] = useState({
     totalRevenue: { value: "$0", change: 0, isPositive: true },
@@ -141,24 +142,18 @@ export default function DashboardPage() {
     inventoryItems: { value: "0", change: 0, isPositive: true },
     employeeCount: { value: "0", change: 0, isPositive: true }
   });
-  
+
   // Update dashboard data when analytics change
   useEffect(() => {
     if (financeAnalytics) {
-      // Calculate month-over-month change
       const calculateChange = () => {
         if (financeAnalytics.monthlyFinancialData.length < 2) return 0;
-        
         const currentMonth = financeAnalytics.monthlyFinancialData[financeAnalytics.monthlyFinancialData.length - 1];
         const previousMonth = financeAnalytics.monthlyFinancialData[financeAnalytics.monthlyFinancialData.length - 2];
-        
         if (previousMonth.revenue === 0) return 100;
-        
         return Math.round(((currentMonth.revenue - previousMonth.revenue) / previousMonth.revenue) * 100);
       };
-      
       const change = calculateChange();
-      
       setDashboardData(prev => ({
         ...prev,
         totalRevenue: { 
@@ -170,9 +165,105 @@ export default function DashboardPage() {
     }
   }, [financeAnalytics]);
 
-  const isLoading = isOrdersLoading || isQuotationsLoading || isInvoicesLoading;
+  // Dynamic real-time date/time state
+  const [currentDate, setCurrentDate] = useState(new Date());
+  useEffect(() => {
+    const interval = setInterval(() => setCurrentDate(new Date()), 1000);
+    return () => clearInterval(interval);
+  }, []);
 
-  // If company status is still loading, show a loading indicator
+  // All useQuery hooks for dynamic data
+  const { data: lowStockItems = [], refetch: refetchLowStock } = useQuery({
+    queryKey: ['lowStockItems'],
+    queryFn: async () => {
+      const res = await fetch('/api/inventory/low-stock');
+      if (!res.ok) throw new Error('Failed to fetch low stock items');
+      return res.json();
+    },
+  });
+  const { data: upcomingLeaves = [], refetch: refetchLeaves } = useQuery({
+    queryKey: ['upcomingLeaves'],
+    queryFn: async () => {
+      const res = await fetch('/api/hr/upcoming-leaves');
+      if (!res.ok) throw new Error('Failed to fetch upcoming leaves');
+      return res.json();
+    },
+  });
+  const { data: warehouseCapacity = [], refetch: refetchWarehouseCapacity } = useQuery({
+    queryKey: ['warehouseCapacity'],
+    queryFn: async () => {
+      const res = await fetch('/api/inventory/warehouse-capacity');
+      if (!res.ok) throw new Error('Failed to fetch warehouse capacity');
+      return res.json();
+    },
+  });
+  const { data: deliveryPerformance = [], refetch: refetchDeliveryPerformance } = useQuery({
+    queryKey: ['deliveryPerformance'],
+    queryFn: async () => {
+      const res = await fetch('/api/operations/delivery-performance');
+      if (!res.ok) throw new Error('Failed to fetch delivery performance');
+      return res.json();
+    },
+  });
+  const { data: departmentHeadcount = [], refetch: refetchDepartmentHeadcount } = useQuery({
+    queryKey: ['departmentHeadcount'],
+    queryFn: async () => {
+      const res = await fetch('/api/hr/department-headcount');
+      if (!res.ok) throw new Error('Failed to fetch department headcount');
+      return res.json();
+    },
+  });
+  const { data: attendanceTrends = [], refetch: refetchAttendanceTrends } = useQuery({
+    queryKey: ['attendanceTrends'],
+    queryFn: async () => {
+      const res = await fetch('/api/hr/attendance-trends');
+      if (!res.ok) throw new Error('Failed to fetch attendance trends');
+      return res.json();
+    },
+  });
+  const { data: financeCards = {}, refetch: refetchFinanceCards } = useQuery({
+    queryKey: ['financeCards'],
+    queryFn: async () => {
+      const res = await fetch('/api/finance/dashboard-cards');
+      if (!res.ok) throw new Error('Failed to fetch finance cards');
+      return res.json();
+    },
+  });
+  const { data: alerts = [], refetch: refetchAlerts } = useQuery({
+    queryKey: ['alerts'],
+    queryFn: async () => {
+      const res = await fetch('/api/alerts');
+      if (!res.ok) throw new Error('Failed to fetch alerts');
+      return res.json();
+    },
+  });
+  const { data: recentActivity = [], refetch: refetchRecentActivity } = useQuery({
+    queryKey: ['recentActivity'],
+    queryFn: async () => {
+      const res = await fetch('/api/activity/recent');
+      if (!res.ok) throw new Error('Failed to fetch recent activity');
+      return res.json();
+    },
+  });
+
+  // Real-time updates for all sections
+  useEffect(() => {
+    const socket = io('http://localhost:4000');
+    socket.on('inventory_updated', refetchLowStock);
+    socket.on('leave_updated', refetchLeaves);
+    socket.on('warehouse_capacity_updated', refetchWarehouseCapacity);
+    socket.on('delivery_performance_updated', refetchDeliveryPerformance);
+    socket.on('department_headcount_updated', refetchDepartmentHeadcount);
+    socket.on('attendance_trends_updated', refetchAttendanceTrends);
+    socket.on('finance_cards_updated', refetchFinanceCards);
+    socket.on('alerts_updated', refetchAlerts);
+    socket.on('activity_updated', refetchRecentActivity);
+    return () => {
+      socket.disconnect();
+    };
+  }, [refetchLowStock, refetchLeaves, refetchWarehouseCapacity, refetchDeliveryPerformance, refetchDepartmentHeadcount, refetchAttendanceTrends, refetchFinanceCards, refetchAlerts, refetchRecentActivity]);
+
+  // Now, you can do conditional rendering
   if (companyStatus.isLoading) {
     return (
       <ErpNavigation>
@@ -183,6 +274,108 @@ export default function DashboardPage() {
       </ErpNavigation>
     );
   }
+
+  // Remove all remaining static/hardcoded data for dashboard charts and cards
+  // Example: warehouse capacity, delivery performance, department headcount, attendance trends, finance cards, alerts, notifications, recent activity
+
+  // Warehouse Capacity
+  // const { data: warehouseCapacity = [], refetch: refetchWarehouseCapacity } = useQuery({
+  //   queryKey: ['warehouseCapacity'],
+  //   queryFn: async () => {
+  //     // TODO: Replace with your actual backend endpoint
+  //     const res = await fetch('/api/inventory/warehouse-capacity');
+  //     if (!res.ok) throw new Error('Failed to fetch warehouse capacity');
+  //     return res.json();
+  //   },
+  // });
+
+  // Delivery Performance
+  // const { data: deliveryPerformance = [], refetch: refetchDeliveryPerformance } = useQuery({
+  //   queryKey: ['deliveryPerformance'],
+  //   queryFn: async () => {
+  //     // TODO: Replace with your actual backend endpoint
+  //     const res = await fetch('/api/operations/delivery-performance');
+  //     if (!res.ok) throw new Error('Failed to fetch delivery performance');
+  //     return res.json();
+  //   },
+  // });
+
+  // Department Headcount
+  // const { data: departmentHeadcount = [], refetch: refetchDepartmentHeadcount } = useQuery({
+  //   queryKey: ['departmentHeadcount'],
+  //   queryFn: async () => {
+  //     // TODO: Replace with your actual backend endpoint
+  //     const res = await fetch('/api/hr/department-headcount');
+  //     if (!res.ok) throw new Error('Failed to fetch department headcount');
+  //     return res.json();
+  //   },
+  // });
+
+  // Attendance Trends
+  // const { data: attendanceTrends = [], refetch: refetchAttendanceTrends } = useQuery({
+  //   queryKey: ['attendanceTrends'],
+  //   queryFn: async () => {
+  //     // TODO: Replace with your actual backend endpoint
+  //     const res = await fetch('/api/hr/attendance-trends');
+  //     if (!res.ok) throw new Error('Failed to fetch attendance trends');
+  //     return res.json();
+  //   },
+  // });
+
+  // Finance Cards (Accounts Receivable, Payable, Cashflow, Financial Performance)
+  // const { data: financeCards = {}, refetch: refetchFinanceCards } = useQuery({
+  //   queryKey: ['financeCards'],
+  //   queryFn: async () => {
+  //     // TODO: Replace with your actual backend endpoint
+  //     const res = await fetch('/api/finance/dashboard-cards');
+  //     if (!res.ok) throw new Error('Failed to fetch finance cards');
+  //     return res.json();
+  //   },
+  // });
+
+  // Alerts & Notifications
+  // const { data: alerts = [], refetch: refetchAlerts } = useQuery({
+  //   queryKey: ['alerts'],
+  //   queryFn: async () => {
+  //     // TODO: Replace with your actual backend endpoint
+  //     const res = await fetch('/api/alerts');
+  //     if (!res.ok) throw new Error('Failed to fetch alerts');
+  //     return res.json();
+  //   },
+  // });
+
+  // Recent Activity
+  // const { data: recentActivity = [], refetch: refetchRecentActivity } = useQuery({
+  //   queryKey: ['recentActivity'],
+  //   queryFn: async () => {
+  //     // TODO: Replace with your actual backend endpoint
+  //     const res = await fetch('/api/activity/recent');
+  //     if (!res.ok) throw new Error('Failed to fetch recent activity');
+  //     return res.json();
+  //   },
+  // });
+
+  // Real-time updates for all sections
+  // useEffect(() => {
+  //   // TODO: Replace with your actual backend Socket.IO server URL
+  //   const socket = io('http://localhost:4000');
+  //   socket.on('inventory_updated', () => {
+  //     refetchLowStock();
+  //   });
+  //   socket.on('leave_updated', () => {
+  //     refetchLeaves();
+  //   });
+  //   socket.on('warehouse_capacity_updated', refetchWarehouseCapacity);
+  //   socket.on('delivery_performance_updated', refetchDeliveryPerformance);
+  //   socket.on('department_headcount_updated', refetchDepartmentHeadcount);
+  //   socket.on('attendance_trends_updated', refetchAttendanceTrends);
+  //   socket.on('finance_cards_updated', refetchFinanceCards);
+  //   socket.on('alerts_updated', refetchAlerts);
+  //   socket.on('activity_updated', refetchRecentActivity);
+  //   return () => {
+  //     socket.disconnect();
+  //   };
+  // }, [refetchLowStock, refetchLeaves, refetchWarehouseCapacity, refetchDeliveryPerformance, refetchDepartmentHeadcount, refetchAttendanceTrends, refetchFinanceCards, refetchAlerts, refetchRecentActivity]);
 
   return (
     <ErpNavigation>
@@ -199,7 +392,7 @@ export default function DashboardPage() {
           <div className="flex space-x-2">
             <Button variant="outline" size="sm">
               <Calendar className="h-4 w-4 mr-2" />
-              <span>May 2023</span>
+              <span>{currentDate.toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' })}</span>
             </Button>
             <Button size="sm">
               <Zap className="h-4 w-4 mr-2" />
@@ -208,7 +401,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {isLoading ? (
+        {isOrdersLoading || isQuotationsLoading || isInvoicesLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
             {[...Array(4)].map((_, i) => (
               <Card key={i} className="animate-pulse">
@@ -388,7 +581,7 @@ export default function DashboardPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    {recentActivities.map((activity) => (
+                    {recentActivity.map((activity) => (
                       <div key={activity.id} className="flex items-start">
                         <div className={`mr-4 p-2 rounded-full 
                           ${activity.type === "invoice" ? "bg-blue-100" : ""}
@@ -426,38 +619,18 @@ export default function DashboardPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                      <div className="flex items-start">
-                        <AlertCircle className="h-5 w-5 text-yellow-500 mt-0.5 mr-3 flex-shrink-0" />
-                        <div>
-                          <p className="font-medium text-yellow-800">Low Inventory Alert</p>
-                          <p className="text-sm text-yellow-700 mt-1">4 products are below their reorder point and need attention.</p>
-                          <Button variant="outline" size="sm" className="mt-2 bg-white">View Inventory</Button>
+                    {alerts.map((alert) => (
+                      <div key={alert.id} className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                        <div className="flex items-start">
+                          <AlertCircle className="h-5 w-5 text-yellow-500 mt-0.5 mr-3 flex-shrink-0" />
+                          <div>
+                            <p className="font-medium text-yellow-800">{alert.title}</p>
+                            <p className="text-sm text-yellow-700 mt-1">{alert.message}</p>
+                            <Button variant="outline" size="sm" className="mt-2 bg-white">View Details</Button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                      <div className="flex items-start">
-                        <FileClock className="h-5 w-5 text-blue-500 mt-0.5 mr-3 flex-shrink-0" />
-                        <div>
-                          <p className="font-medium text-blue-800">Upcoming Invoice Due</p>
-                          <p className="text-sm text-blue-700 mt-1">3 invoices are due in the next 5 days with a total value of $12,450.</p>
-                          <Button variant="outline" size="sm" className="mt-2 bg-white">Review Invoices</Button>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-                      <div className="flex items-start">
-                        <Calendar className="h-5 w-5 text-purple-500 mt-0.5 mr-3 flex-shrink-0" />
-                        <div>
-                          <p className="font-medium text-purple-800">Employee Leave Requests</p>
-                          <p className="text-sm text-purple-700 mt-1">2 new leave requests await your approval.</p>
-                          <Button variant="outline" size="sm" className="mt-2 bg-white">Process Requests</Button>
-                        </div>
-                      </div>
-                    </div>
+                    ))}
                   </div>
                 </CardContent>
               </Card>
@@ -532,7 +705,7 @@ export default function DashboardPage() {
                 <CardDescription>Latest orders from your customers</CardDescription>
               </CardHeader>
               <CardContent>
-                {isLoading ? (
+                {isOrdersLoading ? (
                   <div className="flex justify-center py-8">
                     <Loader2 className="h-8 w-8 animate-spin text-primary" />
                   </div>
@@ -593,7 +766,7 @@ export default function DashboardPage() {
                   <CardDescription>Distribution of sales across product categories</CardDescription>
                 </CardHeader>
                 <CardContent className="h-80">
-                  {isLoading ? (
+                  {isOrdersLoading ? (
                     <div className="flex justify-center items-center h-full">
                       <Loader2 className="h-8 w-8 animate-spin text-primary" />
                     </div>
@@ -633,7 +806,7 @@ export default function DashboardPage() {
                   <CardDescription>Daily sales trend for the last 7 days</CardDescription>
                 </CardHeader>
                 <CardContent className="h-80">
-                  {isLoading ? (
+                  {isOrdersLoading ? (
                     <div className="flex justify-center items-center h-full">
                       <Loader2 className="h-8 w-8 animate-spin text-primary" />
                     </div>
@@ -680,7 +853,7 @@ export default function DashboardPage() {
                 <CardDescription>Customers with highest order value</CardDescription>
               </CardHeader>
               <CardContent>
-                {isLoading ? (
+                {isOrdersLoading ? (
                   <div className="flex justify-center py-8">
                     <Loader2 className="h-8 w-8 animate-spin text-primary" />
                   </div>
@@ -761,26 +934,31 @@ export default function DashboardPage() {
                   <CardDescription>Current storage utilization across locations</CardDescription>
                 </CardHeader>
                 <CardContent className="h-80">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart
-                      data={[
-                        { name: "Main Warehouse", used: 75, available: 25 },
-                        { name: "Secondary Storage", used: 60, available: 40 },
-                        { name: "Distribution Center", used: 45, available: 55 },
-                        { name: "Partner Facility", used: 30, available: 70 },
-                      ]}
-                      layout="vertical"
-                      margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" horizontal={false} opacity={0.15} />
-                      <XAxis type="number" domain={[0, 100]} />
-                      <YAxis dataKey="name" type="category" />
-                      <Tooltip />
-                      <Legend />
-                      <Bar dataKey="used" stackId="a" fill="#f97316" name="Used Capacity (%)" />
-                      <Bar dataKey="available" stackId="a" fill="#e2e8f0" name="Available (%)" />
-                    </BarChart>
-                  </ResponsiveContainer>
+                  {isOrdersLoading ? (
+                    <div className="flex justify-center items-center h-full">
+                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                    </div>
+                  ) : warehouseCapacity.length === 0 ? (
+                    <div className="flex justify-center items-center h-full text-muted-foreground">
+                      No warehouse capacity data available
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart
+                        data={warehouseCapacity}
+                        layout="vertical"
+                        margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" horizontal={false} opacity={0.15} />
+                        <XAxis type="number" domain={[0, 100]} />
+                        <YAxis dataKey="name" type="category" />
+                        <Tooltip />
+                        <Legend />
+                        <Bar dataKey="used" stackId="a" fill="#f97316" name="Used Capacity (%)" />
+                        <Bar dataKey="available" stackId="a" fill="#e2e8f0" name="Available (%)" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
                 </CardContent>
               </Card>
               
@@ -790,26 +968,30 @@ export default function DashboardPage() {
                   <CardDescription>On-time delivery metrics for last 6 months</CardDescription>
                 </CardHeader>
                 <CardContent className="h-80">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart
-                      data={[
-                        { month: "Jan", onTime: 94, late: 6 },
-                        { month: "Feb", onTime: 91, late: 9 },
-                        { month: "Mar", onTime: 95, late: 5 },
-                        { month: "Apr", onTime: 97, late: 3 },
-                        { month: "May", onTime: 96, late: 4 },
-                      ]}
-                      margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-                      <XAxis dataKey="month" />
-                      <YAxis />
-                      <Tooltip />
-                      <Legend />
-                      <Line type="monotone" dataKey="onTime" stroke="#4ade80" strokeWidth={2} name="On-time Delivery %" />
-                      <Line type="monotone" dataKey="late" stroke="#f43f5e" strokeWidth={2} name="Late Delivery %" />
-                    </LineChart>
-                  </ResponsiveContainer>
+                  {isOrdersLoading ? (
+                    <div className="flex justify-center items-center h-full">
+                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                    </div>
+                  ) : deliveryPerformance.length === 0 ? (
+                    <div className="flex justify-center items-center h-full text-muted-foreground">
+                      No delivery performance data available
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart
+                        data={deliveryPerformance}
+                        margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                        <XAxis dataKey="month" />
+                        <YAxis />
+                        <Tooltip />
+                        <Legend />
+                        <Line type="monotone" dataKey="onTime" stroke="#4ade80" strokeWidth={2} name="On-time Delivery %" />
+                        <Line type="monotone" dataKey="late" stroke="#f43f5e" strokeWidth={2} name="Late Delivery %" />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  )}
                 </CardContent>
               </Card>
             </div>
@@ -867,38 +1049,36 @@ export default function DashboardPage() {
                   <CardDescription>Current employee distribution by department</CardDescription>
                 </CardHeader>
                 <CardContent className="h-80">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={[
-                          { name: "Engineering", value: 24 },
-                          { name: "Sales", value: 16 },
-                          { name: "Marketing", value: 12 },
-                          { name: "Finance", value: 8 },
-                          { name: "HR", value: 4 },
-                        ]}
-                        cx="50%"
-                        cy="50%"
-                        labelLine={false}
-                        outerRadius={100}
-                        fill="#8884d8"
-                        dataKey="value"
-                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                      >
-                        {[
-                          { name: "Engineering", value: 24 },
-                          { name: "Sales", value: 16 },
-                          { name: "Marketing", value: 12 },
-                          { name: "Finance", value: 8 },
-                          { name: "HR", value: 4 },
-                        ].map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Legend />
-                      <Tooltip />
-                    </PieChart>
-                  </ResponsiveContainer>
+                  {isOrdersLoading ? (
+                    <div className="flex justify-center items-center h-full">
+                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                    </div>
+                  ) : departmentHeadcount.length === 0 ? (
+                    <div className="flex justify-center items-center h-full text-muted-foreground">
+                      No department headcount data available
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={departmentHeadcount}
+                          cx="50%"
+                          cy="50%"
+                          labelLine={false}
+                          outerRadius={100}
+                          fill="#8884d8"
+                          dataKey="value"
+                          label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                        >
+                          {departmentHeadcount.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Legend />
+                        <Tooltip />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  )}
                 </CardContent>
               </Card>
               
@@ -908,29 +1088,28 @@ export default function DashboardPage() {
                   <CardDescription>Daily attendance rate for the current month</CardDescription>
                 </CardHeader>
                 <CardContent className="h-80">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart
-                      data={[
-                        { day: "1", rate: 96 },
-                        { day: "2", rate: 97 },
-                        { day: "3", rate: 98 },
-                        { day: "4", rate: 95 },
-                        { day: "5", rate: 94 },
-                        { day: "8", rate: 92 },
-                        { day: "9", rate: 95 },
-                        { day: "10", rate: 97 },
-                        { day: "11", rate: 98 },
-                        { day: "12", rate: 96 },
-                      ]}
-                      margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-                      <XAxis dataKey="day" />
-                      <YAxis domain={[90, 100]} />
-                      <Tooltip />
-                      <Line type="monotone" dataKey="rate" stroke="#60a5fa" strokeWidth={2} name="Attendance Rate %" />
-                    </LineChart>
-                  </ResponsiveContainer>
+                  {isOrdersLoading ? (
+                    <div className="flex justify-center items-center h-full">
+                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                    </div>
+                  ) : attendanceTrends.length === 0 ? (
+                    <div className="flex justify-center items-center h-full text-muted-foreground">
+                      No attendance trends data available
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart
+                        data={attendanceTrends}
+                        margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                        <XAxis dataKey="day" />
+                        <YAxis domain={[90, 100]} />
+                        <Tooltip />
+                        <Line type="monotone" dataKey="rate" stroke="#60a5fa" strokeWidth={2} name="Attendance Rate %" />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  )}
                 </CardContent>
               </Card>
             </div>
@@ -943,12 +1122,12 @@ export default function DashboardPage() {
                   <CardTitle className="text-sm font-medium text-muted-foreground">Accounts Receivable</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">$35,240</div>
-                  <div className="text-sm text-muted-foreground mt-1">From 28 open invoices</div>
+                  <div className="text-2xl font-bold">{formatCurrency(financeCards.accountsReceivable || 0)}</div>
+                  <div className="text-sm text-muted-foreground mt-1">From {financeCards.openInvoices || 0} open invoices</div>
                   <div className="mt-4 flex space-x-2">
-                    <div className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">$18,450 Current</div>
-                    <div className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">$10,320 1-30 Days</div>
-                    <div className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded-full">$6,470 30+ Days</div>
+                    <div className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">{formatCurrency(financeCards.currentInvoices || 0)} Current</div>
+                    <div className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">{formatCurrency(financeCards.oneToThirtyDays || 0)} 1-30 Days</div>
+                    <div className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded-full">{formatCurrency(financeCards.thirtyPlusDays || 0)} 30+ Days</div>
                   </div>
                 </CardContent>
               </Card>
@@ -958,12 +1137,12 @@ export default function DashboardPage() {
                   <CardTitle className="text-sm font-medium text-muted-foreground">Accounts Payable</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">$28,750</div>
-                  <div className="text-sm text-muted-foreground mt-1">To 15 vendors</div>
+                  <div className="text-2xl font-bold">{formatCurrency(financeCards.accountsPayable || 0)}</div>
+                  <div className="text-sm text-muted-foreground mt-1">To {financeCards.vendors || 0} vendors</div>
                   <div className="mt-4 flex space-x-2">
-                    <div className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">$15,200 Current</div>
-                    <div className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">$8,320 1-30 Days</div>
-                    <div className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded-full">$5,230 30+ Days</div>
+                    <div className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">{formatCurrency(financeCards.currentPayables || 0)} Current</div>
+                    <div className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">{formatCurrency(financeCards.oneToThirtyDaysPayables || 0)} 1-30 Days</div>
+                    <div className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded-full">{formatCurrency(financeCards.thirtyPlusDaysPayables || 0)} 30+ Days</div>
                   </div>
                 </CardContent>
               </Card>
@@ -973,15 +1152,15 @@ export default function DashboardPage() {
                   <CardTitle className="text-sm font-medium text-muted-foreground">Cash Flow</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-green-500">+$12,840</div>
+                  <div className="text-2xl font-bold text-green-500">{formatCurrency(financeCards.cashFlow || 0)}</div>
                   <div className="text-sm text-muted-foreground mt-1">Last 30 days</div>
                   <div className="mt-4 grid grid-cols-2 gap-2">
                     <div className="text-xs bg-green-100 rounded-md p-2">
-                      <div className="font-medium text-green-800">$48,350</div>
+                      <div className="font-medium text-green-800">{formatCurrency(financeCards.income || 0)}</div>
                       <div className="text-green-700">Income</div>
                     </div>
                     <div className="text-xs bg-red-100 rounded-md p-2">
-                      <div className="font-medium text-red-800">$35,510</div>
+                      <div className="font-medium text-red-800">{formatCurrency(financeCards.expenses || 0)}</div>
                       <div className="text-red-700">Expenses</div>
                     </div>
                   </div>
@@ -995,27 +1174,31 @@ export default function DashboardPage() {
                 <CardDescription>Monthly revenue, expenses and profit trends</CardDescription>
               </CardHeader>
               <CardContent className="h-80">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={[
-                      { month: "Jan", revenue: 56000, expenses: 40000, profit: 16000 },
-                      { month: "Feb", revenue: 62000, expenses: 45000, profit: 17000 },
-                      { month: "Mar", revenue: 58000, expenses: 42000, profit: 16000 },
-                      { month: "Apr", revenue: 70000, expenses: 48000, profit: 22000 },
-                      { month: "May", revenue: 65000, expenses: 43000, profit: 22000 },
-                    ]}
-                    margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-                    <XAxis dataKey="month" />
-                    <YAxis />
-                    <Tooltip />
-                    <Legend />
-                    <Bar dataKey="revenue" fill="#60a5fa" name="Revenue" />
-                    <Bar dataKey="expenses" fill="#f43f5e" name="Expenses" />
-                    <Bar dataKey="profit" fill="#4ade80" name="Profit" />
-                  </BarChart>
-                </ResponsiveContainer>
+                {isOrdersLoading ? (
+                  <div className="flex justify-center items-center h-full">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  </div>
+                ) : financeAnalytics.monthlyFinancialData.length === 0 ? (
+                  <div className="flex justify-center items-center h-full text-muted-foreground">
+                    No financial performance data available
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={financeAnalytics.monthlyFinancialData}
+                      margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                      <XAxis dataKey="month" />
+                      <YAxis />
+                      <Tooltip />
+                      <Legend />
+                      <Bar dataKey="revenue" fill="#60a5fa" name="Revenue" />
+                      <Bar dataKey="expenses" fill="#f43f5e" name="Expenses" />
+                      <Bar dataKey="profit" fill="#4ade80" name="Profit" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

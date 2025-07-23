@@ -28,6 +28,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Trash2, FileSpreadsheet, Upload } from "lucide-react";
+import { useQueryClient } from '@tanstack/react-query';
 
 interface OrderFormProps {
   open: boolean;
@@ -71,6 +72,7 @@ export function OrderForm({ open, onClose }: OrderFormProps) {
   const [quantity, setQuantity] = useState(1);
   const [formUrl, setFormUrl] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const queryClient = useQueryClient();
 
   const handleAddItem = () => {
     const product = MOCK_PRODUCTS.find((p) => p.id === selectedProduct);
@@ -134,6 +136,12 @@ export function OrderForm({ open, onClose }: OrderFormProps) {
           title: "Order created successfully",
           description: `Order total: ₹${calculateTotal().toLocaleString()}`,
         });
+        queryClient.invalidateQueries(['orders']);
+        queryClient.invalidateQueries(['salesMetrics']);
+        queryClient.invalidateQueries(['salesData']);
+        queryClient.invalidateQueries(['recentOrders']);
+        queryClient.invalidateQueries(['topCustomers']);
+        queryClient.invalidateQueries(['salesByCategory']);
       } else if (activeTab === "metaForm" || activeTab === "googleForm") {
         // Handle form integration
         toast({

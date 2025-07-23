@@ -17,13 +17,6 @@ import {
 
 const COLORS = ["#4ade80", "#60a5fa", "#f97316", "#f43f5e"];
 
-const pieData = [
-  { name: "Electronics", value: 42 },
-  { name: "Furniture", value: 28 },
-  { name: "Office Supplies", value: 18 },
-  { name: "Other", value: 12 }
-];
-
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import {
@@ -82,83 +75,100 @@ import {
 } from "lucide-react";
 
 import { OrderForm } from "@/components/sales/OrderForm";
+import { useQuery } from '@tanstack/react-query';
+import { io } from 'socket.io-client';
 
 const SalesManagement = () => {
   const [location, setLocation] = useLocation();
   const [currentTab, setCurrentTab] = useState("overview");
   const [showOrderForm, setShowOrderForm] = useState(false);
-  const [salesMetrics, setSalesMetrics] = useState({
-    totalSales: 457890,
-    salesCount: 126,
-    avgOrderValue: 3634,
-    conversionRate: 18.7,
-    returnRate: 2.3,
-    pendingQuotations: 14,
-    pendingOrders: 8,
-    customerCount: 87,
-    repeatCustomerRate: 64
+
+  // Fetch sales metrics dynamically
+  const { data: salesMetrics = {}, refetch: refetchSalesMetrics } = useQuery({
+    queryKey: ['salesMetrics'],
+    queryFn: async () => {
+      // TODO: Replace with your actual backend endpoint
+      const res = await fetch('/api/sales/metrics');
+      if (!res.ok) throw new Error('Failed to fetch sales metrics');
+      return res.json();
+    },
   });
 
-  const [recentOrders, setRecentOrders] = useState([
-    {
-      id: "10428",
-      customer: "ABC Corporation",
-      items: 3,
-      time: "Today, 10:42 AM",
-      status: "paid"
-    }
-  ]);
+  // Fetch recent orders dynamically
+  const { data: recentOrders = [], refetch: refetchRecentOrders } = useQuery({
+    queryKey: ['recentOrders'],
+    queryFn: async () => {
+      // TODO: Replace with your actual backend endpoint
+      const res = await fetch('/api/sales/recent-orders');
+      if (!res.ok) throw new Error('Failed to fetch recent orders');
+      return res.json();
+    },
+  });
+
+  // Fetch sales data for charts dynamically
+  const { data: salesData = [], refetch: refetchSalesData } = useQuery({
+    queryKey: ['salesData'],
+    queryFn: async () => {
+      // TODO: Replace with your actual backend endpoint
+      const res = await fetch('/api/sales/monthly-sales');
+      if (!res.ok) throw new Error('Failed to fetch sales data');
+      return res.json();
+    },
+  });
+
+  // Fetch sales by category for pie chart dynamically
+  const { data: salesByCategory = [], refetch: refetchSalesByCategory } = useQuery({
+    queryKey: ['salesByCategory'],
+    queryFn: async () => {
+      // TODO: Replace with your actual backend endpoint
+      const res = await fetch('/api/sales/by-category');
+      if (!res.ok) throw new Error('Failed to fetch sales by category');
+      return res.json();
+    },
+  });
+
+  // Fetch top customers dynamically
+  const { data: topCustomers = [], refetch: refetchTopCustomers } = useQuery({
+    queryKey: ['topCustomers'],
+    queryFn: async () => {
+      // TODO: Replace with your actual backend endpoint
+      const res = await fetch('/api/sales/top-customers');
+      if (!res.ok) throw new Error('Failed to fetch top customers');
+      return res.json();
+    },
+  });
+
+  // Fetch orders dynamically for Orders tab
+  const { data: orders = [], refetch: refetchOrders } = useQuery({
+    queryKey: ['orders'],
+    queryFn: async () => {
+      // TODO: Replace with your actual backend endpoint
+      const res = await fetch('/api/sales/orders');
+      if (!res.ok) throw new Error('Failed to fetch orders');
+      return res.json();
+    },
+  });
+
+  // Real-time updates via Socket.IO
+  useEffect(() => {
+    const socket = io('http://localhost:4000'); // TODO: Replace with your backend URL
+    socket.on('orders_updated', () => {
+      refetchRecentOrders();
+      refetchOrders();
+    });
+    socket.on('sales_metrics_updated', refetchSalesMetrics); // Refetch sales metrics
+    socket.on('sales_data_updated', refetchSalesData); // Refetch sales performance chart
+    socket.on('recent_orders_updated', refetchRecentOrders); // Refetch recent orders
+    socket.on('top_customers_updated', refetchTopCustomers); // Refetch top customers
+    socket.on('sales_by_category_updated', refetchSalesByCategory); // Refetch sales by category
+    // If you have a separate query for all orders, add refetchOrders here
+    // If dashboard needs to update, emit/trigger dashboard update event as well
+    return () => {
+      socket.disconnect();
+    };
+  }, [refetchSalesMetrics, refetchRecentOrders, refetchSalesData, refetchTopCustomers, refetchSalesByCategory, refetchOrders]);
 
   const { toast } = useToast();
-
-  useEffect(() => {
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsHost = window.location.hostname === 'localhost' ? 'localhost:5000' : window.location.host;
-    const ws = new WebSocket(`${wsProtocol}//${wsHost}/ws`);
-
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.type === 'new_order') {
-        // Update metrics
-        setSalesMetrics(prev => ({
-          ...prev,
-          totalSales: prev.totalSales + data.data.total,
-          salesCount: prev.salesCount + 1,
-          pendingOrders: prev.pendingOrders + 1,
-          avgOrderValue: Math.round((prev.totalSales + data.data.total) / (prev.salesCount + 1))
-        }));
-
-        // Update recent orders
-        const newOrder = {
-          id: data.data.id.split('-')[1],
-          customer: data.data.customer,
-          items: data.data.items.length,
-          time: "Just now",
-          status: "pending"
-        };
-
-        setRecentOrders(prev => [newOrder, ...prev.slice(0, 3)]);
-      }
-    };
-
-    return () => ws.close();
-  }, []);
-
-  // Monthly sales data
-  const salesData = [
-    { month: "Jan", sales: 42000 },
-    { month: "Feb", sales: 38000 },
-    { month: "Mar", sales: 45000 },
-    { month: "Apr", sales: 39000 },
-    { month: "May", sales: 47000 },
-    { month: "Jun", sales: 52000 },
-    { month: "Jul", sales: 58000 },
-    { month: "Aug", sales: 63000 },
-    { month: "Sep", sales: 59000 },
-    { month: "Oct", sales: 64000 },
-    { month: "Nov", sales: 72000 },
-    { month: "Dec", sales: 78000 }
-  ];
 
   // Format currency
   const formatCurrency = (amount: number) => {
@@ -168,6 +178,16 @@ const SalesManagement = () => {
       minimumFractionDigits: 0,
       maximumFractionDigits: 0
     }).format(amount);
+  };
+
+  const safeNumber = (value: any, fallback = 0) => {
+    if (typeof value !== 'number' || isNaN(value) || !isFinite(value)) return fallback;
+    return value;
+  };
+
+  const safePercent = (value: any, fallback = '0%') => {
+    if (typeof value !== 'number' || isNaN(value) || !isFinite(value)) return fallback;
+    return value + '%';
   };
 
   return (
@@ -257,7 +277,7 @@ const SalesManagement = () => {
               <div className="flex justify-between items-start">
                 <div>
                   <p className="text-sm font-medium text-muted-foreground mb-1">Total Sales</p>
-                  <h2 className="text-3xl font-bold">{formatCurrency(salesMetrics.totalSales)}</h2>
+                  <h2 className="text-3xl font-bold">{formatCurrency(safeNumber(salesMetrics.totalSales))}</h2>
                 </div>
                 <div className="bg-primary/10 p-2 rounded-full">
                   <DollarSign className="h-5 w-5 text-primary" />
@@ -275,7 +295,7 @@ const SalesManagement = () => {
               <div className="flex justify-between items-start">
                 <div>
                   <p className="text-sm font-medium text-muted-foreground mb-1">Orders</p>
-                  <h2 className="text-3xl font-bold">{salesMetrics.salesCount}</h2>
+                  <h2 className="text-3xl font-bold">{safeNumber(salesMetrics.salesCount)}</h2>
                 </div>
                 <div className="bg-blue-500/10 p-2 rounded-full">
                   <ShoppingCart className="h-5 w-5 text-blue-500" />
@@ -283,7 +303,7 @@ const SalesManagement = () => {
               </div>
               <div className="mt-4 flex items-center text-sm text-muted-foreground">
                 <Clock className="h-4 w-4 mr-1" />
-                <span>{salesMetrics.pendingOrders} pending orders</span>
+                <span>{safeNumber(salesMetrics.pendingOrders)} pending orders</span>
               </div>
             </CardContent>
           </Card>
@@ -293,7 +313,7 @@ const SalesManagement = () => {
               <div className="flex justify-between items-start">
                 <div>
                   <p className="text-sm font-medium text-muted-foreground mb-1">Avg. Order Value</p>
-                  <h2 className="text-3xl font-bold">{formatCurrency(salesMetrics.avgOrderValue)}</h2>
+                  <h2 className="text-3xl font-bold">{formatCurrency(safeNumber(salesMetrics.avgOrderValue))}</h2>
                 </div>
                 <div className="bg-amber-500/10 p-2 rounded-full">
                   <Tag className="h-5 w-5 text-amber-500" />
@@ -311,7 +331,7 @@ const SalesManagement = () => {
               <div className="flex justify-between items-start">
                 <div>
                   <p className="text-sm font-medium text-muted-foreground mb-1">Quotations</p>
-                  <h2 className="text-3xl font-bold">{salesMetrics.pendingQuotations}</h2>
+                  <h2 className="text-3xl font-bold">{safeNumber(salesMetrics.pendingQuotations)}</h2>
                 </div>
                 <div className="bg-purple-500/10 p-2 rounded-full">
                   <FileText className="h-5 w-5 text-purple-500" />
@@ -319,7 +339,7 @@ const SalesManagement = () => {
               </div>
               <div className="mt-4 flex items-center text-sm text-muted-foreground">
                 <Clock className="h-4 w-4 mr-1" />
-                <span>{salesMetrics.pendingQuotations} pending quotations</span>
+                <span>{safeNumber(salesMetrics.pendingQuotations)} pending quotations</span>
               </div>
             </CardContent>
           </Card>
@@ -359,16 +379,20 @@ const SalesManagement = () => {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <LineChart data={salesData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                      <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-                      <XAxis dataKey="month" />
-                      <YAxis />
-                      <Tooltip formatter={(value) => formatCurrency(value)} />
-                      <Legend />
-                      <Line type="monotone" dataKey="sales" stroke="#4ade80" strokeWidth={2} dot={{ r: 4 }} />
-                    </LineChart>
-                  </ResponsiveContainer>
+                  {salesData.length === 0 ? (
+                    <div className="flex justify-center items-center h-full text-muted-foreground">No sales data available. Data will appear after you create your first order.</div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={300}>
+                      <LineChart data={salesData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                        <XAxis dataKey="month" />
+                        <YAxis />
+                        <Tooltip formatter={(value) => formatCurrency(value)} />
+                        <Legend />
+                        <Line type="monotone" dataKey="sales" stroke="#4ade80" strokeWidth={2} dot={{ r: 4 }} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  )}
                 </CardContent>
               </Card>
 
@@ -381,27 +405,27 @@ const SalesManagement = () => {
                   <div className="space-y-4">
                     <div className="flex justify-between items-center">
                       <span className="text-sm">Conversion Rate</span>
-                      <Badge className="bg-green-500/10 text-green-500">{salesMetrics.conversionRate}%</Badge>
+                      <Badge className="bg-green-500/10 text-green-500">{safePercent(salesMetrics.conversionRate, '—')}</Badge>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-sm">Return Rate</span>
-                      <Badge className="bg-red-500/10 text-red-500">{salesMetrics.returnRate}%</Badge>
+                      <Badge className="bg-red-500/10 text-red-500">{safePercent(salesMetrics.returnRate, '—')}</Badge>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-sm">Repeat Customers</span>
-                      <Badge className="bg-blue-500/10 text-blue-500">{salesMetrics.repeatCustomerRate}%</Badge>
+                      <Badge className="bg-blue-500/10 text-blue-500">{safePercent(salesMetrics.repeatCustomerRate, '—')}</Badge>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-sm">Avg. Fulfillment Time</span>
-                      <Badge className="bg-amber-500/10 text-amber-500">2.3 days</Badge>
+                      <Badge className="bg-amber-500/10 text-amber-500">{safeNumber(salesMetrics.avgFulfillmentTime, '—')} days</Badge>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-sm">Quote to Order</span>
-                      <Badge className="bg-purple-500/10 text-purple-500">42%</Badge>
+                      <Badge className="bg-purple-500/10 text-purple-500">{safePercent(salesMetrics.quoteToOrder, '—')}</Badge>
                     </div>
                     <div className="flex justify-between items-center mt-6">
                       <span className="text-sm font-medium">Overall Health</span>
-                      <Badge className="bg-green-500 text-white">Good</Badge>
+                      <Badge className="bg-green-500 text-white">{salesMetrics.overallHealth || '—'}</Badge>
                     </div>
                   </div>
                 </CardContent>
@@ -415,60 +439,28 @@ const SalesManagement = () => {
                   <CardDescription>Latest customer orders</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-4">
-                    {recentOrders.map((order) => (
-                      <div key={order.id} className="flex items-start gap-3 p-3 border rounded-md">
-                        <ShoppingCart className="h-5 w-5 text-blue-500 mt-0.5" />
-                        <div className="flex-1">
-                          <p className="text-sm font-medium">Order #{order.id}</p>
-                          <p className="text-xs text-muted-foreground">{order.customer} - {order.items} items</p>
-                          <div className="flex items-center gap-1 mt-1">
-                            <Clock className="h-3 w-3 text-muted-foreground" />
-                            <span className="text-xs text-muted-foreground">{order.time}</span>
+                  {recentOrders.length === 0 ? (
+                    <div className="text-center text-muted-foreground">No recent orders yet. Orders will appear here after you create your first order.</div>
+                  ) : (
+                    <div className="space-y-4">
+                      {recentOrders.map((order) => (
+                        <div key={order.id} className="flex items-start gap-3 p-3 border rounded-md">
+                          <ShoppingCart className="h-5 w-5 text-blue-500 mt-0.5" />
+                          <div className="flex-1">
+                            <p className="text-sm font-medium">Order #{order.id}</p>
+                            <p className="text-xs text-muted-foreground">{order.customer} - {order.items} items</p>
+                            <div className="flex items-center gap-1 mt-1">
+                              <Clock className="h-3 w-3 text-muted-foreground" />
+                              <span className="text-xs text-muted-foreground">{order.time}</span>
+                            </div>
                           </div>
+                          <Badge className={order.status === 'paid' ? 'bg-green-500 text-white' : 'bg-amber-500 text-white'}>
+                            {order.status === 'paid' ? 'Paid' : 'Pending'}
+                          </Badge>
                         </div>
-                        <Badge className={order.status === 'paid' ? 'bg-green-500 text-white' : 'bg-amber-500 text-white'}>
-                          {order.status === 'paid' ? 'Paid' : 'Pending'}
-                        </Badge>
-                      </div>
-                    ))}
-                    <div className="flex items-start gap-3 p-3 border rounded-md">
-                      <ShoppingCart className="h-5 w-5 text-blue-500 mt-0.5" />
-                      <div className="flex-1">
-                        <p className="text-sm font-medium">Order #10427</p>
-                        <p className="text-xs text-muted-foreground">XYZ Ltd - 12 items</p>
-                        <div className="flex items-center gap-1 mt-1">
-                          <Clock className="h-3 w-3 text-muted-foreground" />
-                          <span className="text-xs text-muted-foreground">Yesterday, 2:15 PM</span>
-                        </div>
-                      </div>
-                      <Badge className="bg-amber-500 text-white">Processing</Badge>
+                      ))}
                     </div>
-                    <div className="flex items-start gap-3 p-3 border rounded-md">
-                      <ShoppingCart className="h-5 w-5 text-blue-500 mt-0.5" />
-                      <div className="flex-1">
-                        <p className="text-sm font-medium">Order #10426</p>
-                        <p className="text-xs text-muted-foreground">Tech Solutions Inc - 5 items</p>
-                        <div className="flex items-center gap-1 mt-1">
-                          <Clock className="h-3 w-3 text-muted-foreground" />
-                          <span className="text-xs text-muted-foreground">Yesterday, 11:30 AM</span>
-                        </div>
-                      </div>
-                      <Badge className="bg-purple-500 text-white">Shipped</Badge>
-                    </div>
-                    <div className="flex items-start gap-3 p-3 border rounded-md">
-                      <ShoppingCart className="h-5 w-5 text-blue-500 mt-0.5" />
-                      <div className="flex-1">
-                        <p className="text-sm font-medium">Order #10425</p>
-                        <p className="text-xs text-muted-foreground">Global Services LLC - 8 items</p>
-                        <div className="flex items-center gap-1 mt-1">
-                          <Clock className="h-3 w-3 text-muted-foreground" />
-                          <span className="text-xs text-muted-foreground">May 1, 2023</span>
-                        </div>
-                      </div>
-                      <Badge className="bg-green-500 text-white">Completed</Badge>
-                    </div>
-                  </div>
+                  )}
                 </CardContent>
               </Card>
 
@@ -478,60 +470,40 @@ const SalesManagement = () => {
                   <CardDescription>Product category breakdown</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <ResponsiveContainer width="100%" height={230}>
-                    <PieChart>
-                      <Pie
-                        data={[
-                          { name: "Electronics", value: 42 },
-                          { name: "Furniture", value: 28 },
-                          { name: "Office Supplies", value: 18 },
-                          { name: "Other", value: 12 }
-                        ]}
-                        cx="50%"
-                        cy="50%"
-                        labelLine={false}
-                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                        outerRadius={80}
-                        fill="#8884d8"
-                        dataKey="value"
-                      >
-                        {pieData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip />
-                      <Legend />
-                    </PieChart>
-                  </ResponsiveContainer>
+                  {salesByCategory.length === 0 ? (
+                    <div className="text-center text-muted-foreground">No sales by category data available.</div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={230}>
+                      <PieChart>
+                        <Pie
+                          data={salesByCategory}
+                          cx="50%"
+                          cy="50%"
+                          labelLine={false}
+                          label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                          outerRadius={80}
+                          fill="#8884d8"
+                          dataKey="value"
+                        >
+                          {salesByCategory.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip />
+                        <Legend />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  )}
                   <div className="space-y-2">
-                    <div className="flex justify-between items-center">
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full bg-blue-500"></div>
-                        <span className="text-sm">Electronics</span>
+                    {salesByCategory.map((item, index) => (
+                      <div key={item.name} className="flex justify-between items-center">
+                        <div className="flex items-center gap-2">
+                          <div className={`w-3 h-3 rounded-full ${COLORS[index % COLORS.length]}`}></div>
+                          <span className="text-sm">{item.name}</span>
+                        </div>
+                        <span className="text-sm font-medium">{item.value}%</span>
                       </div>
-                      <span className="text-sm font-medium">42%</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full bg-green-500"></div>
-                        <span className="text-sm">Furniture</span>
-                      </div>
-                      <span className="text-sm font-medium">28%</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full bg-amber-500"></div>
-                        <span className="text-sm">Office Supplies</span>
-                      </div>
-                      <span className="text-sm font-medium">18%</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full bg-purple-500"></div>
-                        <span className="text-sm">Other</span>
-                      </div>
-                      <span className="text-sm font-medium">12%</span>
-                    </div>
+                    ))}
                   </div>
                 </CardContent>
               </Card>
@@ -542,56 +514,26 @@ const SalesManagement = () => {
                   <CardDescription>Highest revenue customers</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between p-3 border rounded-md">
-                      <div className="flex items-center gap-3">
-                        <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center font-bold text-primary">
-                          A
+                  {topCustomers.length === 0 ? (
+                    <div className="text-center text-muted-foreground">No top customers yet. Data will appear after you have sales.</div>
+                  ) : (
+                    <div className="space-y-4">
+                      {topCustomers.map((customer) => (
+                        <div key={customer.id} className="flex items-center justify-between p-3 border rounded-md">
+                          <div className="flex items-center gap-3">
+                            <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center font-bold text-primary">
+                              {customer.name.charAt(0)}
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium">{customer.name}</p>
+                              <p className="text-xs text-muted-foreground">{customer.orderCount} orders this year</p>
+                            </div>
+                          </div>
+                          <div className="text-sm font-medium">{formatCurrency(customer.totalRevenue)}</div>
                         </div>
-                        <div>
-                          <p className="text-sm font-medium">ABC Corporation</p>
-                          <p className="text-xs text-muted-foreground">24 orders this year</p>
-                        </div>
-                      </div>
-                      <div className="text-sm font-medium">$86,240</div>
+                      ))}
                     </div>
-                    <div className="flex items-center justify-between p-3 border rounded-md">
-                      <div className="flex items-center gap-3">
-                        <div className="h-10 w-10 rounded-full bg-blue-500/10 flex items-center justify-center font-bold text-blue-500">
-                          T
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium">Tech Solutions Inc</p>
-                          <p className="text-xs text-muted-foreground">18 orders this year</p>
-                        </div>
-                      </div>
-                      <div className="text-sm font-medium">$65,780</div>
-                    </div>
-                    <div className="flex items-center justify-between p-3 border rounded-md">
-                      <div className="flex items-center gap-3">
-                        <div className="h-10 w-10 rounded-full bg-green-500/10 flex items-center justify-center font-bold text-green-500">
-                          G
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium">Global Services LLC</p>
-                          <p className="text-xs text-muted-foreground">15 orders this year</p>
-                        </div>
-                      </div>
-                      <div className="text-sm font-medium">$52,450</div>
-                    </div>
-                    <div className="flex items-center justify-between p-3 border rounded-md">
-                      <div className="flex items-center gap-3">
-                        <div className="h-10 w-10 rounded-full bg-amber-500/10 flex items-center justify-center font-bold text-amber-500">
-                          X
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium">XYZ Ltd</p>
-                          <p className="text-xs text-muted-foreground">12 orders this year</p>
-                        </div>
-                      </div>
-                      <div className="text-sm font-medium">$48,920</div>
-                    </div>
-                  </div>
+                  )}
                 </CardContent>
               </Card>
             </div>
@@ -602,19 +544,39 @@ const SalesManagement = () => {
             <Card className="mb-6">
               <CardHeader>
                 <CardTitle>Orders</CardTitle>
-                <CardDescription>
-                  This tab will show your sales orders and their details
-                </CardDescription>
+                <CardDescription>All sales orders</CardDescription>
               </CardHeader>
-              <CardContent className="flex flex-col items-center justify-center min-h-[300px] space-y-4">
-                <ShoppingCart className="h-16 w-16 text-primary/40" />
-                <h3 className="text-xl font-semibold">Orders Management</h3>
-                <p className="text-center text-muted-foreground max-w-md">
-                  This module is being implemented in the current phase. You'll be able to create, edit, and manage all sales orders.
-                </p>
-                <Button onClick={() => setLocation("/sales/orders")}>
-                  Manage Orders
-                </Button>
+              <CardContent>
+                {orders.length === 0 ? (
+                  <div className="text-center text-muted-foreground">No orders yet. Orders will appear here after you create your first order.</div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="text-left border-b">
+                          <th className="pb-3 font-medium">Order #</th>
+                          <th className="pb-3 font-medium">Customer</th>
+                          <th className="pb-3 font-medium">Items</th>
+                          <th className="pb-3 font-medium">Total</th>
+                          <th className="pb-3 font-medium">Status</th>
+                          <th className="pb-3 font-medium">Date</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {orders.map(order => (
+                          <tr key={order.id} className="border-b last:border-none">
+                            <td className="py-3">{order.orderNumber}</td>
+                            <td className="py-3">{order.customerName}</td>
+                            <td className="py-3">{order.items.length}</td>
+                            <td className="py-3">{formatCurrency(order.total)}</td>
+                            <td className="py-3">{order.status}</td>
+                            <td className="py-3">{new Date(order.createdAt).toLocaleString()}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
