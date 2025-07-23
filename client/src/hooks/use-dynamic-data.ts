@@ -550,3 +550,115 @@ export const useDeliveryPerformance = () => {
     }
   });
 };
+
+// Purchase management hooks
+export const usePurchaseOrders = (supplierId?: number, status?: string) => {
+  return useQuery({
+    queryKey: ['purchase-orders', supplierId, status],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (supplierId) params.append('supplierId', supplierId.toString());
+      if (status) params.append('status', status);
+      
+      const response = await fetch(`/api/purchase-orders?${params}`);
+      if (!response.ok) throw new Error('Failed to fetch purchase orders');
+      return response.json();
+    }
+  });
+};
+
+export const useSuppliers = () => {
+  return useQuery({
+    queryKey: ['suppliers'],
+    queryFn: async () => {
+      const response = await fetch('/api/suppliers');
+      if (!response.ok) throw new Error('Failed to fetch suppliers');
+      return response.json();
+    }
+  });
+};
+
+// HRMS hooks
+export const useEmployees = (departmentId?: number, status?: string) => {
+  return useQuery({
+    queryKey: ['employees', departmentId, status],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (departmentId) params.append('departmentId', departmentId.toString());
+      if (status) params.append('status', status);
+      
+      const response = await fetch(`/api/employees?${params}`);
+      if (!response.ok) throw new Error('Failed to fetch employees');
+      return response.json();
+    }
+  });
+};
+
+export const useDepartments = () => {
+  return useQuery({
+    queryKey: ['departments'],
+    queryFn: async () => {
+      const response = await fetch('/api/departments');
+      if (!response.ok) throw new Error('Failed to fetch departments');
+      return response.json();
+    }
+  });
+};
+
+export const useAttendanceTrends = () => {
+  return useQuery({
+    queryKey: ['attendance-trends'],
+    queryFn: async () => {
+      const response = await fetch('/api/attendance-trends');
+      if (!response.ok) throw new Error('Failed to fetch attendance trends');
+      return response.json();
+    }
+  });
+};
+
+// Finance hooks
+export const useInvoices = (customerId?: number, status?: string) => {
+  return useQuery({
+    queryKey: ['invoices', customerId, status],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (customerId) params.append('customerId', customerId.toString());
+      if (status) params.append('status', status);
+      
+      const response = await fetch(`/api/invoices?${params}`);
+      if (!response.ok) throw new Error('Failed to fetch invoices');
+      return response.json();
+    }
+  });
+};
+
+export const usePayments = (type?: string, status?: string) => {
+  return useQuery({
+    queryKey: ['payments', type, status],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (type) params.append('type', type);
+      if (status) params.append('status', status);
+      
+      const response = await fetch(`/api/payments?${params}`);
+      if (!response.ok) throw new Error('Failed to fetch payments');
+      return response.json();
+    }
+  });
+};
+
+// Reports hooks
+export const useReports = (category?: string, dateRange?: string) => {
+  return useQuery({
+    queryKey: ['reports', category, dateRange],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (category) params.append('category', category);
+      if (dateRange) params.append('dateRange', dateRange);
+      
+      const response = await fetch(`/api/reports?${params}`);
+      if (!response.ok) throw new Error('Failed to fetch reports');
+      return response.json();
+    }
+  });
+};

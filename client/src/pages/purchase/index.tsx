@@ -1,4 +1,7 @@
 import { useState } from "react";
+import { useQuery } from '@tanstack/react-query';
+import { usePurchaseOrders, useSuppliers } from '@/hooks/use-dynamic-data';
+import { useWebSocket } from '@/hooks/use-websocket';
 import { useLocation } from "wouter";
 import {
   Tabs,

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useBillOfMaterials } from "@/hooks/use-dynamic-data";
+import { useWebSocket } from '@/hooks/use-websocket';
 import { useToast } from "@/hooks/use-toast";
 import {
   Card,
@@ -69,215 +70,62 @@ import {
   AlertCircle,
 } from "lucide-react";
 
-// Sample BOM data
-const sampleBOMs = [
-  {
-    id: "BOM-0001",
-    name: "Deluxe Office Chair",
-    description: "Ergonomic office chair with adjustable features",
-    status: "Active",
-    version: "1.0",
-    createdAt: "2023-03-15T09:00:00Z",
-    updatedAt: "2023-04-02T14:30:00Z",
-    productId: "PROD-1234",
-    components: [
-      {
-        id: 1,
-        name: "Chair Base",
-        sku: "CB-001",
-        quantity: 1,
-        unit: "Piece",
-        description: "5-star base with casters"
-      },
-      {
-        id: 2,
-        name: "Gas Lift",
-        sku: "GL-002",
-        quantity: 1,
-        unit: "Piece",
-        description: "Pneumatic height adjustment"
-      },
-      {
-        id: 3,
-        name: "Seat Cushion",
-        sku: "SC-003",
-        quantity: 1,
-        unit: "Piece",
-        description: "Foam seat cushion with fabric"
-      },
-      {
-        id: 4,
-        name: "Back Rest",
-        sku: "BR-004",
-        quantity: 1,
-        unit: "Piece",
-        description: "Ergonomic back support"
-      },
-      {
-        id: 5,
-        name: "Arm Rests",
-        sku: "AR-005",
-        quantity: 2,
-        unit: "Piece",
-        description: "Adjustable arm rests"
-      },
-      {
-        id: 6,
-        name: "Screws (M8)",
-        sku: "SR-006",
-        quantity: 12,
-        unit: "Piece",
-        description: "Mounting screws"
-      }
-    ]
-  },
-  {
-    id: "BOM-0002",
-    name: "Executive Desk",
-    description: "Premium executive desk with drawers",
-    status: "Active",
-    version: "1.2",
-    createdAt: "2023-02-10T11:15:00Z",
-    updatedAt: "2023-04-05T09:45:00Z",
-    productId: "PROD-2345",
-    components: [
-      {
-        id: 7,
-        name: "Desktop Surface",
-        sku: "DS-007",
-        quantity: 1,
-        unit: "Piece",
-        description: "Laminated desktop surface"
-      },
-      {
-        id: 8,
-        name: "Drawer Unit",
-        sku: "DU-008",
-        quantity: 2,
-        unit: "Piece",
-        description: "Drawer unit with 3 drawers"
-      },
-      {
-        id: 9,
-        name: "Desk Legs",
-        sku: "DL-009",
-        quantity: 4,
-        unit: "Piece",
-        description: "Steel desk legs"
-      }
-    ]
-  },
-  {
-    id: "BOM-0003",
-    name: "Conference Table",
-    description: "Large conference table for meeting rooms",
-    status: "Pending",
-    version: "1.0",
-    createdAt: "2023-04-01T13:20:00Z",
-    updatedAt: "2023-04-01T13:20:00Z",
-    productId: "PROD-3456",
-    components: [
-      {
-        id: 10,
-        name: "Table Top",
-        sku: "TT-010",
-        quantity: 1,
-        unit: "Piece",
-        description: "Large wooden table top"
-      },
-      {
-        id: 11,
-        name: "Table Base",
-        sku: "TB-011",
-        quantity: 1,
-        unit: "Piece",
-        description: "Metal base"
-      }
-    ]
-  },
-  {
-    id: "BOM-0004",
-    name: "Filing Cabinet",
-    description: "Metal filing cabinet with 4 drawers",
-    status: "Active",
-    version: "2.1",
-    createdAt: "2023-01-20T10:30:00Z",
-    updatedAt: "2023-03-15T11:45:00Z",
-    productId: "PROD-4567",
-    components: [
-      {
-        id: 12,
-        name: "Cabinet Shell",
-        sku: "CS-012",
-        quantity: 1,
-        unit: "Piece",
-        description: "Metal cabinet shell"
-      },
-      {
-        id: 13,
-        name: "Drawer Unit",
-        sku: "DU-013",
-        quantity: 4,
-        unit: "Piece",
-        description: "Filing drawer with rails"
-      },
-      {
-        id: 14,
-        name: "Lock Mechanism",
-        sku: "LM-014",
-        quantity: 1,
-        unit: "Set",
-        description: "Central locking mechanism"
-      }
-    ]
-  }
-];
-
-// Sample products for dropdown
-const sampleProducts = [
-  { id: "PROD-1234", name: "Deluxe Office Chair" },
-  { id: "PROD-2345", name: "Executive Desk" },
-  { id: "PROD-3456", name: "Conference Table" },
-  { id: "PROD-4567", name: "Filing Cabinet" },
-  { id: "PROD-5678", name: "Bookshelf" },
-  { id: "PROD-6789", name: "Reception Desk" }
-];
-
-// Format date string
-const formatDate = (dateString: string) => {
-  const date = new Date(dateString);
-  return new Intl.DateTimeFormat('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  }).format(date);
-};
-
-// Get status badge
-const getStatusBadge = (status: string) => {
-  switch (status) {
-    case "Active":
-      return <Badge className="bg-green-100 text-green-800">Active</Badge>;
-    case "Pending":
-      return <Badge className="bg-yellow-100 text-yellow-800">Pending</Badge>;
-    case "Inactive":
-      return <Badge className="bg-red-100 text-red-800">Inactive</Badge>;
-    default:
-      return <Badge className="bg-gray-100 text-gray-800">{status}</Badge>;
-  }
-};
+// Dynamic BOM data will be fetched from backend
 
 const BillOfMaterials = () => {
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [currentTab, setCurrentTab] = useState("list");
-  const [showBOMDialog, setShowBOMDialog] = useState(false);
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [showEditDialog, setShowEditDialog] = useState(false);
   const [currentBOM, setCurrentBOM] = useState<any>(null);
   const [componentItems, setComponentItems] = useState<any[]>([]);
 
-  // Query for BOM data with real-time updates
-  const { data: bomsData, isLoading, error: isError } = useBillOfMaterials();
+  // Dynamic BOM data with real-time updates
+  const { data: bomsData = [], isLoading, error } = useBillOfMaterials();
+  
+  // Dynamic products data
+  const { data: productsData = [] } = useQuery({
+    queryKey: ['products'],
+    queryFn: async () => {
+      const response = await fetch('/api/products');
+      if (!response.ok) throw new Error('Failed to fetch products');
+      return response.json();
+    }
+  });
+
+  // Set up WebSocket for real-time updates
+  useWebSocket({
+    resource: 'bill-of-materials',
+    resourceId: 'all',
+    invalidateQueries: [['bill-of-materials'], ['products']]
+  });
+
+  // Handle loading state
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center p-8">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+          <p>Loading bill of materials...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Handle error state
+  if (error) {
+    return (
+      <div className="flex items-center justify-center p-8">
+        <div className="text-center text-red-600">
+          <p>Error loading bill of materials: {error.message}</p>
+          <Button onClick={() => window.location.reload()} className="mt-4">
+            Retry
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   // Filter BOMs based on search and filters
   const filteredBOMs = bomsData?.filter(bom => {
@@ -289,7 +137,7 @@ const BillOfMaterials = () => {
     const matchesStatus = statusFilter === "all" || bom.status === statusFilter;
     
     return matchesSearch && matchesStatus;
-  });
+  }) || [];
 
   // Handle BOM dialog open
   const openBOMDialog = (bom: any = null) => {
@@ -299,7 +147,7 @@ const BillOfMaterials = () => {
     } else {
       setComponentItems([]);
     }
-    setShowBOMDialog(true);
+    setShowEditDialog(true);
   };
 
   // Add a new component item to BOM
@@ -338,21 +186,21 @@ const BillOfMaterials = () => {
         : "A new Bill of Materials has been created.",
     });
     
-    setShowBOMDialog(false);
+    setShowEditDialog(false);
   };
 
   // View BOM details
   const viewBOMDetails = (bom: any) => {
     setCurrentBOM(bom);
-    setCurrentTab("details");
+    setComponentItems([...bom.components]); // Ensure components are loaded for details view
   };
 
   return (
     <div className="space-y-6">
       <Tabs 
         defaultValue="list" 
-        value={currentTab} 
-        onValueChange={setCurrentTab}
+        value={currentBOM ? "details" : "list"} 
+        onValueChange={currentBOM ? () => {} : undefined}
         className="w-full"
       >
         <TabsList className="mb-6">
@@ -395,7 +243,7 @@ const BillOfMaterials = () => {
                     More Filters
                   </Button>
                   
-                  <Dialog open={showBOMDialog} onOpenChange={setShowBOMDialog}>
+                  <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
                     <DialogTrigger asChild>
                       <Button onClick={() => openBOMDialog()}>
                         <Plus className="h-4 w-4 mr-2" />
@@ -405,12 +253,10 @@ const BillOfMaterials = () => {
                     <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
                       <DialogHeader>
                         <DialogTitle>
-                          {currentBOM ? `Edit BOM: ${currentBOM.id}` : "Create New Bill of Materials"}
+                          Create New Bill of Materials
                         </DialogTitle>
                         <DialogDescription>
-                          {currentBOM 
-                            ? "Update the Bill of Materials information and components." 
-                            : "Create a new Bill of Materials with component details."}
+                          Create a new Bill of Materials with component details.
                         </DialogDescription>
                       </DialogHeader>
                       <form onSubmit={handleBOMSubmit} className="space-y-6">
@@ -421,20 +267,19 @@ const BillOfMaterials = () => {
                               <Input
                                 id="bom-id"
                                 placeholder="Auto-generated"
-                                defaultValue={currentBOM?.id || ""}
-                                disabled={!!currentBOM}
+                                disabled={true}
                                 className="bg-muted/50"
                               />
                             </div>
                             
                             <div>
                               <Label htmlFor="product">Product</Label>
-                              <Select defaultValue={currentBOM?.productId || ""}>
+                              <Select defaultValue="">
                                 <SelectTrigger>
                                   <SelectValue placeholder="Select product" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  {sampleProducts.map(product => (
+                                  {productsData.map(product => (
                                     <SelectItem key={product.id} value={product.id}>
                                       {product.name}
                                     </SelectItem>
@@ -448,7 +293,6 @@ const BillOfMaterials = () => {
                               <Input
                                 id="name"
                                 placeholder="Enter BOM name"
-                                defaultValue={currentBOM?.name || ""}
                                 required
                               />
                             </div>
@@ -460,13 +304,13 @@ const BillOfMaterials = () => {
                               <Input
                                 id="version"
                                 placeholder="e.g., 1.0"
-                                defaultValue={currentBOM?.version || "1.0"}
+                                defaultValue="1.0"
                               />
                             </div>
                             
                             <div>
                               <Label htmlFor="status">Status</Label>
-                              <Select defaultValue={currentBOM?.status || "Pending"}>
+                              <Select defaultValue="Pending">
                                 <SelectTrigger>
                                   <SelectValue placeholder="Select status" />
                                 </SelectTrigger>
@@ -483,7 +327,6 @@ const BillOfMaterials = () => {
                               <Input
                                 id="description"
                                 placeholder="Enter description"
-                                defaultValue={currentBOM?.description || ""}
                               />
                             </div>
                           </div>
@@ -588,11 +431,11 @@ const BillOfMaterials = () => {
                         </div>
                         
                         <DialogFooter>
-                          <Button type="button" variant="outline" onClick={() => setShowBOMDialog(false)}>
+                          <Button type="button" variant="outline" onClick={() => setShowCreateDialog(false)}>
                             Cancel
                           </Button>
                           <Button type="submit">
-                            {currentBOM ? "Update BOM" : "Create BOM"}
+                            Create BOM
                           </Button>
                         </DialogFooter>
                       </form>
@@ -626,25 +469,7 @@ const BillOfMaterials = () => {
               </div>
             </CardHeader>
             <CardContent>
-              {isLoading ? (
-                <div className="flex items-center justify-center py-8">
-                  <RefreshCw className="h-8 w-8 animate-spin text-primary" />
-                </div>
-              ) : isError ? (
-                <div className="flex items-center justify-center py-8 text-center">
-                  <div>
-                    <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
-                    <p className="text-lg font-medium">Error Loading Data</p>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      There was a problem loading the BOM data.
-                    </p>
-                    <Button variant="outline" className="mt-4" onClick={() => window.location.reload()}>
-                      <RefreshCw className="h-4 w-4 mr-2" />
-                      Retry
-                    </Button>
-                  </div>
-                </div>
-              ) : filteredBOMs?.length === 0 ? (
+              {filteredBOMs?.length === 0 ? (
                 <div className="flex items-center justify-center py-8 text-center">
                   <div>
                     <Layers className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
@@ -751,7 +576,7 @@ const BillOfMaterials = () => {
                   </p>
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={() => setCurrentTab("list")}>
+                  <Button variant="outline" size="sm" onClick={() => setCurrentBOM(null)}>
                     Back to List
                   </Button>
                   <Button variant="outline" size="sm" onClick={() => openBOMDialog(currentBOM)}>
