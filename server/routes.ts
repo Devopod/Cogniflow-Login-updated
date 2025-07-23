@@ -48,6 +48,7 @@ import adminRoutes from './src/routes/admin';
 import paymentRoutes from './src/routes/payments';
 import paymentReminderRoutes from './src/routes/payment-reminders';
 import paymentGatewayRoutes from './src/routes/payment-gateways';
+import { registerDynamicRoutes } from './routes-dynamic';
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Create HTTP server
@@ -63,6 +64,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Store WebSocket service in app.locals for access in routes
   app.locals.wsService = wsService;
+  
+  // Register all dynamic data routes
+  registerDynamicRoutes(app, wsService);
   
   // Initialize the scheduler
   console.log('Starting task scheduler...');

@@ -29,6 +29,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Trash2, FileSpreadsheet, Upload } from "lucide-react";
 import { useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 
 interface OrderFormProps {
   open: boolean;
@@ -45,15 +46,7 @@ interface OrderItem {
   total: number;
 }
 
-const MOCK_CUSTOMERS = [
-  { id: "1", name: "ABC Corporation", email: "contact@abc.com", gstin: "29ABCDE1234F1Z5" },
-  { id: "2", name: "XYZ Ltd", email: "info@xyz.com", gstin: "27PQRST5678G1Z3" },
-];
-
-const MOCK_PRODUCTS = [
-  { id: "1", name: "Laptop", price: 50000 },
-  { id: "2", name: "Desktop", price: 45000 },
-];
+// Using dynamic data from backend instead of mock data
 
 export function OrderForm({ open, onClose }: OrderFormProps) {
   const { toast } = useToast();
@@ -74,18 +67,38 @@ export function OrderForm({ open, onClose }: OrderFormProps) {
   const [file, setFile] = useState<File | null>(null);
   const queryClient = useQueryClient();
 
+  // Fetch dynamic customers data
+  const { data: customers = [], isLoading: isLoadingCustomers } = useQuery({
+    queryKey: ['contacts'],
+    queryFn: async () => {
+      const response = await fetch('/api/contacts');
+      if (!response.ok) throw new Error('Failed to fetch contacts');
+      return response.json();
+    }
+  });
+
+  // Fetch dynamic products data
+  const { data: products = [], isLoading: isLoadingProducts } = useQuery({
+    queryKey: ['products'],
+    queryFn: async () => {
+      const response = await fetch('/api/products');
+      if (!response.ok) throw new Error('Failed to fetch products');
+      return response.json();
+    }
+  });
+
   const handleAddItem = () => {
-    const product = MOCK_PRODUCTS.find((p) => p.id === selectedProduct);
+    const product = products.find((p: any) => p.id.toString() === selectedProduct);
     if (!product) return;
 
     const newItem: OrderItem = {
       id: Date.now().toString(),
       productName: product.name,
       quantity: quantity,
-      unitPrice: product.price,
+      unitPrice: product.price || product.unitPrice || 0,
       discount: 0,
-      tax: product.price * quantity * 0.18,
-      total: product.price * quantity * 1.18,
+      tax: (product.price || product.unitPrice || 0) * quantity * 0.18,
+      total: (product.price || product.unitPrice || 0) * quantity * 1.18,
     };
 
     setOrderItems([...orderItems, newItem]);
@@ -234,11 +247,15 @@ export function OrderForm({ open, onClose }: OrderFormProps) {
                       <SelectValue placeholder="Select a customer" />
                     </SelectTrigger>
                     <SelectContent>
-                      {MOCK_CUSTOMERS.map((customer) => (
-                        <SelectItem key={customer.id} value={customer.id}>
-                          {customer.name} - {customer.gstin}
-                        </SelectItem>
-                      ))}
+                      {isLoadingCustomers ? (
+                        <SelectItem value="loading" disabled>Loading customers...</SelectItem>
+                      ) : (
+                        customers.map((customer: any) => (
+                          <SelectItem key={customer.id} value={customer.id.toString()}>
+                            {customer.firstName} {customer.lastName} - {customer.company || 'Individual'}
+                          </SelectItem>
+                        ))
+                      )}
                     </SelectContent>
                   </Select>
                 ) : (
@@ -300,11 +317,15 @@ export function OrderForm({ open, onClose }: OrderFormProps) {
                       <SelectValue placeholder="Select product" />
                     </SelectTrigger>
                     <SelectContent>
-                      {MOCK_PRODUCTS.map((product) => (
-                        <SelectItem key={product.id} value={product.id}>
-                          {product.name} - ₹{product.price}
-                        </SelectItem>
-                      ))}
+                      {isLoadingProducts ? (
+                        <SelectItem value="loading" disabled>Loading products...</SelectItem>
+                      ) : (
+                        products.map((product: any) => (
+                          <SelectItem key={product.id} value={product.id.toString()}>
+                            {product.name} - ₹{product.price || product.unitPrice || 0}
+                          </SelectItem>
+                        ))
+                      )}
                     </SelectContent>
                   </Select>
                   <Input
