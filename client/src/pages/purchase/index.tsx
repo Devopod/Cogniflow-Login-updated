@@ -671,7 +671,7 @@ const PurchaseManagement = () => {
                       <div key={supplier.id} className="flex items-center justify-between p-3 border rounded-md">
                         <div className="flex items-center gap-3">
                           <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center font-bold text-primary">
-                            {supplier.name.charAt(0)}
+                                                          {supplier.name?.charAt(0) || 'S'}
                           </div>
                           <div>
                             <p className="text-sm font-medium">{supplier.name}</p>

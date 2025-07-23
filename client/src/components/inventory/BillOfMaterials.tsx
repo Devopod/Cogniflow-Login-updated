@@ -595,7 +595,7 @@ const BillOfMaterials = () => {
                   <CardHeader>
                     <CardTitle>Components</CardTitle>
                     <CardDescription>
-                      {currentBOM.components.length} component items
+                      {currentBOM.components?.length || 0} component items
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -657,7 +657,7 @@ const BillOfMaterials = () => {
                       </div>
                       <div className="flex justify-between items-center py-2">
                         <span className="text-sm font-medium">Component Count</span>
-                        <span>{currentBOM.components.length} items</span>
+                        <span>{currentBOM.components?.length || 0} items</span>
                       </div>
                     </div>
                   </CardContent>

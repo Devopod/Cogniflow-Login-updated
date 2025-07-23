@@ -726,7 +726,7 @@ export default function DashboardPage() {
                                 ${order.status === 'cancelled' ? 'bg-red-100 text-red-800' : ''}
                                 ${order.status === 'processing' ? 'bg-blue-100 text-blue-800' : ''}
                               `}>
-                                {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
+                                {order.status?.charAt(0).toUpperCase() + order.status?.slice(1) || 'Unknown'}
                               </span>
                             </td>
                             <td className="py-3">

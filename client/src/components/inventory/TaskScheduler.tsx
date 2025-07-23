@@ -309,13 +309,14 @@ const TaskScheduler = () => {
           <Tabs value={currentTab} onValueChange={setCurrentTab} className="w-full">
             <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="upcoming">
-                Upcoming ({tasksData.filter(t => t.status === "Scheduled" || t.status === "In Progress").length})
+                Upcoming ({tasksData.filter(t => t && (t.status === "Scheduled" || t.status === "In Progress")).length})
               </TabsTrigger>
               <TabsTrigger value="completed">
-                Completed ({tasksData.filter(t => t.status === "Completed").length})
+                Completed ({tasksData.filter(t => t && t.status === "Completed").length})
               </TabsTrigger>
               <TabsTrigger value="overdue">
                 Overdue ({tasksData.filter(t => {
+                  if (!t || !t.nextDue && !t.dueDate) return false;
                   const dueDate = new Date(t.nextDue || t.dueDate);
                   return dueDate < new Date() && t.status !== "Completed";
                 }).length})

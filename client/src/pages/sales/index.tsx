@@ -421,19 +421,19 @@ const SalesManagement = () => {
                     <div className="text-center text-muted-foreground">No recent orders yet. Orders will appear here after you create your first order.</div>
                   ) : (
                     <div className="space-y-4">
-                      {recentOrders.map((order) => (
+                      {recentOrders.filter(order => order && order.id).map((order) => (
                         <div key={order.id} className="flex items-start gap-3 p-3 border rounded-md">
                           <ShoppingCart className="h-5 w-5 text-blue-500 mt-0.5" />
                           <div className="flex-1">
-                            <p className="text-sm font-medium">Order #{order.id}</p>
-                            <p className="text-xs text-muted-foreground">{order.customer} - {order.items} items</p>
+                            <p className="text-sm font-medium">Order #{order.orderNumber || order.id}</p>
+                            <p className="text-xs text-muted-foreground">{order.customerName || order.customer || 'Unknown Customer'} - {order.items?.length || order.items || 0} items</p>
                             <div className="flex items-center gap-1 mt-1">
                               <Clock className="h-3 w-3 text-muted-foreground" />
-                              <span className="text-xs text-muted-foreground">{order.time}</span>
+                              <span className="text-xs text-muted-foreground">{order.time || new Date(order.createdAt || Date.now()).toLocaleString()}</span>
                             </div>
                           </div>
                           <Badge className={order.status === 'paid' ? 'bg-green-500 text-white' : 'bg-amber-500 text-white'}>
-                            {order.status === 'paid' ? 'Paid' : 'Pending'}
+                            {order.status === 'paid' ? 'Paid' : order.status || 'Pending'}
                           </Badge>
                         </div>
                       ))}
@@ -496,18 +496,18 @@ const SalesManagement = () => {
                     <div className="text-center text-muted-foreground">No top customers yet. Data will appear after you have sales.</div>
                   ) : (
                     <div className="space-y-4">
-                      {topCustomers.map((customer) => (
-                        <div key={customer.id} className="flex items-center justify-between p-3 border rounded-md">
+                      {topCustomers.filter(customer => customer && customer.name).map((customer) => (
+                        <div key={customer.id || customer.name} className="flex items-center justify-between p-3 border rounded-md">
                           <div className="flex items-center gap-3">
                             <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center font-bold text-primary">
-                              {customer.name.charAt(0)}
+                              {customer.name?.charAt(0) || 'N'}
                             </div>
                             <div>
-                              <p className="text-sm font-medium">{customer.name}</p>
-                              <p className="text-xs text-muted-foreground">{customer.orderCount} orders this year</p>
+                              <p className="text-sm font-medium">{customer.name || 'Unknown Customer'}</p>
+                              <p className="text-xs text-muted-foreground">{customer.orderCount || 0} orders this year</p>
                             </div>
                           </div>
-                          <div className="text-sm font-medium">{formatCurrency(customer.totalRevenue)}</div>
+                          <div className="text-sm font-medium">{formatCurrency(customer.totalRevenue || 0)}</div>
                         </div>
                       ))}
                     </div>
@@ -541,14 +541,14 @@ const SalesManagement = () => {
                         </tr>
                       </thead>
                       <tbody>
-                        {orders.map(order => (
+                        {orders.filter(order => order && order.id).map(order => (
                           <tr key={order.id} className="border-b last:border-none">
-                            <td className="py-3">{order.orderNumber}</td>
-                            <td className="py-3">{order.customerName}</td>
-                            <td className="py-3">{order.items.length}</td>
-                            <td className="py-3">{formatCurrency(order.total)}</td>
-                            <td className="py-3">{order.status}</td>
-                            <td className="py-3">{new Date(order.createdAt).toLocaleString()}</td>
+                            <td className="py-3">{order.orderNumber || order.id}</td>
+                            <td className="py-3">{order.customerName || 'Unknown Customer'}</td>
+                            <td className="py-3">{order.items?.length || 0}</td>
+                            <td className="py-3">{formatCurrency(order.total || 0)}</td>
+                            <td className="py-3">{order.status || 'Pending'}</td>
+                            <td className="py-3">{new Date(order.createdAt || Date.now()).toLocaleString()}</td>
                           </tr>
                         ))}
                       </tbody>

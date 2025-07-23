@@ -641,11 +641,11 @@ const ReorderLevelManagement = () => {
                     Critical
                   </span>
                   <Badge className="bg-red-500">
-                    {products.filter(p => p.status === "critical").length}
+                    {products.filter(p => p && p.status === "critical").length}
                   </Badge>
                 </div>
                 <Progress value={
-                  (products.filter(p => p.status === "critical").length / products.length) * 100
+                  products.length > 0 ? (products.filter(p => p && p.status === "critical").length / products.length) * 100 : 0
                 } className="h-2 bg-red-100" />
               </div>
               
@@ -656,11 +656,11 @@ const ReorderLevelManagement = () => {
                     Low Stock
                   </span>
                   <Badge className="bg-amber-500">
-                    {products.filter(p => p.status === "low").length}
+                    {products.filter(p => p && p.status === "low").length}
                   </Badge>
                 </div>
                 <Progress value={
-                  (products.filter(p => p.status === "low").length / products.length) * 100
+                  products.length > 0 ? (products.filter(p => p && p.status === "low").length / products.length) * 100 : 0
                 } className="h-2 bg-amber-100" />
               </div>
               
@@ -671,11 +671,11 @@ const ReorderLevelManagement = () => {
                     Normal
                   </span>
                   <Badge className="bg-green-500">
-                    {products.filter(p => p.status === "normal").length}
+                    {products.filter(p => p && p.status === "normal").length}
                   </Badge>
                 </div>
                 <Progress value={
-                  (products.filter(p => p.status === "normal").length / products.length) * 100
+                  products.length > 0 ? (products.filter(p => p && p.status === "normal").length / products.length) * 100 : 0
                 } className="h-2 bg-green-100" />
               </div>
               
@@ -686,11 +686,11 @@ const ReorderLevelManagement = () => {
                     Overstock
                   </span>
                   <Badge className="bg-blue-500">
-                    {products.filter(p => p.status === "overstock").length}
+                    {products.filter(p => p && p.status === "overstock").length}
                   </Badge>
                 </div>
                 <Progress value={
-                  (products.filter(p => p.status === "overstock").length / products.length) * 100
+                  products.length > 0 ? (products.filter(p => p && p.status === "overstock").length / products.length) * 100 : 0
                 } className="h-2 bg-blue-100" />
               </div>
               

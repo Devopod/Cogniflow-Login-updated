@@ -626,7 +626,7 @@ const ContactManagement = () => {
                   <div>
                     <div className="flex items-center gap-4 mb-4">
                       <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center text-xl font-bold text-primary">
-                        {selectedContact.firstName.charAt(0)}{selectedContact.lastName.charAt(0)}
+                        {selectedContact.firstName?.charAt(0) || ''}{selectedContact.lastName?.charAt(0) || ''}
                       </div>
                       <div>
                         <h3 className="text-lg font-semibold">{selectedContact.firstName} {selectedContact.lastName}</h3>
