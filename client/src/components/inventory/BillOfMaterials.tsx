@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useBillOfMaterials } from "@/hooks/use-dynamic-data";
 import { useToast } from "@/hooks/use-toast";
 import {
   Card,
@@ -275,14 +276,8 @@ const BillOfMaterials = () => {
   const [currentBOM, setCurrentBOM] = useState<any>(null);
   const [componentItems, setComponentItems] = useState<any[]>([]);
 
-  // Query for BOM data
-  const { data: bomsData, isLoading, isError } = useQuery({
-    queryKey: ["/api/inventory/boms"],
-    queryFn: () => {
-      // For demo, using the sample data
-      return Promise.resolve(sampleBOMs);
-    },
-  });
+  // Query for BOM data with real-time updates
+  const { data: bomsData, isLoading, error: isError } = useBillOfMaterials();
 
   // Filter BOMs based on search and filters
   const filteredBOMs = bomsData?.filter(bom => {
