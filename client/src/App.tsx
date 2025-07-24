@@ -188,7 +188,14 @@ function App() {
           <TooltipProvider>
             <Toaster />
             <ErrorBoundary>
-              <Suspense fallback={<div className="flex items-center justify-center h-screen">Loading...</div>}>
+              <Suspense fallback={
+                <div className="flex items-center justify-center h-screen">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                    <p className="mt-2">Loading CogniFlow ERP...</p>
+                  </div>
+                </div>
+              }>
                 <Router />
               </Suspense>
             </ErrorBoundary>

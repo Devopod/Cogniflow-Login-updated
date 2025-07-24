@@ -15,28 +15,41 @@ async function throwIfResNotOk(res: Response) {
   return res;
 }
 
-// Function to make API requests
+// Function to make API requests with timeout
 export async function apiRequest(
   method: string,
   endpoint: string,
   body?: any,
   headers: HeadersInit = {}
 ): Promise<Response> {
-  const options: RequestInit = {
-    method,
-    headers: {
-      "Content-Type": "application/json",
-      ...headers,
-    },
-    credentials: "include",
-  };
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
-  if (body) {
-    options.body = JSON.stringify(body);
+  try {
+    const options: RequestInit = {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        ...headers,
+      },
+      credentials: "include",
+      signal: controller.signal,
+    };
+
+    if (body) {
+      options.body = JSON.stringify(body);
+    }
+
+    const res = await fetch(endpoint, options);
+    clearTimeout(timeoutId);
+    return throwIfResNotOk(res);
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('Request timeout');
+    }
+    throw error;
   }
-
-  const res = await fetch(endpoint, options);
-  return throwIfResNotOk(res);
 }
 
 // Options for controlling 401 behavior
@@ -47,11 +60,17 @@ export const getQueryFn = <T>(options: {
   on401: UnauthorizedBehavior;
 }) => {
   return async ({ queryKey }: { queryKey: string[] }): Promise<T | null> => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout for queries
+
     try {
       const endpoint = queryKey[0];
       const res = await fetch(endpoint, {
         credentials: "include",
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       // Handle 401 based on options
       if (res.status === 401) {
@@ -65,6 +84,14 @@ export const getQueryFn = <T>(options: {
       await throwIfResNotOk(res);
       return res.json();
     } catch (error) {
+      clearTimeout(timeoutId);
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.warn("Query timeout for:", queryKey[0]);
+        if (options.on401 === "returnNull") {
+          return null; // Return null on timeout for auth checks
+        }
+        throw new Error("Request timeout");
+      }
       console.error("Query error:", error);
       throw error;
     }
@@ -75,9 +102,12 @@ export const getQueryFn = <T>(options: {
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      retry: 1,
+      retry: 1, // Only retry once
       staleTime: 5 * 60 * 1000, // 5 minutes
+      gcTime: 10 * 60 * 1000, // 10 minutes
       refetchOnWindowFocus: false,
+      refetchOnMount: true,
+      refetchOnReconnect: false,
     },
   },
 });
