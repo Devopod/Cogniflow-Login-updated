@@ -191,7 +191,7 @@ const Testimonials: React.FC = () => {
                         />
                       ) : (
                         <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mr-4 text-blue-600 font-bold text-xl">
-                          {testimonial.name.charAt(0)}
+                          {testimonial.name?.charAt(0) || 'T'}
                         </div>
                       )}
                       <div>

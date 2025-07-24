@@ -48,6 +48,7 @@ import adminRoutes from './src/routes/admin';
 import paymentRoutes from './src/routes/payments';
 import paymentReminderRoutes from './src/routes/payment-reminders';
 import paymentGatewayRoutes from './src/routes/payment-gateways';
+import { registerDynamicRoutes } from './routes-dynamic';
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Create HTTP server
@@ -60,6 +61,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   setWSService(wsService);
   setPaymentWSService(wsService);
   setSchedulerWSService(wsService);
+  
+  // Store WebSocket service in app.locals for access in routes
+  app.locals.wsService = wsService;
+  
+  // Register all dynamic data routes
+  registerDynamicRoutes(app, wsService);
   
   // Initialize the scheduler
   console.log('Starting task scheduler...');
@@ -502,14 +509,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // This route has been consolidated with the authenticated version below
   
   // Sales Module - Orders Routes
-  app.get("/api/orders", async (req, res) => {
+  app.get("/api/orders", isAuthenticated, async (req, res) => {
     try {
-      console.log("Fetching orders...");
+      console.log("Fetching orders for user:", req.user!.id);
       
       // Check if orders table exists, if not create it
       try {
-        // For testing purposes, return all orders without authentication
-        const orders = await db.select().from(schema.orders);
+        // Return orders for the authenticated user
+        const orders = await storage.getOrdersByUser(req.user!.id);
         console.log("Orders fetched:", orders);
         res.json(orders);
       } catch (err) {
@@ -601,6 +608,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
         orderNumber,
         orderDate: new Date()
       });
+      
+      // Broadcast order creation via WebSocket
+      const wsService = req.app.locals.wsService;
+      if (wsService) {
+        // Broadcast to all clients about new order
+        wsService.broadcast('new_order', {
+          order,
+          message: `New order ${order.orderNumber} created`
+        });
+        
+        // Broadcast order updates to specific resource listeners
+        wsService.broadcastToResource('orders', 'all', 'order_created', {
+          order,
+          orderId: order.id
+        });
+        
+        // Broadcast sales metrics update
+        wsService.broadcast('sales_metrics_updated', {
+          message: 'Sales metrics need refresh due to new order'
+        });
+        
+        // Broadcast dashboard update
+        wsService.broadcast('dashboard_updated', {
+          type: 'new_order',
+          order
+        });
+      }
+      
       res.status(201).json(order);
     } catch (error) {
       console.error("Error creating order:", error);
@@ -632,13 +667,232 @@ export async function registerRoutes(app: Express): Promise<Server> {
         orderId
       });
       
+      // Broadcast order item creation via WebSocket
+      const wsService = req.app.locals.wsService;
+      if (wsService) {
+        wsService.broadcastToResource('orders', orderId, 'order_item_created', {
+          item,
+          orderId
+        });
+        wsService.broadcast('sales_metrics_updated', {
+          message: 'Sales metrics need refresh due to order item update'
+        });
+      }
+      
       res.status(201).json(item);
     } catch (error) {
       console.error("Error creating order item:", error);
       res.status(500).json({ message: "Failed to create order item" });
     }
   });
+
+  app.put("/api/orders/:id", isAuthenticated, async (req, res) => {
+    try {
+      const orderId = parseInt(req.params.id);
+      const existingOrder = await storage.getOrder(orderId);
+      
+      if (!existingOrder || existingOrder.userId !== req.user!.id) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+      
+      const updatedOrder = await storage.updateOrder(orderId, req.body);
+      
+      if (!updatedOrder) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+      
+      // Broadcast order update via WebSocket
+      const wsService = req.app.locals.wsService;
+      if (wsService) {
+        wsService.broadcastToResource('orders', orderId, 'order_updated', {
+          order: updatedOrder,
+          orderId
+        });
+        wsService.broadcast('order_updated', {
+          order: updatedOrder,
+          message: `Order ${updatedOrder.orderNumber} updated`
+        });
+        wsService.broadcast('sales_metrics_updated', {
+          message: 'Sales metrics need refresh due to order update'
+        });
+        wsService.broadcast('dashboard_updated', {
+          type: 'order_updated',
+          order: updatedOrder
+        });
+      }
+      
+      res.json(updatedOrder);
+    } catch (error) {
+      console.error("Error updating order:", error);
+      res.status(500).json({ message: "Failed to update order" });
+    }
+  });
+
+  app.delete("/api/orders/:id", isAuthenticated, async (req, res) => {
+    try {
+      const orderId = parseInt(req.params.id);
+      const existingOrder = await storage.getOrder(orderId);
+      
+      if (!existingOrder || existingOrder.userId !== req.user!.id) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+      
+      const success = await storage.deleteOrder(orderId);
+      
+      if (!success) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+      
+      // Broadcast order deletion via WebSocket
+      const wsService = req.app.locals.wsService;
+      if (wsService) {
+        wsService.broadcastToResource('orders', orderId, 'order_deleted', {
+          orderId,
+          orderNumber: existingOrder.orderNumber
+        });
+        wsService.broadcast('order_deleted', {
+          orderId,
+          orderNumber: existingOrder.orderNumber,
+          message: `Order ${existingOrder.orderNumber} deleted`
+        });
+        wsService.broadcast('sales_metrics_updated', {
+          message: 'Sales metrics need refresh due to order deletion'
+        });
+        wsService.broadcast('dashboard_updated', {
+          type: 'order_deleted',
+          orderId,
+          orderNumber: existingOrder.orderNumber
+        });
+      }
+      
+      res.json({ message: "Order deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting order:", error);
+      res.status(500).json({ message: "Failed to delete order" });
+    }
+  });
   
+  // Additional sales endpoints for frontend compatibility
+  app.get("/api/sales/orders", isAuthenticated, async (req, res) => {
+    try {
+      const orders = await storage.getOrdersByUser(req.user!.id);
+      res.json(orders);
+    } catch (error) {
+      console.error("Error fetching sales orders:", error);
+      res.status(500).json({ message: "Failed to fetch sales orders" });
+    }
+  });
+
+  // Sales Analytics API endpoints
+  app.get("/api/sales/metrics", isAuthenticated, async (req, res) => {
+    try {
+      const orders = await storage.getOrdersByUser(req.user!.id);
+      
+      const totalSales = orders.reduce((sum, order) => sum + order.totalAmount, 0);
+      const totalOrders = orders.length;
+      const averageOrderValue = totalOrders > 0 ? totalSales / totalOrders : 0;
+      const pendingOrders = orders.filter(order => order.status === 'pending').length;
+      
+      const metrics = {
+        totalSales,
+        totalOrders,
+        averageOrderValue,
+        pendingOrders,
+        conversionRate: totalOrders > 0 ? (totalOrders / (totalOrders + pendingOrders)) * 100 : 0
+      };
+      
+      res.json(metrics);
+    } catch (error) {
+      console.error("Error fetching sales metrics:", error);
+      res.status(500).json({ message: "Failed to fetch sales metrics" });
+    }
+  });
+
+  app.get("/api/sales/recent-orders", isAuthenticated, async (req, res) => {
+    try {
+      const orders = await storage.getOrdersByUser(req.user!.id);
+      const recentOrders = orders
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .slice(0, 5);
+      
+      res.json(recentOrders);
+    } catch (error) {
+      console.error("Error fetching recent orders:", error);
+      res.status(500).json({ message: "Failed to fetch recent orders" });
+    }
+  });
+
+  app.get("/api/sales/monthly-sales", isAuthenticated, async (req, res) => {
+    try {
+      const orders = await storage.getOrdersByUser(req.user!.id);
+      
+      const monthlySales = orders.reduce((acc, order) => {
+        const month = new Date(order.orderDate).toISOString().slice(0, 7); // YYYY-MM
+        acc[month] = (acc[month] || 0) + order.totalAmount;
+        return acc;
+      }, {} as Record<string, number>);
+      
+      const salesData = Object.entries(monthlySales).map(([month, sales]) => ({
+        month,
+        sales
+      })).sort((a, b) => a.month.localeCompare(b.month));
+      
+      res.json(salesData);
+    } catch (error) {
+      console.error("Error fetching monthly sales:", error);
+      res.status(500).json({ message: "Failed to fetch monthly sales" });
+    }
+  });
+
+  app.get("/api/sales/by-category", isAuthenticated, async (req, res) => {
+    try {
+      const orders = await storage.getOrdersByUser(req.user!.id);
+      
+      const salesByCategory = orders.reduce((acc, order) => {
+        const category = order.category || 'Uncategorized';
+        acc[category] = (acc[category] || 0) + order.totalAmount;
+        return acc;
+      }, {} as Record<string, number>);
+      
+      const categoryData = Object.entries(salesByCategory).map(([name, value]) => ({
+        name,
+        value
+      }));
+      
+      res.json(categoryData);
+    } catch (error) {
+      console.error("Error fetching sales by category:", error);
+      res.status(500).json({ message: "Failed to fetch sales by category" });
+    }
+  });
+
+  app.get("/api/sales/top-customers", isAuthenticated, async (req, res) => {
+    try {
+      const orders = await storage.getOrdersByUser(req.user!.id);
+      
+      const customerSales = orders.reduce((acc, order) => {
+        if (order.contactId) {
+          acc[order.contactId] = (acc[order.contactId] || 0) + order.totalAmount;
+        }
+        return acc;
+      }, {} as Record<number, number>);
+      
+      const topCustomers = Object.entries(customerSales)
+        .map(([contactId, totalSales]) => ({
+          contactId: parseInt(contactId),
+          totalSales,
+          orderCount: orders.filter(o => o.contactId === parseInt(contactId)).length
+        }))
+        .sort((a, b) => b.totalSales - a.totalSales)
+        .slice(0, 5);
+      
+      res.json(topCustomers);
+    } catch (error) {
+      console.error("Error fetching top customers:", error);
+      res.status(500).json({ message: "Failed to fetch top customers" });
+    }
+  });
+
   // Sales Module - Quotations Routes
   app.get("/api/quotations", isAuthenticated, async (req, res) => {
     try {

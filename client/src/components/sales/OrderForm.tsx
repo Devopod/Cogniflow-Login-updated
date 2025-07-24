@@ -29,6 +29,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Trash2, FileSpreadsheet, Upload } from "lucide-react";
 import { useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 
 interface OrderFormProps {
   open: boolean;
@@ -45,15 +46,7 @@ interface OrderItem {
   total: number;
 }
 
-const MOCK_CUSTOMERS = [
-  { id: "1", name: "ABC Corporation", email: "contact@abc.com", gstin: "29ABCDE1234F1Z5" },
-  { id: "2", name: "XYZ Ltd", email: "info@xyz.com", gstin: "27PQRST5678G1Z3" },
-];
-
-const MOCK_PRODUCTS = [
-  { id: "1", name: "Laptop", price: 50000 },
-  { id: "2", name: "Desktop", price: 45000 },
-];
+// Using dynamic data from backend instead of mock data
 
 export function OrderForm({ open, onClose }: OrderFormProps) {
   const { toast } = useToast();
@@ -74,18 +67,38 @@ export function OrderForm({ open, onClose }: OrderFormProps) {
   const [file, setFile] = useState<File | null>(null);
   const queryClient = useQueryClient();
 
+  // Fetch dynamic customers data
+  const { data: customers = [], isLoading: isLoadingCustomers } = useQuery({
+    queryKey: ['contacts'],
+    queryFn: async () => {
+      const response = await fetch('/api/contacts');
+      if (!response.ok) throw new Error('Failed to fetch contacts');
+      return response.json();
+    }
+  });
+
+  // Fetch dynamic products data
+  const { data: products = [], isLoading: isLoadingProducts } = useQuery({
+    queryKey: ['products'],
+    queryFn: async () => {
+      const response = await fetch('/api/products');
+      if (!response.ok) throw new Error('Failed to fetch products');
+      return response.json();
+    }
+  });
+
   const handleAddItem = () => {
-    const product = MOCK_PRODUCTS.find((p) => p.id === selectedProduct);
+    const product = products.find((p: any) => p.id.toString() === selectedProduct);
     if (!product) return;
 
     const newItem: OrderItem = {
       id: Date.now().toString(),
       productName: product.name,
       quantity: quantity,
-      unitPrice: product.price,
+      unitPrice: product.price || product.unitPrice || 0,
       discount: 0,
-      tax: product.price * quantity * 0.18,
-      total: product.price * quantity * 1.18,
+      tax: (product.price || product.unitPrice || 0) * quantity * 0.18,
+      total: (product.price || product.unitPrice || 0) * quantity * 1.18,
     };
 
     setOrderItems([...orderItems, newItem]);
@@ -111,37 +124,63 @@ export function OrderForm({ open, onClose }: OrderFormProps) {
   const handleFormSubmit = async () => {
     try {
       if (activeTab === "manual") {
+        // Create order via API call instead of direct WebSocket
         const orderData = {
-          id: `ORD-${Date.now()}`,
-          customer: isNewCustomer ? newCustomer.name : MOCK_CUSTOMERS.find(c => c.id === selectedCustomer)?.name,
-          items: orderItems,
-          total: calculateTotal(),
-          status: "Pending",
-          date: new Date().toISOString()
+          contactId: selectedCustomer ? parseInt(selectedCustomer) : null,
+          subtotal: calculateTotal() / 1.18, // Remove tax from total to get subtotal
+          taxAmount: calculateTotal() - (calculateTotal() / 1.18),
+          totalAmount: calculateTotal(),
+          status: "pending",
+          notes: `Order created with ${orderItems.length} items`,
+          category: "sales",
+          paymentStatus: "unpaid",
+          currency: "INR"
         };
 
-        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsHost = window.location.hostname === 'localhost' ? 'localhost:5000' : window.location.host;
-        const ws = new WebSocket(`${wsProtocol}//${wsHost}/ws`);
-        
-        ws.addEventListener('open', () => {
-          ws.send(JSON.stringify({
-            type: 'new_order',
-            data: orderData
-          }));
-          setTimeout(() => ws.close(), 1000);
+        // Make API call to create order
+        const response = await fetch('/api/orders', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(orderData),
         });
+
+        if (!response.ok) {
+          throw new Error('Failed to create order');
+        }
+
+        const newOrder = await response.json();
+
+        // Create order items
+        for (const item of orderItems) {
+          await fetch(`/api/orders/${newOrder.id}/items`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              description: item.productName,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              taxRate: 0.18,
+              taxAmount: item.tax,
+              discountRate: 0,
+              discountAmount: item.discount,
+              subtotal: item.unitPrice * item.quantity,
+              totalAmount: item.total
+            }),
+          });
+        }
 
         toast({
           title: "Order created successfully",
-          description: `Order total: ₹${calculateTotal().toLocaleString()}`,
+          description: `Order ${newOrder.orderNumber} created with total: ₹${calculateTotal().toLocaleString()}`,
         });
-        queryClient.invalidateQueries(['orders']);
-        queryClient.invalidateQueries(['salesMetrics']);
-        queryClient.invalidateQueries(['salesData']);
-        queryClient.invalidateQueries(['recentOrders']);
-        queryClient.invalidateQueries(['topCustomers']);
-        queryClient.invalidateQueries(['salesByCategory']);
+
+        // The API will handle WebSocket broadcasts automatically
+        // Query invalidation will be handled by WebSocket listeners in parent component
+        
       } else if (activeTab === "metaForm" || activeTab === "googleForm") {
         // Handle form integration
         toast({
@@ -157,6 +196,7 @@ export function OrderForm({ open, onClose }: OrderFormProps) {
       }
       onClose();
     } catch (error) {
+      console.error('Error creating order:', error);
       toast({
         title: "Error creating order",
         description: "Something went wrong. Please try again.",
@@ -207,11 +247,15 @@ export function OrderForm({ open, onClose }: OrderFormProps) {
                       <SelectValue placeholder="Select a customer" />
                     </SelectTrigger>
                     <SelectContent>
-                      {MOCK_CUSTOMERS.map((customer) => (
-                        <SelectItem key={customer.id} value={customer.id}>
-                          {customer.name} - {customer.gstin}
-                        </SelectItem>
-                      ))}
+                      {isLoadingCustomers ? (
+                        <SelectItem value="loading" disabled>Loading customers...</SelectItem>
+                      ) : (
+                        customers.map((customer: any) => (
+                          <SelectItem key={customer.id} value={customer.id.toString()}>
+                            {customer.firstName} {customer.lastName} - {customer.company || 'Individual'}
+                          </SelectItem>
+                        ))
+                      )}
                     </SelectContent>
                   </Select>
                 ) : (
@@ -273,11 +317,15 @@ export function OrderForm({ open, onClose }: OrderFormProps) {
                       <SelectValue placeholder="Select product" />
                     </SelectTrigger>
                     <SelectContent>
-                      {MOCK_PRODUCTS.map((product) => (
-                        <SelectItem key={product.id} value={product.id}>
-                          {product.name} - ₹{product.price}
-                        </SelectItem>
-                      ))}
+                      {isLoadingProducts ? (
+                        <SelectItem value="loading" disabled>Loading products...</SelectItem>
+                      ) : (
+                        products.map((product: any) => (
+                          <SelectItem key={product.id} value={product.id.toString()}>
+                            {product.name} - ₹{product.price || product.unitPrice || 0}
+                          </SelectItem>
+                        ))
+                      )}
                     </SelectContent>
                   </Select>
                   <Input

@@ -1,4 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useQuery } from '@tanstack/react-query';
+import { usePurchaseOrders, useSuppliers } from '@/hooks/use-dynamic-data';
+import { useWebSocket } from '@/hooks/use-websocket';
 import { useLocation } from "wouter";
 import {
   Tabs,
@@ -69,7 +72,7 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { Supplier, PurchaseRequest, PurchaseOrder } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
@@ -86,6 +89,7 @@ const PurchaseManagement = () => {
     data: suppliers = [], 
     isLoading: suppliersLoading,
     isError: suppliersError,
+    error: suppliersErrorObj,
     refetch: refetchSuppliers
   } = useQuery<Supplier[]>({ 
     queryKey: ['/api/suppliers'],
@@ -96,7 +100,8 @@ const PurchaseManagement = () => {
   const {
     data: orders = [],
     isLoading: ordersLoading,
-    isError: ordersError
+    isError: ordersError,
+    error: ordersErrorObj
   } = useQuery<PurchaseOrder[]>({
     queryKey: ['/api/purchase-orders'],
     retry: 1
@@ -106,11 +111,26 @@ const PurchaseManagement = () => {
   const {
     data: requests = [],
     isLoading: requestsLoading,
-    isError: requestsError
+    isError: requestsError,
+    error: requestsErrorObj
   } = useQuery<PurchaseRequest[]>({
     queryKey: ['/api/purchase-requests'],
     retry: 1
   });
+
+  // Redirect to login if any query returns 401 Unauthorized
+  useEffect(() => {
+    const isUnauthorized = (err: any) => {
+      return err && (err.status === 401 || (err.response && err.response.status === 401));
+    };
+    if (
+      isUnauthorized(suppliersErrorObj) ||
+      isUnauthorized(ordersErrorObj) ||
+      isUnauthorized(requestsErrorObj)
+    ) {
+      setLocation("/auth");
+    }
+  }, [suppliersErrorObj, ordersErrorObj, requestsErrorObj, setLocation]);
   
   // Delete supplier mutation
   const deleteSupplierMutation = useMutation({
@@ -442,6 +462,15 @@ const PurchaseManagement = () => {
   return (
     <ErpNavigation>
       <div className="flex flex-col gap-6">
+        {/* Error Handling */}
+        {(suppliersError || ordersError || requestsError) && (
+          <div className="bg-red-100 text-red-700 p-4 rounded mb-4">
+            <strong>Error loading data.</strong> {suppliersErrorObj?.message || ordersErrorObj?.message || requestsErrorObj?.message}
+            { (suppliersErrorObj?.status === 401 || ordersErrorObj?.status === 401 || requestsErrorObj?.status === 401) && (
+              <span> Please <button className="underline text-blue-600" onClick={() => setLocation("/auth")}>login</button> again.</span>
+            )}
+          </div>
+        )}
         {/* Header section */}
         <div className="flex justify-between items-center">
           <div>
@@ -668,7 +697,7 @@ const PurchaseManagement = () => {
                       <div key={supplier.id} className="flex items-center justify-between p-3 border rounded-md">
                         <div className="flex items-center gap-3">
                           <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center font-bold text-primary">
-                            {supplier.name.charAt(0)}
+                                                          {supplier.name?.charAt(0) || 'S'}
                           </div>
                           <div>
                             <p className="text-sm font-medium">{supplier.name}</p>
