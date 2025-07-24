@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useQuery } from '@tanstack/react-query';
+import { useWebSocket } from '@/hooks/use-websocket';
 import {
   Card,
   CardContent,
@@ -105,153 +107,7 @@ interface ReorderSettings {
   pushNotifications: boolean;
 }
 
-// Sample data for demonstration
-const sampleProducts: Product[] = [
-  {
-    id: 1,
-    sku: "LAP-DEL-001",
-    name: "Dell Latitude 5420",
-    category: "Electronics",
-    currentStock: 15,
-    reorderLevel: 10,
-    maxStock: 40,
-    minOrderQty: 5,
-    leadTime: 14,
-    averageDailySales: 0.5,
-    supplier: "XYZ Electronics Ltd",
-    location: "Warehouse A",
-    lastOrdered: "2023-04-15",
-    status: "normal",
-    autoReorder: true,
-    isActive: true
-  },
-  {
-    id: 2,
-    sku: "DESK-001",
-    name: "Executive Office Desk",
-    category: "Furniture",
-    currentStock: 5,
-    reorderLevel: 8,
-    maxStock: 25,
-    minOrderQty: 3,
-    leadTime: 21,
-    averageDailySales: 0.2,
-    supplier: "Office Furniture Co",
-    location: "Warehouse B",
-    lastOrdered: "2023-03-10",
-    status: "low",
-    autoReorder: true,
-    isActive: true
-  },
-  {
-    id: 3,
-    sku: "PRINT-HP-002",
-    name: "HP LaserJet Pro Printer",
-    category: "Electronics",
-    currentStock: 2,
-    reorderLevel: 5,
-    maxStock: 15,
-    minOrderQty: 2,
-    leadTime: 10,
-    averageDailySales: 0.3,
-    supplier: "XYZ Electronics Ltd",
-    location: "Warehouse A",
-    lastOrdered: "2023-04-02",
-    status: "critical",
-    autoReorder: true,
-    isActive: true
-  },
-  {
-    id: 4,
-    sku: "CHAIR-ERG-005",
-    name: "Ergonomic Office Chair",
-    category: "Furniture",
-    currentStock: 35,
-    reorderLevel: 15,
-    maxStock: 30,
-    minOrderQty: 5,
-    leadTime: 14,
-    averageDailySales: 0.7,
-    supplier: "Office Furniture Co",
-    location: "Warehouse B",
-    lastOrdered: "2023-04-20",
-    status: "overstock",
-    autoReorder: false,
-    isActive: true
-  },
-  {
-    id: 5,
-    sku: "USB-DRIVE-16",
-    name: "16GB USB Flash Drive",
-    category: "Electronics",
-    currentStock: 120,
-    reorderLevel: 50,
-    maxStock: 200,
-    minOrderQty: 25,
-    leadTime: 7,
-    averageDailySales: 4.5,
-    supplier: "Tech Supplies Inc",
-    location: "Warehouse A",
-    lastOrdered: "2023-04-05",
-    status: "normal",
-    autoReorder: true,
-    isActive: true
-  },
-  {
-    id: 6,
-    sku: "TONER-HP-BLK",
-    name: "HP Black Toner Cartridge",
-    category: "Office Supplies",
-    currentStock: 7,
-    reorderLevel: 10,
-    maxStock: 25,
-    minOrderQty: 5,
-    leadTime: 5,
-    averageDailySales: 0.8,
-    supplier: "Office Supplies Co",
-    location: "Warehouse A",
-    lastOrdered: "2023-04-10",
-    status: "low",
-    autoReorder: true,
-    isActive: true
-  },
-  {
-    id: 7,
-    sku: "PAPER-A4-500",
-    name: "A4 Paper 500 Sheets",
-    category: "Office Supplies",
-    currentStock: 0,
-    reorderLevel: 20,
-    maxStock: 100,
-    minOrderQty: 10,
-    leadTime: 3,
-    averageDailySales: 2.5,
-    supplier: "Office Supplies Co",
-    location: "Warehouse A",
-    lastOrdered: "2023-04-01",
-    status: "critical",
-    autoReorder: true,
-    isActive: true
-  },
-  {
-    id: 8,
-    sku: "LAPTOP-BAG-001",
-    name: "15.6-inch Laptop Bag",
-    category: "Accessories",
-    currentStock: 25,
-    reorderLevel: 15,
-    maxStock: 50,
-    minOrderQty: 10,
-    leadTime: 10,
-    averageDailySales: 1.2,
-    supplier: "Tech Accessories Ltd",
-    location: "Warehouse C",
-    lastOrdered: "2023-03-25",
-    status: "normal",
-    autoReorder: false,
-    isActive: true
-  }
-];
+// Dynamic products data will be fetched from backend
 
 // Get status badge
 const getStatusBadge = (status: string) => {
@@ -305,7 +161,25 @@ const generatePOSuggestions = (products: Product[]) => {
 
 const ReorderLevelManagement = () => {
   const { toast } = useToast();
-  const [products, setProducts] = useState<Product[]>(sampleProducts);
+  
+  // Fetch dynamic products data with real-time updates
+  const { data: dynamicProducts = [], isLoading, error } = useQuery({
+    queryKey: ['products', 'inventory'],
+    queryFn: async () => {
+      const response = await fetch('/api/products?include=inventory');
+      if (!response.ok) throw new Error('Failed to fetch products');
+      return response.json();
+    }
+  });
+
+  // Set up WebSocket for real-time inventory updates
+  useWebSocket({
+    resource: 'inventory',
+    resourceId: 'products',
+    invalidateQueries: [['products', 'inventory']]
+  });
+
+  const products = dynamicProducts;
   const [reorderSettings, setReorderSettings] = useState<ReorderSettings>({
     enableAutoReorder: true,
     defaultLeadTime: 14,
@@ -322,9 +196,33 @@ const ReorderLevelManagement = () => {
   const [showEditProductDialog, setShowEditProductDialog] = useState<boolean>(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [showHistoryDialog, setShowHistoryDialog] = useState<boolean>(false);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
   const [selectedSuppliers, setSelectedSuppliers] = useState<string[]>([]);
   const [isGeneratingPO, setIsGeneratingPO] = useState<boolean>(false);
+
+  // Handle loading and error states
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center p-8">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+          <p>Loading inventory data...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center p-8">
+        <div className="text-center text-red-600">
+          <p>Error loading inventory data: {error.message}</p>
+          <Button onClick={() => window.location.reload()} className="mt-4">
+            Retry
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   // Get unique categories from products
   const categories = Array.from(new Set(products.map(p => p.category)));
@@ -368,18 +266,32 @@ const ReorderLevelManagement = () => {
     return groups;
   }, {} as Record<string, Product[]>);
 
-  // Update product
-  const updateProduct = (updatedProduct: Product) => {
-    setProducts(prev => 
-      prev.map(p => p.id === updatedProduct.id ? updatedProduct : p)
-    );
-    
-    toast({
-      title: "Product Updated",
-      description: `Reorder levels for ${updatedProduct.name} have been updated.`,
-    });
-    
-    setShowEditProductDialog(false);
+  // Update product - send to backend
+  const updateProduct = async (updatedProduct: Product) => {
+    try {
+      const response = await fetch(`/api/products/${updatedProduct.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedProduct)
+      });
+      
+      if (!response.ok) throw new Error('Failed to update product');
+      
+      // The WebSocket will handle updating the UI automatically
+      
+      toast({
+        title: "Product Updated",
+        description: `Reorder levels for ${updatedProduct.name} have been updated.`,
+      });
+      
+      setShowEditProductDialog(false);
+    } catch (error) {
+      toast({
+        title: "Update Failed",
+        description: "Failed to update product. Please try again.",
+        variant: "destructive"
+      });
+    }
   };
 
   // Handle edit product
@@ -729,11 +641,11 @@ const ReorderLevelManagement = () => {
                     Critical
                   </span>
                   <Badge className="bg-red-500">
-                    {products.filter(p => p.status === "critical").length}
+                    {products.filter(p => p && p.status === "critical").length}
                   </Badge>
                 </div>
                 <Progress value={
-                  (products.filter(p => p.status === "critical").length / products.length) * 100
+                  products.length > 0 ? (products.filter(p => p && p.status === "critical").length / products.length) * 100 : 0
                 } className="h-2 bg-red-100" />
               </div>
               
@@ -744,11 +656,11 @@ const ReorderLevelManagement = () => {
                     Low Stock
                   </span>
                   <Badge className="bg-amber-500">
-                    {products.filter(p => p.status === "low").length}
+                    {products.filter(p => p && p.status === "low").length}
                   </Badge>
                 </div>
                 <Progress value={
-                  (products.filter(p => p.status === "low").length / products.length) * 100
+                  products.length > 0 ? (products.filter(p => p && p.status === "low").length / products.length) * 100 : 0
                 } className="h-2 bg-amber-100" />
               </div>
               
@@ -759,11 +671,11 @@ const ReorderLevelManagement = () => {
                     Normal
                   </span>
                   <Badge className="bg-green-500">
-                    {products.filter(p => p.status === "normal").length}
+                    {products.filter(p => p && p.status === "normal").length}
                   </Badge>
                 </div>
                 <Progress value={
-                  (products.filter(p => p.status === "normal").length / products.length) * 100
+                  products.length > 0 ? (products.filter(p => p && p.status === "normal").length / products.length) * 100 : 0
                 } className="h-2 bg-green-100" />
               </div>
               
@@ -774,11 +686,11 @@ const ReorderLevelManagement = () => {
                     Overstock
                   </span>
                   <Badge className="bg-blue-500">
-                    {products.filter(p => p.status === "overstock").length}
+                    {products.filter(p => p && p.status === "overstock").length}
                   </Badge>
                 </div>
                 <Progress value={
-                  (products.filter(p => p.status === "overstock").length / products.length) * 100
+                  products.length > 0 ? (products.filter(p => p && p.status === "overstock").length / products.length) * 100 : 0
                 } className="h-2 bg-blue-100" />
               </div>
               

@@ -25,7 +25,8 @@ class TaskScheduler {
   private checkInterval: number = 60 * 1000; // Check every minute
 
   constructor() {
-    this.start();
+    // Don't start automatically - wait for explicit start
+    console.log('Task scheduler initialized (not started)');
   }
 
   /**

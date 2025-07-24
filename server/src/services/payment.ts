@@ -15,11 +15,15 @@ let paypal: any; // PayPal SDK would be initialized here
 // Initialize gateways with configuration from database
 async function initializeGateways() {
   try {
-    // Check if payment_gateway_settings table exists
+    // Check if payment_gateway_settings table exists and get gateway settings
     try {
       // Get gateway settings from database
       const gatewaySettings = await db.query.payment_gateway_settings.findMany({
         where: eq(payment_gateway_settings.is_enabled, true),
+      }).catch(() => {
+        // If table doesn't exist or query fails, return empty array
+        console.log('Payment gateway settings table not found, using environment variables');
+        return [];
       });
       
       // Initialize each gateway
@@ -47,7 +51,7 @@ async function initializeGateways() {
       }
     } catch (dbError) {
       // If there's an error with the database query, fall back to environment variables
-      throw new Error(`Database error: ${dbError.message}`);
+      console.log('Database error in payment gateway initialization, using environment variables:', dbError.message);
     }
   } catch (error) {
     console.error('Error initializing payment gateways:', error);

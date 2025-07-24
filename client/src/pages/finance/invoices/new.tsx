@@ -127,7 +127,7 @@ function InvoicePreview({ data }: { data: InvoiceFormValues }) {
                 data.status === "paid" ? "bg-green-500" :
                 data.status === "overdue" ? "bg-red-500" : ""
               }>
-                {data.status.charAt(0).toUpperCase() + data.status.slice(1)}
+                                              {data.status?.charAt(0).toUpperCase() + data.status?.slice(1) || 'Unknown'}
               </Badge>
             </div>
             {data.isRecurring && (
@@ -135,7 +135,7 @@ function InvoicePreview({ data }: { data: InvoiceFormValues }) {
                 <h3 className="font-semibold text-muted-foreground mb-2">Recurring:</h3>
                 <Badge variant="outline">
                   {data.recurringFrequency 
-                    ? data.recurringFrequency.charAt(0).toUpperCase() + data.recurringFrequency.slice(1) 
+                    ? data.recurringFrequency?.charAt(0).toUpperCase() + data.recurringFrequency?.slice(1) 
                     : "Monthly"}
                 </Badge>
               </div>
