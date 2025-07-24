@@ -68,13 +68,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Register all dynamic data routes
   registerDynamicRoutes(app, wsService);
   
-  // Initialize the scheduler
-  console.log('Starting task scheduler...');
+  // Initialize the scheduler (but don't start tasks yet)
+  console.log('Task scheduler ready');
   const scheduledTasks = scheduler.getTasks();
   console.log(`${scheduledTasks.length} tasks registered`);
   
   // Set up authentication
   setupAuth(app);
+
+  // Health check endpoint (fast response)
+  app.get('/api/health', (req, res) => {
+    res.json({ 
+      status: 'ok', 
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime()
+    });
+  });
 
   // Test endpoint
   app.get('/api/test', (req, res) => {

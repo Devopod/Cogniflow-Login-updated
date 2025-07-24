@@ -1,0 +1,65 @@
+
+> rest-express@1.0.0 dev
+> cross-env NODE_ENV=development tsx server/index.ts
+
+Task scheduler initialized (not started)
+Task registered: Check for Overdue Invoices (check-overdue-invoices)
+Task registered: Send Payment Reminders (send-payment-reminders)
+Task scheduler ready
+2 tasks registered
+Payment gateway settings table not found, using environment variables
+8:45:52 AM [express] serving on port 5000
+8:46:02 AM [express] GET /api/health 200 in 3ms :: {"status":"ok","timestamp":"2025-07-24T08:46:02.5…
+8:46:08 AM [express] GET /api/products 401 in 1ms :: {"message":"Unauthorized"}
+Error fetching system modules: ErrorEvent {
+  [Symbol(kTarget)]: WebSocket {
+    _events: [Object: null prototype] {
+      error: [Function],
+      message: [Function],
+      close: [Function],
+      open: [Function]
+    },
+    _eventsCount: 4,
+    _maxListeners: undefined,
+    _binaryType: 'arraybuffer',
+    _closeCode: 1006,
+    _closeFrameReceived: false,
+    _closeFrameSent: false,
+    _closeMessage: <Buffer >,
+    _closeTimer: null,
+    _errorEmitted: true,
+    _extensions: {},
+    _paused: false,
+    _protocol: '',
+    _readyState: 3,
+    _receiver: null,
+    _sender: null,
+    _socket: null,
+    _bufferedAmount: 0,
+    _isServer: false,
+    _redirects: 0,
+    _autoPong: true,
+    _url: 'wss://localhost/v2',
+    _req: null,
+    [Symbol(shapeMode)]: false,
+    [Symbol(kCapture)]: false
+  },
+  [Symbol(kType)]: 'error',
+  [Symbol(kError)]: AggregateError [ECONNREFUSED]: 
+      at internalConnectMultiple (node:net:1139:18)
+      at afterConnectMultiple (node:net:1714:7) {
+    code: 'ECONNREFUSED',
+    [errors]: [ [Error], [Error] ]
+  },
+  [Symbol(kMessage)]: ''
+}
+8:46:08 AM [express] GET /api/system/modules 200 in 4ms :: []
+8:46:14 AM [vite] Pre-transform error: /workspace/client/src/pages/purchase/index.tsx: Identifier 'useQuery' has already been declared. (75:9)
+
+  73 | import { Label } from "@/components/ui/label";
+  74 | import { Switch } from "@/components/ui/switch";
+> 75 | import { useQuery, useMutation } from "@tanstack/react-query";
+     |          ^
+  76 | import { Supplier, PurchaseRequest, PurchaseOrder } from "@shared/schema";
+  77 | import { apiRequest, queryClient } from "@/lib/queryClient";
+  78 |
