@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { useWebSocket } from '@/hooks/use-websocket';
 import {
   Card,
   CardContent,
@@ -543,22 +544,26 @@ const sampleCustomers: Customer[] = [
   { id: 5, name: "City Hospital", email: "procurement@cityhospital.org", phone: "777-888-9999", company: "City Hospital", address: "1000 Health Avenue, Medical City, MC 11223", contactPerson: "Dr. Robert Brown" }
 ];
 
-// Sample products for use in the form
-const sampleProducts: Product[] = [
-  { id: 1, name: "Dell Latitude 5420", sku: "LAP-DEL-001", unitPrice: 899.99, description: "Business laptop with Intel Core i5, 16GB RAM, 512GB SSD", category: "Electronics", inStock: 42 },
-  { id: 2, name: "Executive Office Desk", sku: "DESK-001", unitPrice: 349.99, description: "Premium wooden office desk, 160x80cm", category: "Furniture", inStock: 7 },
-  { id: 3, name: "HP LaserJet Pro Printer", sku: "PRINT-HP-002", unitPrice: 249.99, description: "Monochrome laser printer with duplex printing", category: "Electronics", inStock: 3 },
-  { id: 4, name: "Ergonomic Office Chair", sku: "CHAIR-ERG-005", unitPrice: 189.99, description: "Adjustable office chair with lumbar support", category: "Furniture", inStock: 15 },
-  { id: 5, name: "16GB USB Flash Drive", sku: "USB-DRIVE-16", unitPrice: 12.99, description: "USB 3.0 flash drive, 16GB capacity", category: "Electronics", inStock: 78 },
-  { id: 6, name: "HP Black Toner Cartridge", sku: "TONER-HP-BLK", unitPrice: 79.99, description: "Original HP toner cartridge, black", category: "Office Supplies", inStock: 2 },
-  { id: 7, name: "A4 Paper 500 Sheets", sku: "PAPER-A4-500", unitPrice: 6.99, description: "A4 printing paper, 80gsm, 500 sheets per ream", category: "Office Supplies", inStock: 0 },
-  { id: 8, name: "15.6-inch Laptop Bag", sku: "LAPTOP-BAG-001", unitPrice: 34.99, description: "Padded laptop bag with shoulder strap", category: "Accessories", inStock: 12 },
-  { id: 9, name: "Blue Ballpoint Pens (Box of 50)", sku: "PENS-BLUE-BOX", unitPrice: 15.99, description: "Medium point ballpoint pens, blue ink, box of 50", category: "Office Supplies", inStock: 4 },
-  { id: 10, name: "24-inch LED Monitor", sku: "MONITOR-24", unitPrice: 159.99, description: "Full HD LED monitor, 24-inch display", category: "Electronics", inStock: 9 }
-];
+// Dynamic products data will be fetched from the API
 
 const QuotationsManagement = () => {
   const { toast } = useToast();
+  
+  // Dynamic data hooks
+  const { data: products = [], isLoading: isLoadingProducts } = useQuery({
+    queryKey: ['products'],
+    queryFn: async () => {
+      const response = await fetch('/api/products');
+      if (!response.ok) throw new Error('Failed to fetch products');
+      return response.json();
+    }
+  });
+  
+  // Real-time updates via WebSocket for sales changes
+  useWebSocket({
+    resource: 'quotations',
+    invalidateQueries: [['products'], ['quotations']]
+  });
   const [currentTab, setCurrentTab] = useState<"active" | "all" | "drafts">("active");
   const [showNewQuotationDialog, setShowNewQuotationDialog] = useState(false);
   const [showViewQuotationDialog, setShowViewQuotationDialog] = useState(false);
@@ -630,7 +635,7 @@ const QuotationsManagement = () => {
   
   // Add a product to the quotation
   const addProductToQuotation = (productId: number) => {
-    const product = sampleProducts.find(p => p.id === productId);
+          const product = products.find(p => p.id === productId);
     if (!product) return;
     
     setNewQuotation(prev => ({
@@ -881,7 +886,7 @@ const QuotationsManagement = () => {
                           <SelectValue placeholder="Add a product" />
                         </SelectTrigger>
                         <SelectContent>
-                          {sampleProducts.map((product) => (
+                          {products.map((product) => (
                             <SelectItem key={product.id} value={product.id.toString()}>
                               {product.name} - {formatCurrency(product.unitPrice)}
                             </SelectItem>
@@ -905,7 +910,7 @@ const QuotationsManagement = () => {
                           </TableHeader>
                           <TableBody>
                             {newQuotation.items.map((item, index) => {
-                              const product = sampleProducts.find(p => p.id === item.productId);
+                              const product = products.find(p => p.id === item.productId);
                               if (!product) return null;
                               
                               return (
