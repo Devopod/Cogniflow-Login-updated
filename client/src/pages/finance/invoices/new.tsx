@@ -13,7 +13,10 @@ import {
   UserIcon,
   CurrencyDollarIcon,
   DocumentTextIcon,
-  CalculatorIcon
+  CalculatorIcon,
+  LinkIcon,
+  EyeIcon,
+  ClockIcon
 } from "@heroicons/react/24/outline";
 
 import { Button } from "@/components/ui/button";
@@ -27,7 +30,15 @@ import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
-import { useCreateInvoice, useUpdateInvoice, useInvoice, useSendInvoice } from "@/hooks/use-finance-data";
+import { 
+  useCreateInvoice, 
+  useUpdateInvoice, 
+  useInvoice, 
+  useSendInvoice,
+  useGenerateInvoicePDF,
+  useCreatePaymentLink,
+  useInvoiceWorkflow
+} from "@/hooks/use-finance-data";
 import { useContacts } from "@/hooks/use-contacts";
 import { useWebSocket } from "@/hooks/use-websocket";
 import { useAIInvoiceAssistant } from "@/hooks/use-ai-invoice-assistant";
@@ -89,6 +100,7 @@ export default function NewInvoice() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [selectedCurrency, setSelectedCurrency] = useState(CURRENCIES[0]);
+  const [lastSavedInvoiceId, setLastSavedInvoiceId] = useState<number | null>(null);
 
   // Get invoice ID from URL if editing
   const invoiceId = location.includes("/edit/") ? parseInt(location.split("/edit/")[1]) : null;
@@ -100,7 +112,14 @@ export default function NewInvoice() {
   const createInvoice = useCreateInvoice();
   const updateInvoice = useUpdateInvoice();
   const sendInvoice = useSendInvoice();
+  const generatePDF = useGenerateInvoicePDF();
+  const createPaymentLink = useCreatePaymentLink();
   const { suggestDescription, suggestPrice } = useAIInvoiceAssistant();
+
+  // Use the enhanced workflow hook for the current invoice if editing
+  const workflow = useInvoiceWorkflow(invoiceId || lastSavedInvoiceId || 0, {
+    enabled: !!(invoiceId || lastSavedInvoiceId)
+  });
 
   // Form setup
   const form = useForm<InvoiceFormData>({
@@ -215,7 +234,7 @@ export default function NewInvoice() {
   }, [existingInvoice, isEditing, form]);
 
   // Handle form submission
-  const onSubmit = async (data: InvoiceFormData, action: "draft" | "send") => {
+  const onSubmit = async (data: InvoiceFormData, action: "draft" | "send" | "schedule") => {
     try {
       setIsSubmitting(true);
 
@@ -225,7 +244,7 @@ export default function NewInvoice() {
         taxAmount: totals.totalTax,
         discountAmount: totals.totalDiscount,
         totalAmount: totals.total,
-        status: action === "draft" ? "Draft" : "Sent",
+        status: action === "draft" ? "Draft" : action === "schedule" ? "Scheduled" : "Sent",
         paymentStatus: "Pending",
       };
 
@@ -237,6 +256,7 @@ export default function NewInvoice() {
         });
       } else {
         result = await createInvoice.mutateAsync(invoiceData);
+        setLastSavedInvoiceId(result.id);
       }
 
       // Send invoice if requested
@@ -252,6 +272,73 @@ export default function NewInvoice() {
       console.error("Error saving invoice:", error);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  // Enhanced action handlers
+  const handlePreviewPDF = async () => {
+    const currentInvoiceId = invoiceId || lastSavedInvoiceId;
+    if (!currentInvoiceId) {
+      // Save draft first
+      const formData = form.getValues();
+      const invoiceData = {
+        ...formData,
+        subtotal: totals.subtotal,
+        taxAmount: totals.totalTax,
+        discountAmount: totals.totalDiscount,
+        totalAmount: totals.total,
+        status: "Draft",
+        paymentStatus: "Pending",
+      };
+      
+      const result = await createInvoice.mutateAsync(invoiceData);
+      setLastSavedInvoiceId(result.id);
+      
+      // Generate PDF
+      await generatePDF.mutateAsync({ invoiceId: result.id });
+    } else {
+      await generatePDF.mutateAsync({ invoiceId: currentInvoiceId });
+    }
+  };
+
+  const handleCreatePaymentLink = async () => {
+    const currentInvoiceId = invoiceId || lastSavedInvoiceId;
+    if (!currentInvoiceId) {
+      // Save draft first
+      const formData = form.getValues();
+      const invoiceData = {
+        ...formData,
+        subtotal: totals.subtotal,
+        taxAmount: totals.totalTax,
+        discountAmount: totals.totalDiscount,
+        totalAmount: totals.total,
+        status: "Draft",
+        paymentStatus: "Pending",
+      };
+      
+      const result = await createInvoice.mutateAsync(invoiceData);
+      setLastSavedInvoiceId(result.id);
+      
+      // Create payment link
+      const linkResult = await createPaymentLink.mutateAsync({ 
+        invoiceId: result.id,
+        customMessage: "Please pay this invoice at your convenience"
+      });
+      
+      // Copy to clipboard
+      if (linkResult.paymentUrl) {
+        navigator.clipboard.writeText(linkResult.paymentUrl);
+        // You could show a toast notification here
+      }
+    } else {
+      const linkResult = await createPaymentLink.mutateAsync({ 
+        invoiceId: currentInvoiceId,
+        customMessage: "Please pay this invoice at your convenience"
+      });
+      
+      if (linkResult.paymentUrl) {
+        navigator.clipboard.writeText(linkResult.paymentUrl);
+      }
     }
   };
 
@@ -807,20 +894,169 @@ export default function NewInvoice() {
                 <CardTitle>Quick Actions</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
-                <Button variant="outline" className="w-full justify-start">
-                  <DocumentTextIcon className="h-4 w-4 mr-2" />
-                  Preview PDF
+                <Button 
+                  variant="outline" 
+                  className="w-full justify-start"
+                  onClick={handlePreviewPDF}
+                  disabled={generatePDF.isPending}
+                >
+                  <EyeIcon className="h-4 w-4 mr-2" />
+                  {generatePDF.isPending ? "Generating..." : "Preview PDF"}
                 </Button>
-                <Button variant="outline" className="w-full justify-start">
-                  <CurrencyDollarIcon className="h-4 w-4 mr-2" />
-                  Payment Link
+                
+                <Button 
+                  variant="outline" 
+                  className="w-full justify-start"
+                  onClick={handleCreatePaymentLink}
+                  disabled={createPaymentLink.isPending}
+                >
+                  <LinkIcon className="h-4 w-4 mr-2" />
+                  {createPaymentLink.isPending ? "Creating..." : "Payment Link"}
                 </Button>
-                <Button variant="outline" className="w-full justify-start">
-                  <CalendarIcon className="h-4 w-4 mr-2" />
+                
+                <Button 
+                  variant="outline" 
+                  className="w-full justify-start"
+                  onClick={form.handleSubmit((data) => onSubmit(data, "schedule"))}
+                  disabled={isSubmitting}
+                >
+                  <ClockIcon className="h-4 w-4 mr-2" />
                   Schedule Send
                 </Button>
+
+                {/* Show workflow actions if invoice exists */}
+                {workflow.invoice && (
+                  <>
+                    <Separator className="my-4" />
+                    <div className="space-y-2">
+                      <h4 className="text-sm font-medium">Invoice Actions</h4>
+                      
+                      {workflow.invoice.status === "Draft" && (
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          className="w-full"
+                          onClick={() => workflow.sendInvoice.mutate({ 
+                            invoiceId: workflow.invoice!.id,
+                            sendEmail: true 
+                          })}
+                          disabled={workflow.sendInvoice.isPending}
+                        >
+                          <SendIcon className="h-4 w-4 mr-2" />
+                          {workflow.sendInvoice.isPending ? "Sending..." : "Send Now"}
+                        </Button>
+                      )}
+
+                      {workflow.invoice.paymentStatus !== "Paid" && (
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          className="w-full"
+                          onClick={() => workflow.createPaymentIntent.mutate({ 
+                            invoiceId: workflow.invoice!.id 
+                          })}
+                          disabled={workflow.createPaymentIntent.isPending}
+                        >
+                          <CurrencyDollarIcon className="h-4 w-4 mr-2" />
+                          {workflow.createPaymentIntent.isPending ? "Creating..." : "Payment Intent"}
+                        </Button>
+                      )}
+
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        className="w-full"
+                        onClick={() => workflow.generatePDF.mutate({ 
+                          invoiceId: workflow.invoice!.id 
+                        })}
+                        disabled={workflow.generatePDF.isPending}
+                      >
+                        <DocumentTextIcon className="h-4 w-4 mr-2" />
+                        {workflow.generatePDF.isPending ? "Generating..." : "Download PDF"}
+                      </Button>
+                    </div>
+                  </>
+                )}
               </CardContent>
             </Card>
+
+            {/* Real-time Status */}
+            {workflow.invoice && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Invoice Status</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span>Status:</span>
+                    <Badge variant={
+                      workflow.invoice.status === "Paid" ? "default" :
+                      workflow.invoice.status === "Sent" ? "secondary" :
+                      workflow.invoice.status === "Overdue" ? "destructive" :
+                      "outline"
+                    }>
+                      {workflow.invoice.status}
+                    </Badge>
+                  </div>
+                  
+                  <div className="flex items-center justify-between">
+                    <span>Payment:</span>
+                    <Badge variant={
+                      workflow.invoice.paymentStatus === "Paid" ? "default" :
+                      workflow.invoice.paymentStatus === "Partially Paid" ? "secondary" :
+                      "outline"
+                    }>
+                      {workflow.invoice.paymentStatus}
+                    </Badge>
+                  </div>
+
+                  {workflow.invoice.pdfUrl && (
+                    <div className="flex items-center justify-between">
+                      <span>PDF:</span>
+                      <Button 
+                        variant="link" 
+                        size="sm"
+                        onClick={() => window.open(workflow.invoice!.pdfUrl, '_blank')}
+                      >
+                        View
+                      </Button>
+                    </div>
+                  )}
+
+                  {workflow.invoice.emailSent && workflow.invoice.emailSentDate && (
+                    <div className="text-xs text-muted-foreground">
+                      Email sent: {format(new Date(workflow.invoice.emailSentDate), "MMM d, yyyy 'at' h:mm a")}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Activity Feed */}
+            {workflow.activities && workflow.activities.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Recent Activity</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {workflow.activities.slice(0, 5).map((activity) => (
+                      <div key={activity.id} className="text-sm">
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium">{activity.activityType}</span>
+                          <span className="text-muted-foreground">
+                            {format(new Date(activity.createdAt), "MMM d, h:mm a")}
+                          </span>
+                        </div>
+                        {activity.description && (
+                          <p className="text-muted-foreground">{activity.description}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {form.formState.errors.root && (
               <Alert>
