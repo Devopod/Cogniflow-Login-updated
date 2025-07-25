@@ -158,6 +158,49 @@ const SalesManagement = () => {
     }).format(amount);
   };
 
+  // Handle edit order
+  const handleEditOrder = (order: any) => {
+    toast({
+      title: "Edit Order",
+      description: `Editing order ${order.orderNumber}. Feature coming soon!`,
+    });
+    // TODO: Implement edit order functionality
+  };
+
+  // Handle delete order
+  const handleDeleteOrder = async (orderId: number) => {
+    if (!confirm('Are you sure you want to delete this order? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/orders/${orderId}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to delete order');
+      }
+
+      toast({
+        title: "Order Deleted",
+        description: "Order has been successfully deleted.",
+      });
+
+      // Refresh orders and metrics
+      refetchOrders();
+      refetchSalesMetrics();
+      refetchRecentOrders();
+    } catch (error) {
+      console.error('Error deleting order:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete order. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
   const safeNumber = (value: any, fallback = 0) => {
     if (typeof value !== 'number' || isNaN(value) || !isFinite(value)) return fallback;
     return value;
@@ -538,6 +581,7 @@ const SalesManagement = () => {
                           <th className="pb-3 font-medium">Total</th>
                           <th className="pb-3 font-medium">Status</th>
                           <th className="pb-3 font-medium">Date</th>
+                          <th className="pb-3 font-medium">Actions</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -545,10 +589,33 @@ const SalesManagement = () => {
                           <tr key={order.id} className="border-b last:border-none">
                             <td className="py-3">{order.orderNumber || order.id}</td>
                             <td className="py-3">{order.customerName || 'Unknown Customer'}</td>
-                            <td className="py-3">{order.items?.length || 0}</td>
-                            <td className="py-3">{formatCurrency(order.total || 0)}</td>
-                            <td className="py-3">{order.status || 'Pending'}</td>
-                            <td className="py-3">{new Date(order.createdAt || Date.now()).toLocaleString()}</td>
+                            <td className="py-3">{order.itemCount || 0}</td>
+                            <td className="py-3">{formatCurrency(order.totalAmount || 0)}</td>
+                            <td className="py-3">
+                              <Badge variant={order.status === 'completed' ? 'default' : order.status === 'pending' ? 'secondary' : 'outline'}>
+                                {order.status || 'Pending'}
+                              </Badge>
+                            </td>
+                            <td className="py-3">{new Date(order.createdAt || Date.now()).toLocaleDateString()}</td>
+                            <td className="py-3">
+                              <div className="flex gap-2">
+                                <Button 
+                                  variant="outline" 
+                                  size="sm"
+                                  onClick={() => handleEditOrder(order)}
+                                >
+                                  Edit
+                                </Button>
+                                <Button 
+                                  variant="outline" 
+                                  size="sm"
+                                  onClick={() => handleDeleteOrder(order.id)}
+                                  className="text-destructive hover:text-destructive"
+                                >
+                                  Delete
+                                </Button>
+                              </div>
+                            </td>
                           </tr>
                         ))}
                       </tbody>
