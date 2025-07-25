@@ -18,6 +18,49 @@
 *.toml text
 *.sql text
 
+# Salesforce files - treat as text but disable line ending conversion warnings
+*.cls text eol=lf
+*.trigger text eol=lf
+*.apex text eol=lf
+*.page text eol=lf
+*.component text eol=lf
+*.layout text eol=lf
+*.resource text eol=lf
+*.labels text eol=lf
+*.app text eol=lf
+*.dashboards text eol=lf
+*.permissionset text eol=lf
+*.workflow text eol=lf
+*.email text eol=lf
+*.profile text eol=lf
+*.scf text eol=lf
+*.queue text eol=lf
+*.reportType text eol=lf
+*.report text eol=lf
+*.weblink text eol=lf
+*.tab text eol=lf
+*.letter text eol=lf
+*.role text eol=lf
+*.homePageComponent text eol=lf
+*.homePageLayout text eol=lf
+*.objectTranslation text eol=lf
+*.flow text eol=lf
+*.datacategorygroup text eol=lf
+*.snapshot text eol=lf
+*.site text eol=lf
+*.sharingRules text eol=lf
+*.settings text eol=lf
+*.callCenter text eol=lf
+*.community text eol=lf
+*.authProvider text eol=lf
+*.customApplicationComponent text eol=lf
+*.quickAction text eol=lf
+*.approvalProcess text eol=lf
+*.app text eol=lf
+
+# SFDX tools directory - ignore line ending warnings completely
+.sfdx/** -text
+
 # Declare files that will always have CRLF line endings on checkout
 *.bat text eol=crlf
 *.cmd text eol=crlf
