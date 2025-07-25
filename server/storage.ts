@@ -15,7 +15,7 @@ import {
   quotationItems, type QuotationItem, type InsertQuotationItem
 } from "@shared/schema";
 import { db } from "./db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import connectPg from "connect-pg-simple";
 import session from "express-session";
 import { pool } from "./db";
@@ -487,7 +487,43 @@ export class DatabaseStorage implements IStorage {
   }
   
   async getOrdersByUser(userId: number): Promise<Order[]> {
-    const orderList = await db.select().from(orders).where(eq(orders.userId, userId));
+    // Fetch orders with customer information and item count
+    const orderList = await db
+      .select({
+        id: orders.id,
+        userId: orders.userId,
+        contactId: orders.contactId,
+        orderNumber: orders.orderNumber,
+        orderDate: orders.orderDate,
+        deliveryDate: orders.deliveryDate,
+        subtotal: orders.subtotal,
+        taxAmount: orders.taxAmount,
+        discountAmount: orders.discountAmount,
+        totalAmount: orders.totalAmount,
+        status: orders.status,
+        notes: orders.notes,
+        category: orders.category,
+        paymentStatus: orders.paymentStatus,
+        shippingAddress: orders.shippingAddress,
+        billingAddress: orders.billingAddress,
+        currency: orders.currency,
+        createdAt: orders.createdAt,
+        updatedAt: orders.updatedAt,
+        // Customer information
+        customerName: sql<string>`COALESCE(${contacts.firstName} || ' ' || ${contacts.lastName}, 'Unknown Customer')`,
+        customerEmail: contacts.email,
+        customerPhone: contacts.phone,
+        // Item count from order_items
+        itemCount: sql<number>`COALESCE((
+          SELECT COUNT(*) FROM order_items 
+          WHERE order_items.order_id = ${orders.id}
+        ), 0)`
+      })
+      .from(orders)
+      .leftJoin(contacts, eq(orders.contactId, contacts.id))
+      .where(eq(orders.userId, userId))
+      .orderBy(sql`${orders.createdAt} DESC`);
+
     return orderList;
   }
   
