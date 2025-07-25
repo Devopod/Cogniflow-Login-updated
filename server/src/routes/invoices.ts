@@ -300,7 +300,7 @@ router.post("/", authenticateUser, async (req, res) => {
     let triedOnce = false;
     while (true) {
       try {
-        // Insert the invoice
+        // Insert the invoice using only basic columns that exist in database
         [newInvoice] = await db
           .insert(invoices)
           .values({
@@ -577,16 +577,17 @@ router.get("/:id/payments", authenticateUser, async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Check if invoice exists and belongs to user
-    const invoice = await db.query.invoices.findFirst({
-      where: eq(invoices.id, parseInt(id)),
-    });
+    // Check if invoice exists and belongs to user using safe SQL
+    const invoiceResult = await db.execute(sql`
+      SELECT id, user_id FROM invoices WHERE id = ${parseInt(id)}
+    `);
 
-    if (!invoice) {
+    if (invoiceResult.rows.length === 0) {
       return res.status(404).json({ message: "Invoice not found" });
     }
 
-    if (invoice.userId !== req.user!.id && req.user!.role !== 'admin') {
+    const invoice = invoiceResult.rows[0];
+    if (invoice.user_id !== req.user!.id && req.user!.role !== 'admin') {
       return res.status(403).json({ message: "You don't have permission to view this invoice's payments" });
     }
 

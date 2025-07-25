@@ -155,17 +155,17 @@ export const scheduler = new TaskScheduler();
 
 // Only register tasks if we have a valid database connection and schema
 const shouldRegisterTasks = () => {
-  const dbUrl = process.env.DATABASE_URL;
-  // Disable tasks if:
-  // 1. No database URL
-  // 2. Contains dummy/localhost (development)
-  // 3. Environment variable to disable scheduler
-  // 4. NODE_ENV is development (extra safety)
-  return dbUrl && 
-         !dbUrl.includes('dummy') && 
-         !dbUrl.includes('localhost') &&
-         process.env.ENABLE_TASK_SCHEDULER === 'true' &&
-         process.env.NODE_ENV !== 'development';
+  // COMPLETELY DISABLE task scheduler until database schema is fixed
+  // This prevents any database column errors
+  return false;
+  
+  // Original logic (commented out until schema is complete):
+  // const dbUrl = process.env.DATABASE_URL;
+  // return dbUrl && 
+  //        !dbUrl.includes('dummy') && 
+  //        !dbUrl.includes('localhost') &&
+  //        process.env.ENABLE_TASK_SCHEDULER === 'true' &&
+  //        process.env.NODE_ENV !== 'development';
 };
 
 // Log the task scheduler status
