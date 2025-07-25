@@ -99,321 +99,9 @@ const productCategories = [
   { id: 7, name: "Safety Gear", count: 9 },
 ];
 
-// Sample product data - TODO: Convert to dynamic data
-const sampleProducts = [
-  {
-    id: "PRD-2023-001",
-    sku: "ELC-LPT-001",
-    name: "Business Laptop Pro",
-    category: "Electronics",
-    description: "High performance laptop for business users. 16GB RAM, 512GB SSD, Intel i7.",
-    stock: 23,
-    allocated: 3,
-    available: 20,
-    unitPrice: 1299.99,
-    costPrice: 899.99,
-    reorderLevel: 10,
-    reorderQuantity: 15,
-    location: "Warehouse A",
-    status: "Active",
-    taxRate: 10,
-    weight: 2.1,
-    dimensions: "35.6 x 24.6 x 1.8 cm",
-    barcode: "7891234567890",
-    supplier: "TechSource Inc.",
-    leadTime: 7,
-    created: "2023-02-10",
-    updated: "2023-04-15",
-    hasVariants: true,
-    variants: [
-      { id: "VAR-001", name: "16GB RAM / 512GB SSD / Silver", sku: "ELC-LPT-001-S16", stock: 12 },
-      { id: "VAR-002", name: "32GB RAM / 1TB SSD / Silver", sku: "ELC-LPT-001-S32", stock: 8 },
-      { id: "VAR-003", name: "16GB RAM / 512GB SSD / Black", sku: "ELC-LPT-001-B16", stock: 3 }
-    ],
-    images: ["laptop1.jpg", "laptop2.jpg", "laptop3.jpg"],
-    attachments: [
-      { name: "Technical Specifications", type: "PDF", size: "2.3 MB" },
-      { name: "User Manual", type: "PDF", size: "4.1 MB" }
-    ],
-    notes: "Premium product line. Extended warranty available.",
-    customFields: {
-      warranty: "3 years",
-      condition: "New",
-      brandNewModel: "Yes"
-    }
-  },
-  {
-    id: "PRD-2023-002",
-    sku: "OFF-DSK-002",
-    name: "Ergonomic Office Desk",
-    category: "Furniture",
-    description: "Height-adjustable ergonomic desk for office use. Electric height control.",
-    stock: 15,
-    allocated: 2,
-    available: 13,
-    unitPrice: 649.50,
-    costPrice: 450.00,
-    reorderLevel: 5,
-    reorderQuantity: 10,
-    location: "Warehouse B",
-    status: "Active",
-    taxRate: 7,
-    weight: 45.0,
-    dimensions: "160 x 80 x 74 cm",
-    barcode: "6543210987654",
-    supplier: "Furniture Plus",
-    leadTime: 14,
-    created: "2023-02-18",
-    updated: "2023-03-22",
-    hasVariants: true,
-    variants: [
-      { id: "VAR-004", name: "White / 160cm width", sku: "OFF-DSK-002-W160", stock: 8 },
-      { id: "VAR-005", name: "Black / 160cm width", sku: "OFF-DSK-002-B160", stock: 5 },
-      { id: "VAR-006", name: "White / 180cm width", sku: "OFF-DSK-002-W180", stock: 2 }
-    ],
-    images: ["desk1.jpg", "desk2.jpg"],
-    attachments: [
-      { name: "Assembly Instructions", type: "PDF", size: "1.5 MB" }
-    ],
-    notes: "Ships in two packages. Assembly required.",
-    customFields: {
-      warranty: "5 years",
-      maxWeight: "120 kg",
-      material: "Steel frame, wood top"
-    }
-  },
-  {
-    id: "PRD-2023-003",
-    sku: "OFF-CHR-003",
-    name: "Executive Office Chair",
-    category: "Furniture",
-    description: "Premium leather executive chair with lumbar support and adjustable height.",
-    stock: 12,
-    allocated: 0,
-    available: 12,
-    unitPrice: 349.99,
-    costPrice: 220.00,
-    reorderLevel: 4,
-    reorderQuantity: 8,
-    location: "Warehouse B",
-    status: "Active",
-    taxRate: 7,
-    weight: 18.5,
-    dimensions: "68 x 68 x 118 cm",
-    barcode: "5432109876543",
-    supplier: "Furniture Plus",
-    leadTime: 10,
-    created: "2023-02-20",
-    updated: "2023-04-10",
-    hasVariants: false,
-    variants: [],
-    images: ["chair1.jpg", "chair2.jpg"],
-    attachments: [
-      { name: "Care Instructions", type: "PDF", size: "0.8 MB" }
-    ],
-    notes: "Premium product. Extended warranty available.",
-    customFields: {
-      warranty: "2 years",
-      material: "Genuine leather",
-      color: "Black"
-    }
-  },
-  {
-    id: "PRD-2023-004",
-    sku: "ELC-PRT-004",
-    name: "LaserJet Printer Pro",
-    category: "Electronics",
-    description: "High-speed color laser printer for office use. Network-ready with duplex printing.",
-    stock: 8,
-    allocated: 1,
-    available: 7,
-    unitPrice: 549.00,
-    costPrice: 320.00,
-    reorderLevel: 3,
-    reorderQuantity: 5,
-    location: "Warehouse A",
-    status: "Active",
-    taxRate: 10,
-    weight: 22.3,
-    dimensions: "45 x 40 x 32 cm",
-    barcode: "4321098765432",
-    supplier: "TechSource Inc.",
-    leadTime: 5,
-    created: "2023-03-05",
-    updated: "2023-04-20",
-    hasVariants: false,
-    variants: [],
-    images: ["printer1.jpg", "printer2.jpg"],
-    attachments: [
-      { name: "User Manual", type: "PDF", size: "3.2 MB" },
-      { name: "Driver Software", type: "ZIP", size: "105 MB" }
-    ],
-    notes: "Includes starter toner cartridges.",
-    customFields: {
-      warranty: "1 year",
-      printSpeed: "28 ppm",
-      connectivity: "Ethernet, USB, WiFi"
-    }
-  },
-  {
-    id: "PRD-2023-005",
-    sku: "OFF-STN-005",
-    name: "Office Stationery Kit",
-    category: "Office Supplies",
-    description: "Complete office stationery kit including pens, notepad, scissors, stapler, and tape.",
-    stock: 50,
-    allocated: 5,
-    available: 45,
-    unitPrice: 24.99,
-    costPrice: 14.50,
-    reorderLevel: 15,
-    reorderQuantity: 30,
-    location: "Warehouse C",
-    status: "Active",
-    taxRate: 5,
-    weight: 1.2,
-    dimensions: "30 x 25 x 10 cm",
-    barcode: "3210987654321",
-    supplier: "Office Supplies Direct",
-    leadTime: 3,
-    created: "2023-03-10",
-    updated: "2023-04-05",
-    hasVariants: false,
-    variants: [],
-    images: ["stationery1.jpg"],
-    attachments: [],
-    notes: "Popular starter kit for new employees.",
-    customFields: {
-      contents: "22 pieces",
-      packaging: "Recyclable",
-      bundleDiscount: "Available"
-    }
-  },
-  {
-    id: "PRD-2023-006",
-    sku: "IT-SRV-006",
-    name: "Enterprise Server",
-    category: "IT Equipment",
-    description: "High-performance rack-mounted server with dual processors and redundant power supply.",
-    stock: 3,
-    allocated: 1,
-    available: 2,
-    unitPrice: 5499.00,
-    costPrice: 4200.00,
-    reorderLevel: 2,
-    reorderQuantity: 2,
-    location: "Secure Warehouse",
-    status: "Active",
-    taxRate: 10,
-    weight: 28.5,
-    dimensions: "48.3 x 85.4 x 17.8 cm",
-    barcode: "2109876543210",
-    supplier: "Enterprise IT Solutions",
-    leadTime: 21,
-    created: "2023-03-15",
-    updated: "2023-04-18",
-    hasVariants: true,
-    variants: [
-      { id: "VAR-007", name: "16 Core / 64GB RAM / 2TB SSD", sku: "IT-SRV-006-16C", stock: 1 },
-      { id: "VAR-008", name: "24 Core / 128GB RAM / 4TB SSD", sku: "IT-SRV-006-24C", stock: 2 }
-    ],
-    images: ["server1.jpg", "server2.jpg"],
-    attachments: [
-      { name: "Technical Specifications", type: "PDF", size: "5.6 MB" },
-      { name: "Installation Guide", type: "PDF", size: "8.2 MB" }
-    ],
-    notes: "Special shipping requirements. Extended warranty recommended.",
-    customFields: {
-      warranty: "3 years with option to extend",
-      powerSupply: "Redundant, hot-swappable",
-      rackUnit: "4U"
-    }
-  },
-  {
-    id: "PRD-2023-007",
-    sku: "SFT-HMT-007",
-    name: "Safety Helmet",
-    category: "Safety Gear",
-    description: "Industrial safety helmet with adjustable harness and chin strap. ANSI certified.",
-    stock: 75,
-    allocated: 15,
-    available: 60,
-    unitPrice: 29.95,
-    costPrice: 18.50,
-    reorderLevel: 25,
-    reorderQuantity: 50,
-    location: "Warehouse C",
-    status: "Active",
-    taxRate: 5,
-    weight: 0.4,
-    dimensions: "30 x 25 x 20 cm",
-    barcode: "1098765432109",
-    supplier: "SafetyFirst Supplies",
-    leadTime: 4,
-    created: "2023-03-20",
-    updated: "2023-04-12",
-    hasVariants: true,
-    variants: [
-      { id: "VAR-009", name: "White", sku: "SFT-HMT-007-W", stock: 30 },
-      { id: "VAR-010", name: "Yellow", sku: "SFT-HMT-007-Y", stock: 25 },
-      { id: "VAR-011", name: "Blue", sku: "SFT-HMT-007-B", stock: 20 }
-    ],
-    images: ["helmet1.jpg", "helmet2.jpg"],
-    attachments: [
-      { name: "Safety Certification", type: "PDF", size: "1.2 MB" }
-    ],
-    notes: "Bulk discounts available. Customization options for corporate orders.",
-    customFields: {
-      certification: "ANSI Z89.1",
-      material: "High-density polyethylene",
-      adjustable: "Yes"
-    }
-  },
-  {
-    id: "PRD-2023-008",
-    sku: "RAW-STL-008",
-    name: "Steel Sheet (Industrial Grade)",
-    category: "Raw Materials",
-    description: "Industrial grade cold-rolled steel sheet. Thickness: 2mm.",
-    stock: 120,
-    allocated: 40,
-    available: 80,
-    unitPrice: 89.50,
-    costPrice: 65.00,
-    reorderLevel: 30,
-    reorderQuantity: 60,
-    location: "Material Warehouse",
-    status: "Active",
-    taxRate: 7,
-    weight: 15.8,
-    dimensions: "100 x 200 cm",
-    barcode: "0987654321098",
-    supplier: "Metal Supply Co.",
-    leadTime: 14,
-    created: "2023-03-25",
-    updated: "2023-04-25",
-    hasVariants: true,
-    variants: [
-      { id: "VAR-012", name: "1mm Thickness", sku: "RAW-STL-008-1MM", stock: 45 },
-      { id: "VAR-013", name: "2mm Thickness", sku: "RAW-STL-008-2MM", stock: 40 },
-      { id: "VAR-014", name: "3mm Thickness", sku: "RAW-STL-008-3MM", stock: 35 }
-    ],
-    images: ["steel1.jpg"],
-    attachments: [
-      { name: "Material Specifications", type: "PDF", size: "0.9 MB" },
-      { name: "Safety Data Sheet", type: "PDF", size: "1.1 MB" }
-    ],
-    notes: "Special handling required. Custom cutting available upon request.",
-    customFields: {
-      grade: "304 Stainless",
-      finish: "Brushed",
-      cutToSize: "Available"
-    }
-  }
-];
+// Static product data removed - now using dynamic data from API
 
-// Sample low stock products for alerts
-const lowStockProducts = products.filter(product => product.stock <= product.reorderLevel + 5);
+// Low stock products will be calculated inside the component using dynamic data
 
 // Product units
 const productUnits = [
@@ -478,6 +166,11 @@ const ProductCatalog = () => {
     resource: 'inventory',
     invalidateQueries: [['products'], ['lowStockItems']]
   });
+
+  // Calculate low stock products using dynamic data
+  const lowStockProducts = products.filter(product => 
+    product.stockQuantity <= (product.reorderPoint || 0) + 5
+  );
   
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
@@ -512,8 +205,8 @@ const ProductCatalog = () => {
         : b.name.localeCompare(a.name);
     } else if (sortField === "stock") {
       return sortOrder === "asc" 
-        ? a.stock - b.stock
-        : b.stock - a.stock;
+        ? (a.stockQuantity || 0) - (b.stockQuantity || 0)
+        : (b.stockQuantity || 0) - (a.stockQuantity || 0);
     } else if (sortField === "price") {
       return sortOrder === "asc" 
         ? a.unitPrice - b.unitPrice
@@ -1080,7 +773,7 @@ const ProductCatalog = () => {
               <div className="flex flex-wrap gap-2 mt-2">
                 {lowStockProducts.slice(0, 3).map((product) => (
                   <Badge key={product.id} variant="outline" className="bg-amber-100 dark:bg-amber-900/40 hover:bg-amber-200">
-                    {product.name}: {product.stock} in stock
+                    {product.name}: {product.stockQuantity || 0} in stock
                   </Badge>
                 ))}
                 {lowStockProducts.length > 3 && (
@@ -1170,7 +863,7 @@ const ProductCatalog = () => {
                   </TableRow>
                 ) : (
                   filteredProducts.map((product) => (
-                    <TableRow key={product.id} className={product.stock <= product.reorderLevel ? "bg-amber-50 dark:bg-amber-950/20" : ""}>
+                    <TableRow key={product.id} className={(product.stockQuantity || 0) <= (product.reorderPoint || 0) ? "bg-amber-50 dark:bg-amber-950/20" : ""}>
                       <TableCell>
                         <Checkbox
                           checked={selectedProducts.includes(product.id)}
@@ -1193,10 +886,10 @@ const ProductCatalog = () => {
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-1">
-                          <div className="font-medium">{product.stock}</div>
-                          {product.stock <= product.reorderLevel ? (
+                          <div className="font-medium">{product.stockQuantity || 0}</div>
+                          {(product.stockQuantity || 0) <= (product.reorderPoint || 0) ? (
                             <div className="text-xs text-destructive font-medium">Low Stock</div>
-                          ) : product.stock <= product.reorderLevel + 5 ? (
+                          ) : (product.stockQuantity || 0) <= (product.reorderPoint || 0) + 5 ? (
                             <div className="text-xs text-amber-600 dark:text-amber-500 font-medium">Getting Low</div>
                           ) : null}
                         </div>
@@ -1528,7 +1221,7 @@ const ProductCatalog = () => {
                       <h3 className="font-medium mb-3">Current Stock</h3>
                       <div className="grid grid-cols-2 gap-6">
                         <div>
-                          <p className="text-3xl font-bold">{selectedProduct.stock}</p>
+                          <p className="text-3xl font-bold">{selectedProduct.stockQuantity || 0}</p>
                           <p className="text-sm text-muted-foreground">Total Units</p>
                         </div>
                         <div className="space-y-2">
@@ -1554,22 +1247,22 @@ const ProductCatalog = () => {
                           <div className="flex justify-between text-sm mb-1">
                             <span>Current Level</span>
                             <span className="font-medium">
-                              {((selectedProduct.stock / (selectedProduct.reorderLevel * 2)) * 100).toFixed(0)}%
+                              {(((selectedProduct.stockQuantity || 0) / ((selectedProduct.reorderPoint || 1) * 2)) * 100).toFixed(0)}%
                             </span>
                           </div>
                           <Progress
-                            value={(selectedProduct.stock / (selectedProduct.reorderLevel * 2)) * 100}
+                            value={((selectedProduct.stockQuantity || 0) / ((selectedProduct.reorderPoint || 1) * 2)) * 100}
                             className="h-2"
                           />
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                           <div className="p-3 border rounded-md">
                             <p className="text-xs text-muted-foreground">Reorder Level</p>
-                            <p className="text-lg font-bold">{selectedProduct.reorderLevel}</p>
+                            <p className="text-lg font-bold">{selectedProduct.reorderPoint || 0}</p>
                           </div>
                           <div className="p-3 border rounded-md">
                             <p className="text-xs text-muted-foreground">Reorder Qty</p>
-                            <p className="text-lg font-bold">{selectedProduct.reorderQuantity}</p>
+                            <p className="text-lg font-bold">{selectedProduct.reorderQuantity || 'Not set'}</p>
                           </div>
                         </div>
                         <div className="flex justify-between">
@@ -1674,10 +1367,10 @@ const ProductCatalog = () => {
                             <TableRow key={variant.id}>
                               <TableCell className="font-medium">{variant.name}</TableCell>
                               <TableCell>{variant.sku}</TableCell>
-                              <TableCell>{variant.stock}</TableCell>
+                              <TableCell>{variant.stockQuantity || variant.stock || 0}</TableCell>
                               <TableCell>
-                                <Badge variant={variant.stock > 0 ? "default" : "secondary"}>
-                                  {variant.stock > 0 ? "In Stock" : "Out of Stock"}
+                                <Badge variant={(variant.stockQuantity || variant.stock || 0) > 0 ? "default" : "secondary"}>
+                                  {(variant.stockQuantity || variant.stock || 0) > 0 ? "In Stock" : "Out of Stock"}
                                 </Badge>
                               </TableCell>
                               <TableCell className="text-right">
@@ -2026,7 +1719,7 @@ const ProductCatalog = () => {
                   </div>
                   <div className="space-y-2 w-[140px]">
                     <Label htmlFor="currentStock">Current Stock</Label>
-                    <Input id="currentStock" value={selectedProduct?.stock || 0} disabled />
+                    <Input id="currentStock" value={selectedProduct?.stockQuantity || 0} disabled />
                   </div>
                 </div>
                 <div className="p-4 border rounded-md">
