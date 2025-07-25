@@ -402,6 +402,41 @@ export const invoices = pgTable("invoices", {
   notes: text("notes"),
   terms: text("terms"),
   currency: varchar("currency", { length: 3 }).default('USD'),
+  
+  // Payment terms and recurring invoice features
+  payment_terms: varchar("payment_terms", { length: 100 }).default('Net 30'), // e.g., 'Due on receipt', 'Net 15', 'Net 30', 'Net 60'
+  
+  // Recurring invoice settings
+  is_recurring: boolean("is_recurring").default(false),
+  recurring_frequency: varchar("recurring_frequency", { length: 50 }), // 'weekly', 'monthly', 'quarterly', 'yearly'
+  recurring_start_date: date("recurring_start_date"),
+  recurring_end_date: date("recurring_end_date"),
+  recurring_count: integer("recurring_count"), // Number of times to repeat
+  recurring_remaining: integer("recurring_remaining"), // Remaining occurrences
+  next_invoice_date: date("next_invoice_date"), // When the next invoice should be generated
+  parent_recurring_invoice_id: integer("parent_recurring_invoice_id"), // For tracking recurring invoice template
+  
+  // Client portal and PDF settings
+  client_portal_url: varchar("client_portal_url", { length: 500 }), // URL for client to view/pay invoice
+  pdf_generated: boolean("pdf_generated").default(false),
+  pdf_url: varchar("pdf_url", { length: 500 }),
+  email_sent: boolean("email_sent").default(false),
+  email_sent_date: timestamp("email_sent_date"),
+  
+  // Tax calculation settings
+  tax_inclusive: boolean("tax_inclusive").default(false), // Whether prices include tax
+  tax_type: varchar("tax_type", { length: 50 }), // 'GST', 'VAT', 'Sales Tax', etc.
+  
+  // Multi-currency support
+  exchange_rate: real("exchange_rate").default(1.0), // Exchange rate when invoice was created
+  base_currency: varchar("base_currency", { length: 3 }).default('USD'), // Company's base currency
+  
+  // Workflow and automation
+  auto_reminder_enabled: boolean("auto_reminder_enabled").default(true),
+  late_fee_enabled: boolean("late_fee_enabled").default(false),
+  late_fee_amount: real("late_fee_amount"),
+  late_fee_percentage: real("late_fee_percentage"),
+  
   recurring_invoice_id: integer("recurring_invoice_id"), // For recurring invoices
   recurring_schedule: jsonb("recurring_schedule"), // For recurring invoices
   createdAt: timestamp("created_at").defaultNow(),
@@ -412,6 +447,8 @@ export const invoices = pgTable("invoices", {
     paymentStatusIdx: index("payment_status_idx").on(table.payment_status),
     dueDateIdx: index("invoice_due_date_idx").on(table.dueDate),
     contactIdIdx: index("invoice_contact_id_idx").on(table.contactId),
+    recurringIdx: index("invoice_recurring_idx").on(table.is_recurring),
+    nextInvoiceDateIdx: index("invoice_next_date_idx").on(table.next_invoice_date),
   };
 });
 
@@ -920,6 +957,105 @@ export const payment_gateway_settings = pgTable("payment_gateway_settings", {
   updated_at: timestamp("updated_at").defaultNow(),
 });
 
+// Tax rates table for different regions/products
+export const taxRates = pgTable("tax_rates", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  name: varchar("name", { length: 100 }).notNull(), // e.g., "GST 18%", "VAT 20%"
+  rate: real("rate").notNull(), // Tax rate as percentage
+  type: varchar("type", { length: 50 }).notNull(), // 'GST', 'VAT', 'Sales Tax', 'Service Tax'
+  region: varchar("region", { length: 100 }), // Country/state where applicable
+  description: text("description"),
+  is_default: boolean("is_default").default(false),
+  is_active: boolean("is_active").default(true),
+  effective_from: date("effective_from"),
+  effective_to: date("effective_to"),
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow(),
+});
+
+// Invoice templates for customization
+export const invoiceTemplates = pgTable("invoice_templates", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  name: varchar("name", { length: 100 }).notNull(),
+  description: text("description"),
+  template_data: jsonb("template_data").notNull(), // Stores template configuration
+  is_default: boolean("is_default").default(false),
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow(),
+});
+
+// Email templates for automation
+export const emailTemplates = pgTable("email_templates", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  name: varchar("name", { length: 100 }).notNull(),
+  template_type: varchar("template_type", { length: 50 }).notNull(), // 'invoice_send', 'payment_reminder', 'payment_thank_you', 'overdue_notice'
+  subject: varchar("subject", { length: 255 }).notNull(),
+  body: text("body").notNull(), // HTML email template
+  variables: jsonb("variables"), // Available template variables
+  is_default: boolean("is_default").default(false),
+  is_active: boolean("is_active").default(true),
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow(),
+});
+
+// Invoice activities/audit log
+export const invoiceActivities = pgTable("invoice_activities", {
+  id: serial("id").primaryKey(),
+  invoiceId: integer("invoice_id").notNull().references(() => invoices.id, { onDelete: 'cascade' }),
+  userId: integer("user_id").references(() => users.id),
+  activity_type: varchar("activity_type", { length: 100 }).notNull(), // 'created', 'sent', 'viewed', 'paid', 'reminder_sent', 'updated'
+  description: text("description").notNull(),
+  metadata: jsonb("metadata"), // Additional activity data
+  ip_address: varchar("ip_address", { length: 45 }),
+  user_agent: text("user_agent"),
+  created_at: timestamp("created_at").defaultNow(),
+}, (table) => {
+  return {
+    invoiceIdIdx: index("invoice_activities_invoice_id_idx").on(table.invoiceId),
+    activityTypeIdx: index("invoice_activities_type_idx").on(table.activity_type),
+    createdAtIdx: index("invoice_activities_created_at_idx").on(table.created_at),
+  };
+});
+
+// Payment links/portals for clients
+export const paymentLinks = pgTable("payment_links", {
+  id: serial("id").primaryKey(),
+  invoiceId: integer("invoice_id").notNull().references(() => invoices.id, { onDelete: 'cascade' }),
+  link_token: varchar("link_token", { length: 255 }).notNull().unique(),
+  expires_at: timestamp("expires_at"),
+  max_uses: integer("max_uses"),
+  current_uses: integer("current_uses").default(0),
+  is_active: boolean("is_active").default(true),
+  custom_message: text("custom_message"),
+  redirect_url: varchar("redirect_url", { length: 500 }),
+  created_at: timestamp("created_at").defaultNow(),
+  last_accessed: timestamp("last_accessed"),
+}, (table) => {
+  return {
+    linkTokenIdx: index("payment_links_token_idx").on(table.link_token),
+    invoiceIdIdx: index("payment_links_invoice_id_idx").on(table.invoiceId),
+  };
+});
+
+// Currency exchange rates for multi-currency support
+export const currencyRates = pgTable("currency_rates", {
+  id: serial("id").primaryKey(),
+  from_currency: varchar("from_currency", { length: 3 }).notNull(),
+  to_currency: varchar("to_currency", { length: 3 }).notNull(),
+  rate: real("rate").notNull(),
+  rate_date: date("rate_date").notNull(),
+  source: varchar("source", { length: 50 }), // e.g., 'manual', 'api', 'ecb'
+  created_at: timestamp("created_at").defaultNow(),
+}, (table) => {
+  return {
+    currencyPairIdx: index("currency_rates_pair_idx").on(table.from_currency, table.to_currency),
+    rateDateIdx: index("currency_rates_date_idx").on(table.rate_date),
+  };
+});
+
 
 // Establish relations
 export const usersRelations = relations(users, ({ many }) => ({
@@ -1011,6 +1147,8 @@ export const invoicesRelations = relations(invoices, ({ one, many }) => ({
   payment_reminders: many(payment_reminders),
   payment_history_entries: many(payment_history, { relationName: "invoice_payment_history" }), // Renamed relation for clarity
   payments: many(payments), // Added relation to payments
+  activities: many(invoiceActivities),
+  payment_links: many(paymentLinks),
 }));
 
 export const invoiceItemsRelations = relations(invoiceItems, ({ one }) => ({
@@ -1306,6 +1444,46 @@ export const quotationItemsRelations = relations(quotationItems, ({ one }) => ({
   }),
 }));
 
+// New table relations
+export const taxRatesRelations = relations(taxRates, ({ one }) => ({
+  user: one(users, {
+    fields: [taxRates.userId],
+    references: [users.id],
+  }),
+}));
+
+export const invoiceTemplatesRelations = relations(invoiceTemplates, ({ one }) => ({
+  user: one(users, {
+    fields: [invoiceTemplates.userId],
+    references: [users.id],
+  }),
+}));
+
+export const emailTemplatesRelations = relations(emailTemplates, ({ one }) => ({
+  user: one(users, {
+    fields: [emailTemplates.userId],
+    references: [users.id],
+  }),
+}));
+
+export const invoiceActivitiesRelations = relations(invoiceActivities, ({ one }) => ({
+  invoice: one(invoices, {
+    fields: [invoiceActivities.invoiceId],
+    references: [invoices.id],
+  }),
+  user: one(users, {
+    fields: [invoiceActivities.userId],
+    references: [users.id],
+  }),
+}));
+
+export const paymentLinksRelations = relations(paymentLinks, ({ one }) => ({
+  invoice: one(invoices, {
+    fields: [paymentLinks.invoiceId],
+    references: [invoices.id],
+  }),
+}));
+
 // Input Schemas
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
@@ -1550,3 +1728,54 @@ export type MpesaTransaction = typeof mpesaTransactions.$inferSelect;
 export type PaymentReminder = typeof payment_reminders.$inferSelect;
 export type PaymentHistory = typeof payment_history.$inferSelect;
 export type PaymentGatewaySetting = typeof payment_gateway_settings.$inferSelect;
+
+// New table schemas
+export const insertTaxRateSchema = createInsertSchema(taxRates).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export const insertInvoiceTemplateSchema = createInsertSchema(invoiceTemplates).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export const insertEmailTemplateSchema = createInsertSchema(emailTemplates).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export const insertInvoiceActivitySchema = createInsertSchema(invoiceActivities).omit({
+  id: true,
+  created_at: true,
+});
+
+export const insertPaymentLinkSchema = createInsertSchema(paymentLinks).omit({
+  id: true,
+  created_at: true,
+  last_accessed: true,
+});
+
+export const insertCurrencyRateSchema = createInsertSchema(currencyRates).omit({
+  id: true,
+  created_at: true,
+});
+
+// New table types
+export type TaxRate = typeof taxRates.$inferSelect;
+export type InvoiceTemplate = typeof invoiceTemplates.$inferSelect;
+export type EmailTemplate = typeof emailTemplates.$inferSelect;
+export type InvoiceActivity = typeof invoiceActivities.$inferSelect;
+export type PaymentLink = typeof paymentLinks.$inferSelect;
+export type CurrencyRate = typeof currencyRates.$inferSelect;
+
+// New insert types
+export type InsertTaxRate = z.infer<typeof insertTaxRateSchema>;
+export type InsertInvoiceTemplate = z.infer<typeof insertInvoiceTemplateSchema>;
+export type InsertEmailTemplate = z.infer<typeof insertEmailTemplateSchema>;
+export type InsertInvoiceActivity = z.infer<typeof insertInvoiceActivitySchema>;
+export type InsertPaymentLink = z.infer<typeof insertPaymentLinkSchema>;
+export type InsertCurrencyRate = z.infer<typeof insertCurrencyRateSchema>;

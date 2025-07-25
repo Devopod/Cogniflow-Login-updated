@@ -6,10 +6,12 @@ import { eq, and, sql, desc, asc } from "drizzle-orm";
 import { authenticateUser } from "../middleware/auth";
 import { WSService } from "../../websocket";
 import { v4 as uuidv4 } from 'uuid';
-import { sendEmail } from "../services/email";
+import { emailService } from "../services/email";
 import { storage } from "../../storage";
 import crypto from 'crypto';
 import { aiInvoiceAssistant } from "../services/ai-invoice-assistant";
+import { invoicePDFService } from "../services/pdf";
+import { paymentService } from "../services/payment";
 
 // Get the WebSocket service instance.
 let wsService: WSService;
@@ -18,6 +20,9 @@ export const setWSService = (ws: WSService) => {
 };
 
 const router = Router();
+
+// Middleware to ensure user is authenticated
+const isAuthenticated = authenticateUser;
 
 // Get all invoices
 router.get("/", authenticateUser, async (req, res) => {
@@ -1168,5 +1173,446 @@ router.post("/:id/ai/categorize-expenses", authenticateUser, async (req, res) =>
     return res.status(500).json({ message: "Failed to categorize expenses" });
   }
 });
+
+// Add new route handlers for enhanced functionality
+  
+  // Get invoice activities/history
+  router.get('/:id/activities', isAuthenticated, async (req, res) => {
+    try {
+      const invoiceId = parseInt(req.params.id);
+      
+      // Verify invoice belongs to user
+      const invoice = await storage.getInvoice(invoiceId);
+      if (!invoice || invoice.userId !== req.user!.id) {
+        return res.status(404).json({ message: 'Invoice not found' });
+      }
+      
+      const activities = await storage.getInvoiceActivitiesByInvoice(invoiceId);
+      res.json(activities);
+    } catch (error) {
+      console.error('Error fetching invoice activities:', error);
+      res.status(500).json({ message: 'Failed to fetch invoice activities' });
+    }
+  });
+  
+  // Generate and download invoice PDF
+  router.get('/:id/pdf', async (req, res) => {
+    try {
+      const invoiceId = parseInt(req.params.id);
+      
+      // For public access, we need to verify token
+      const { token } = req.query;
+      let invoice;
+      
+      if (token) {
+        // Public access via token
+        const paymentLink = await storage.getPaymentLinkByToken(token as string);
+        if (!paymentLink || paymentLink.invoiceId !== invoiceId) {
+          return res.status(404).json({ message: 'Invalid access token' });
+        }
+        invoice = await storage.getInvoice(invoiceId);
+      } else {
+        // Authenticated access
+        if (!req.user) {
+          return res.status(401).json({ message: 'Authentication required' });
+        }
+        invoice = await storage.getInvoice(invoiceId);
+        if (!invoice || invoice.userId !== req.user.id) {
+          return res.status(404).json({ message: 'Invoice not found' });
+        }
+      }
+      
+      if (!invoice) {
+        return res.status(404).json({ message: 'Invoice not found' });
+      }
+      
+      // Generate PDF
+      const pdfBuffer = await invoicePDFService.generateInvoicePDF(invoiceId);
+      
+      // Set response headers
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="Invoice_${invoice.invoiceNumber}.pdf"`);
+      res.setHeader('Content-Length', pdfBuffer.length);
+      
+      // Log PDF generation activity (if authenticated)
+      if (req.user) {
+        await storage.createInvoiceActivity({
+          invoiceId,
+          userId: req.user.id,
+          activity_type: 'pdf_generated',
+          description: `PDF generated for invoice ${invoice.invoiceNumber}`,
+          metadata: { downloadedAt: new Date().toISOString() },
+          ip_address: req.ip,
+          user_agent: req.get('User-Agent'),
+        });
+      }
+      
+      res.send(pdfBuffer);
+    } catch (error) {
+      console.error('Error generating invoice PDF:', error);
+      res.status(500).json({ message: 'Failed to generate PDF' });
+    }
+  });
+  
+  // Send invoice via email
+  router.post('/:id/send', isAuthenticated, async (req, res) => {
+    try {
+      const invoiceId = parseInt(req.params.id);
+      const { templateId, customMessage, ccEmails, includePDF = true } = req.body;
+      
+      // Verify invoice belongs to user
+      const invoice = await storage.getInvoice(invoiceId);
+      if (!invoice || invoice.userId !== req.user!.id) {
+        return res.status(404).json({ message: 'Invoice not found' });
+      }
+      
+      // Send email
+      const sent = await emailService.sendInvoiceEmail(invoiceId, {
+        templateId,
+        customMessage,
+        ccEmails,
+        includePDF,
+      });
+      
+      if (sent) {
+        // Broadcast email sent via WebSocket
+        if (wsService) {
+          wsService.broadcastToResource('invoices', invoiceId, 'invoice_sent', {
+            invoiceId,
+            sentAt: new Date().toISOString(),
+          });
+        }
+        
+        res.json({ 
+          success: true, 
+          message: 'Invoice sent successfully',
+          sentAt: new Date().toISOString(),
+        });
+      } else {
+        res.status(500).json({ 
+          success: false, 
+          message: 'Failed to send invoice' 
+        });
+      }
+    } catch (error) {
+      console.error('Error sending invoice:', error);
+      res.status(500).json({ message: 'Failed to send invoice' });
+    }
+  });
+  
+  // Create payment intent for invoice
+  router.post('/:id/payment-intent', async (req, res) => {
+    try {
+      const invoiceId = parseInt(req.params.id);
+      const { custom_amount, payment_method_types, setup_future_usage } = req.body;
+      
+      const result = await paymentService.createInvoicePaymentIntent(invoiceId, {
+        custom_amount,
+        payment_method_types,
+        setup_future_usage,
+      });
+      
+      res.json(result);
+    } catch (error) {
+      console.error('Error creating payment intent:', error);
+      res.status(500).json({ message: 'Failed to create payment intent' });
+    }
+  });
+  
+  // Create payment link for invoice
+  router.post('/:id/payment-link', isAuthenticated, async (req, res) => {
+    try {
+      const invoiceId = parseInt(req.params.id);
+      const { expires_in_hours = 168, max_uses, custom_message } = req.body; // Default 1 week
+      
+      // Verify invoice belongs to user
+      const invoice = await storage.getInvoice(invoiceId);
+      if (!invoice || invoice.userId !== req.user!.id) {
+        return res.status(404).json({ message: 'Invoice not found' });
+      }
+      
+      // Generate unique token
+      const token = require('crypto').randomBytes(32).toString('hex');
+      const expiresAt = new Date();
+      expiresAt.setHours(expiresAt.getHours() + expires_in_hours);
+      
+      const paymentLink = await storage.createPaymentLink({
+        invoiceId,
+        link_token: token,
+        expires_at: expiresAt.toISOString(),
+        max_uses,
+        custom_message,
+        is_active: true,
+      });
+      
+      const paymentLinkUrl = `${process.env.APP_URL || 'http://localhost:5000'}/invoice/${token}/pay`;
+      
+      res.json({
+        success: true,
+        paymentLink: {
+          ...paymentLink,
+          url: paymentLinkUrl,
+        },
+      });
+    } catch (error) {
+      console.error('Error creating payment link:', error);
+      res.status(500).json({ message: 'Failed to create payment link' });
+    }
+  });
+  
+  // Mark invoice as recurring
+  router.post('/:id/recurring', isAuthenticated, async (req, res) => {
+    try {
+      const invoiceId = parseInt(req.params.id);
+      const { frequency, start_date, end_date, count } = req.body;
+      
+      // Verify invoice belongs to user
+      const invoice = await storage.getInvoice(invoiceId);
+      if (!invoice || invoice.userId !== req.user!.id) {
+        return res.status(404).json({ message: 'Invoice not found' });
+      }
+      
+      const updatedInvoice = await storage.updateInvoice(invoiceId, {
+        is_recurring: true,
+        recurring_frequency: frequency,
+        recurring_start_date: start_date,
+        recurring_end_date: end_date,
+        recurring_count: count,
+        recurring_remaining: count,
+        next_invoice_date: start_date,
+        updatedAt: new Date().toISOString(),
+      });
+      
+      // Log activity
+      await storage.createInvoiceActivity({
+        invoiceId,
+        userId: req.user!.id,
+        activity_type: 'made_recurring',
+        description: `Invoice ${invoice.invoiceNumber} set as recurring (${frequency})`,
+        metadata: { frequency, start_date, end_date, count },
+      });
+      
+      res.json({ 
+        success: true, 
+        invoice: updatedInvoice,
+        message: 'Invoice marked as recurring',
+      });
+    } catch (error) {
+      console.error('Error setting invoice as recurring:', error);
+      res.status(500).json({ message: 'Failed to set invoice as recurring' });
+    }
+  });
+  
+  // Generate next recurring invoice
+  router.post('/:id/generate-next', isAuthenticated, async (req, res) => {
+    try {
+      const invoiceId = parseInt(req.params.id);
+      
+      // Verify invoice belongs to user
+      const invoice = await storage.getInvoice(invoiceId);
+      if (!invoice || invoice.userId !== req.user!.id) {
+        return res.status(404).json({ message: 'Invoice not found' });
+      }
+      
+      if (!invoice.is_recurring) {
+        return res.status(400).json({ message: 'Invoice is not set as recurring' });
+      }
+      
+      const newInvoice = await storage.createRecurringInvoice(invoiceId);
+      
+      // Log activity
+      await storage.createInvoiceActivity({
+        invoiceId,
+        userId: req.user!.id,
+        activity_type: 'recurring_generated',
+        description: `Next recurring invoice ${newInvoice.invoiceNumber} generated`,
+        metadata: { newInvoiceId: newInvoice.id, newInvoiceNumber: newInvoice.invoiceNumber },
+      });
+      
+      res.json({ 
+        success: true, 
+        invoice: newInvoice,
+        message: 'Next recurring invoice generated',
+      });
+    } catch (error) {
+      console.error('Error generating next recurring invoice:', error);
+      res.status(500).json({ message: 'Failed to generate next recurring invoice' });
+    }
+  });
+  
+  // Get overdue invoices
+  router.get('/overdue', isAuthenticated, async (req, res) => {
+    try {
+      const overdueInvoices = await storage.getOverdueInvoices(req.user!.id);
+      res.json(overdueInvoices);
+    } catch (error) {
+      console.error('Error fetching overdue invoices:', error);
+      res.status(500).json({ message: 'Failed to fetch overdue invoices' });
+    }
+  });
+  
+  // Get recurring invoices
+  router.get('/recurring', isAuthenticated, async (req, res) => {
+    try {
+      const recurringInvoices = await storage.getRecurringInvoices(req.user!.id);
+      res.json(recurringInvoices);
+    } catch (error) {
+      console.error('Error fetching recurring invoices:', error);
+      res.status(500).json({ message: 'Failed to fetch recurring invoices' });
+    }
+  });
+  
+  // Send payment reminder
+  router.post('/:id/reminder', isAuthenticated, async (req, res) => {
+    try {
+      const invoiceId = parseInt(req.params.id);
+      const { type = 'gentle' } = req.body; // gentle, firm, final
+      
+      // Verify invoice belongs to user
+      const invoice = await storage.getInvoice(invoiceId);
+      if (!invoice || invoice.userId !== req.user!.id) {
+        return res.status(404).json({ message: 'Invoice not found' });
+      }
+      
+      const sent = await emailService.sendPaymentReminder(invoiceId, type);
+      
+      if (sent) {
+        res.json({ 
+          success: true, 
+          message: `${type} reminder sent successfully`,
+          sentAt: new Date().toISOString(),
+        });
+      } else {
+        res.status(500).json({ 
+          success: false, 
+          message: 'Failed to send reminder' 
+        });
+      }
+    } catch (error) {
+      console.error('Error sending payment reminder:', error);
+      res.status(500).json({ message: 'Failed to send payment reminder' });
+    }
+  });
+  
+  // Clone/duplicate invoice
+  router.post('/:id/clone', isAuthenticated, async (req, res) => {
+    try {
+      const invoiceId = parseInt(req.params.id);
+      
+      // Verify invoice belongs to user
+      const originalInvoice = await storage.getInvoiceWithItems(invoiceId);
+      if (!originalInvoice || originalInvoice.userId !== req.user!.id) {
+        return res.status(404).json({ message: 'Invoice not found' });
+      }
+      
+      // Generate new invoice number
+      const newInvoiceNumber = await storage.generateInvoiceNumber(req.user!.id);
+      
+      // Create cloned invoice
+      const clonedInvoiceData = {
+        userId: originalInvoice.userId,
+        contactId: originalInvoice.contactId,
+        invoiceNumber: newInvoiceNumber,
+        issueDate: new Date().toISOString().slice(0, 10),
+        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), // 30 days from now
+        subtotal: originalInvoice.subtotal,
+        taxAmount: originalInvoice.taxAmount,
+        discountAmount: originalInvoice.discountAmount,
+        totalAmount: originalInvoice.totalAmount,
+        status: 'draft',
+        payment_status: 'Unpaid',
+        notes: originalInvoice.notes,
+        terms: originalInvoice.terms,
+        currency: originalInvoice.currency,
+        payment_terms: originalInvoice.payment_terms,
+        tax_type: originalInvoice.tax_type,
+        tax_inclusive: originalInvoice.tax_inclusive,
+      };
+      
+      const clonedInvoice = await storage.createInvoice(clonedInvoiceData);
+      
+      // Clone invoice items
+      if (originalInvoice.items && originalInvoice.items.length > 0) {
+        for (const item of originalInvoice.items) {
+          await storage.createInvoiceItem({
+            invoiceId: clonedInvoice.id,
+            productId: item.productId,
+            description: item.description,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            taxRate: item.taxRate,
+            taxAmount: item.taxAmount,
+            discountRate: item.discountRate,
+            discountAmount: item.discountAmount,
+            subtotal: item.subtotal,
+            totalAmount: item.totalAmount,
+          });
+        }
+      }
+      
+      // Log activity
+      await storage.createInvoiceActivity({
+        invoiceId: clonedInvoice.id,
+        userId: req.user!.id,
+        activity_type: 'created',
+        description: `Invoice ${clonedInvoice.invoiceNumber} cloned from ${originalInvoice.invoiceNumber}`,
+        metadata: { originalInvoiceId: invoiceId, originalInvoiceNumber: originalInvoice.invoiceNumber },
+      });
+      
+      res.json({ 
+        success: true, 
+        invoice: clonedInvoice,
+        message: 'Invoice cloned successfully',
+      });
+    } catch (error) {
+      console.error('Error cloning invoice:', error);
+      res.status(500).json({ message: 'Failed to clone invoice' });
+    }
+  });
+  
+  // Invoice statistics
+  router.get('/stats', isAuthenticated, async (req, res) => {
+    try {
+      const { from, to } = req.query;
+      const invoices = await storage.getInvoicesByUser(req.user!.id);
+      
+      // Filter by date range if provided
+      let filteredInvoices = invoices;
+      if (from || to) {
+        filteredInvoices = invoices.filter(invoice => {
+          const invoiceDate = new Date(invoice.issueDate);
+          if (from && invoiceDate < new Date(from as string)) return false;
+          if (to && invoiceDate > new Date(to as string)) return false;
+          return true;
+        });
+      }
+      
+      // Calculate statistics
+      const stats = {
+        total_invoices: filteredInvoices.length,
+        total_amount: filteredInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0),
+        paid_amount: filteredInvoices.reduce((sum, inv) => sum + (inv.amountPaid || 0), 0),
+        pending_amount: filteredInvoices.reduce((sum, inv) => sum + (inv.totalAmount - (inv.amountPaid || 0)), 0),
+        overdue_count: filteredInvoices.filter(inv => 
+          new Date(inv.dueDate) < new Date() && inv.payment_status !== 'Paid'
+        ).length,
+        draft_count: filteredInvoices.filter(inv => inv.status === 'draft').length,
+        sent_count: filteredInvoices.filter(inv => inv.status === 'sent').length,
+        paid_count: filteredInvoices.filter(inv => inv.payment_status === 'Paid').length,
+        average_amount: filteredInvoices.length > 0 
+          ? filteredInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0) / filteredInvoices.length 
+          : 0,
+        currency_breakdown: filteredInvoices.reduce((breakdown, inv) => {
+          breakdown[inv.currency] = (breakdown[inv.currency] || 0) + inv.totalAmount;
+          return breakdown;
+        }, {} as Record<string, number>),
+      };
+      
+      res.json(stats);
+    } catch (error) {
+      console.error('Error fetching invoice statistics:', error);
+      res.status(500).json({ message: 'Failed to fetch invoice statistics' });
+    }
+  });
 
 export default router;

@@ -1,417 +1,411 @@
-import puppeteer from 'puppeteer';
-import handlebars from 'handlebars';
-import fs from 'fs';
-import path from 'path';
-import { Invoice } from '@shared/schema';
-import { formatCurrency } from '../utils/formatters';
+import PDFDocument from 'pdfkit';
+import { Invoice, InvoiceItem, Contact, User } from '@shared/schema';
+import { storage } from '../../storage';
 
-// Define an interface for company data to be used in PDF
-export interface CompanyPdfData {
-  legalName: string;
-  principalBusinessAddress?: {
-    street?: string;
-    city?: string;
-    state?: string;
-    zipCode?: string;
-    country?: string;
-  };
-  phone?: string;
-  email?: string;
-  logo?: string; // Path or URL to the logo
-  // Add any other relevant company fields from the schema
+export interface InvoiceWithDetails extends Invoice {
+  items: InvoiceItem[];
+  contact?: Contact;
+  user?: User;
 }
 
-// Register Handlebars helpers
-handlebars.registerHelper('formatDate', function(date: string) {
-  return new Date(date).toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric'
-  });
-});
+export interface PDFGenerationOptions {
+  templateId?: number;
+  includeLogo?: boolean;
+  customization?: {
+    primaryColor?: string;
+    logoUrl?: string;
+    footerText?: string;
+  };
+}
 
-handlebars.registerHelper('formatCurrency', function(amount: number, currency: string = 'USD') {
-  return formatCurrency(amount, currency);
-});
-
-handlebars.registerHelper('calculateRowTotal', function(quantity: number, unitPrice: number, discount: number = 0, taxRate: number = 0) {
-  const subtotal = quantity * unitPrice - discount;
-  const tax = subtotal * (taxRate / 100);
-  return formatCurrency(subtotal + tax);
-});
-
-// Load invoice template
-const loadTemplate = () => {
-  const templatePath = path.join(__dirname, '../templates/invoice.html');
-  try {
-    const templateSource = fs.readFileSync(templatePath, 'utf8');
-    return handlebars.compile(templateSource);
-  } catch (error) {
-    console.error('Error loading invoice template:', error);
-    // Fallback to a basic template if file not found
-    const basicTemplate = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <title>Invoice {{invoice.invoice_number}}</title>
-        <style>
-          body { font-family: Arial, sans-serif; margin: 0; padding: 20px; color: #333; }
-          .invoice-header { display: flex; justify-content: space-between; margin-bottom: 30px; }
-          .invoice-title { font-size: 24px; font-weight: bold; margin-bottom: 5px; }
-          .company-details, .client-details { margin-bottom: 20px; }
-          .invoice-meta { margin-bottom: 20px; }
-          .invoice-meta-row { display: flex; justify-content: space-between; margin-bottom: 5px; }
-          table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-          th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
-          th { background-color: #f2f2f2; }
-          .text-right { text-align: right; }
-          .totals { margin-left: auto; width: 300px; }
-          .totals-row { display: flex; justify-content: space-between; padding: 5px 0; }
-          .totals-row.grand-total { font-weight: bold; border-top: 2px solid #333; padding-top: 10px; }
-          .notes { margin-top: 30px; padding-top: 10px; border-top: 1px solid #ddd; }
-          .footer { margin-top: 50px; text-align: center; font-size: 12px; color: #777; }
-        </style>
-      </head>
-      <body>
-        <div class="invoice-header">
-          <div>
-            <div class="invoice-title">INVOICE</div>
-            <div class="invoice-number">#{{invoice.invoice_number}}</div>
-          </div>
-          <div class="company-logo">
-            <!-- Logo would go here -->
-          </div>
-        </div>
-        
-        <div class="company-details">
-          {{#if company.logo}}
-          <img src="{{company.logo}}" alt="{{company.legalName}} Logo" style="max-height: 70px; margin-bottom: 10px;" />
-          {{/if}}
-          <div class="company-name">{{company.legalName}}</div>
-          {{#with company.principalBusinessAddress}}
-          <div>{{street}}</div>
-          <div>{{city}}{{#if state}}, {{state}}{{/if}} {{zipCode}}</div>
-          <div>{{country}}</div>
-          {{/with}}
-          {{#if company.phone}}<div>Phone: {{company.phone}}</div>{{/if}}
-          {{#if company.email}}<div>Email: {{company.email}}</div>{{/if}}
-        </div>
-        
-        <div class="client-details">
-          <div><strong>Bill To:</strong></div>
-          <div>{{contact.company}}</div>
-          <div>{{contact.firstName}} {{contact.lastName}}</div>
-          <div>{{contact.address}}</div>
-          <div>{{contact.city}}, {{contact.state}} {{contact.postalCode}}</div>
-          <div>{{contact.email}}</div>
-        </div>
-        
-        <div class="invoice-meta">
-          <div class="invoice-meta-row">
-            <div><strong>Invoice Date:</strong></div>
-            <div>{{formatDate invoice.issue_date}}</div>
-          </div>
-          <div class="invoice-meta-row">
-            <div><strong>Due Date:</strong></div>
-            <div>{{formatDate invoice.due_date}}</div>
-          </div>
-          <div class="invoice-meta-row">
-            <div><strong>Status:</strong></div>
-            <div>{{invoice.status}}</div>
-          </div>
-        </div>
-        
-        <table>
-          <thead>
-            <tr>
-              <th>Item</th>
-              <th>Description</th>
-              <th class="text-right">Quantity</th>
-              <th class="text-right">Unit Price</th>
-              <th class="text-right">Discount</th>
-              <th class="text-right">Tax Rate</th>
-              <th class="text-right">Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            {{#each items}}
-            <tr>
-              <td>{{product.name}}</td>
-              <td>{{description}}</td>
-              <td class="text-right">{{quantity}}</td>
-              <td class="text-right">{{formatCurrency unit_price ../invoice.currency}}</td>
-              <td class="text-right">{{formatCurrency discount ../invoice.currency}}</td>
-              <td class="text-right">{{tax_rate}}%</td>
-              <td class="text-right">{{calculateRowTotal quantity unit_price discount tax_rate}}</td>
-            </tr>
-            {{/each}}
-          </tbody>
-        </table>
-        
-        <div class="totals">
-          <div class="totals-row">
-            <div>Subtotal:</div>
-            <div>{{formatCurrency invoice.subtotal invoice.currency}}</div>
-          </div>
-          <div class="totals-row">
-            <div>Tax:</div>
-            <div>{{formatCurrency invoice.tax_amount invoice.currency}}</div>
-          </div>
-          <div class="totals-row">
-            <div>Discount:</div>
-            <div>{{formatCurrency invoice.discount_amount invoice.currency}}</div>
-          </div>
-          <div class="totals-row grand-total">
-            <div>Total:</div>
-            <div>{{formatCurrency invoice.total_amount invoice.currency}}</div>
-          </div>
-          <div class="totals-row">
-            <div>Amount Paid:</div>
-            <div>{{formatCurrency invoice.amount_paid invoice.currency}}</div>
-          </div>
-          <div class="totals-row grand-total">
-            <div>Balance Due:</div>
-            <div>{{formatCurrency (subtract invoice.total_amount invoice.amount_paid) invoice.currency}}</div>
-          </div>
-        </div>
-        
-        {{#if invoice.notes}}
-        <div class="notes">
-          <div><strong>Notes:</strong></div>
-          <div>{{invoice.notes}}</div>
-        </div>
-        {{/if}}
-        
-        {{#if invoice.terms}}
-        <div class="notes">
-          <div><strong>Terms and Conditions:</strong></div>
-          <div>{{invoice.terms}}</div>
-        </div>
-        {{/if}}
-        
-        <div class="footer">
-          <p>Thank you for your business!</p>
-        </div>
-      </body>
-      </html>
-    `;
-    return handlebars.compile(basicTemplate);
+export class InvoicePDFService {
+  private formatCurrency(amount: number, currency: string = 'USD'): string {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: currency,
+    }).format(amount);
   }
-};
 
-// Generate PDF from invoice data
-export async function generateInvoicePdf(invoice: any, company: CompanyPdfData): Promise<Buffer> {
-  try {
-    // Prepare data for template
-    const templateData = {
-      invoice,
-      contact: invoice.contact,
-      items: invoice.items,
-      company, // Add company data to template
-      formatCurrency,
-      subtract: (a: number, b: number) => a - b,
-      // Helper to check if an object has properties (for principalBusinessAddress)
-      hasProps: (obj: any) => obj && Object.keys(obj).length > 0,
-    };
-    
-    // Compile template
-    const template = loadTemplate();
-    const html = template(templateData);
-    
-    // Launch browser
-    const browser = await puppeteer.launch({
-      headless: true, // Changed from 'new' to true
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
+  private formatDate(date: string | Date): string {
+    const dateObj = typeof date === 'string' ? new Date(date) : date;
+    return dateObj.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
     });
-    
-    // Create page and set content
-    const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: 'networkidle0' });
-    
-    // Generate PDF
-    const pdf = await page.pdf({
-      format: 'A4',
-      printBackground: true,
-      margin: {
-        top: '20px',
-        right: '20px',
-        bottom: '20px',
-        left: '20px'
+  }
+
+  async generateInvoicePDF(
+    invoiceId: number,
+    options: PDFGenerationOptions = {}
+  ): Promise<Buffer> {
+    // Get invoice with all related data
+    const invoice = await storage.getInvoiceWithItems(invoiceId);
+    if (!invoice) {
+      throw new Error('Invoice not found');
+    }
+
+    const contact = invoice.contactId 
+      ? await storage.getContact(invoice.contactId)
+      : null;
+
+    const user = await storage.getUser(invoice.userId);
+
+    const invoiceWithDetails: InvoiceWithDetails = {
+      ...invoice,
+      contact: contact || undefined,
+      user: user || undefined,
+    };
+
+    return this.createPDFDocument(invoiceWithDetails, options);
+  }
+
+  private createPDFDocument(
+    invoice: InvoiceWithDetails,
+    options: PDFGenerationOptions
+  ): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      try {
+        const doc = new PDFDocument({ margin: 50, size: 'A4' });
+        const chunks: Buffer[] = [];
+
+        doc.on('data', (chunk) => chunks.push(chunk));
+        doc.on('end', () => resolve(Buffer.concat(chunks)));
+
+        // Set primary color
+        const primaryColor = options.customization?.primaryColor || '#2563eb';
+
+        // Header
+        this.addHeader(doc, invoice, options, primaryColor);
+
+        // Invoice details
+        this.addInvoiceDetails(doc, invoice);
+
+        // Billing information
+        this.addBillingInfo(doc, invoice);
+
+        // Items table
+        this.addItemsTable(doc, invoice);
+
+        // Totals
+        this.addTotals(doc, invoice);
+
+        // Payment terms and notes
+        this.addPaymentTermsAndNotes(doc, invoice);
+
+        // Footer
+        this.addFooter(doc, invoice, options);
+
+        doc.end();
+      } catch (error) {
+        reject(error);
       }
     });
+  }
+
+  private addHeader(
+    doc: PDFKit.PDFDocument,
+    invoice: InvoiceWithDetails,
+    options: PDFGenerationOptions,
+    primaryColor: string
+  ) {
+    const startY = 50;
+
+    // Company logo (if available)
+    if (options.includeLogo && options.customization?.logoUrl) {
+      // In a real implementation, you would load and add the logo image
+      // doc.image(options.customization.logoUrl, 50, startY, { width: 100 });
+    }
+
+    // Company information (right side)
+    doc.fontSize(20)
+       .fillColor(primaryColor)
+       .text('INVOICE', 350, startY, { align: 'right' });
+
+    doc.fontSize(10)
+       .fillColor('#333333')
+       .text(invoice.user?.firstName + ' ' + invoice.user?.lastName || 'Your Company', 350, startY + 30, { align: 'right' })
+       .text(invoice.user?.email || 'company@example.com', 350, startY + 45, { align: 'right' })
+       .text(invoice.user?.phone || '+1 (555) 123-4567', 350, startY + 60, { align: 'right' });
+
+    // Invoice number and date
+    doc.fontSize(12)
+       .fillColor(primaryColor)
+       .text(`Invoice #${invoice.invoiceNumber}`, 350, startY + 90, { align: 'right' });
+
+    doc.fontSize(10)
+       .fillColor('#666666')
+       .text(`Issue Date: ${this.formatDate(invoice.issueDate)}`, 350, startY + 110, { align: 'right' })
+       .text(`Due Date: ${this.formatDate(invoice.dueDate)}`, 350, startY + 125, { align: 'right' });
+
+    // Status badge
+    const statusColor = this.getStatusColor(invoice.status);
+    doc.rect(350, startY + 145, 100, 20)
+       .fillAndStroke(statusColor, statusColor);
     
-    // Close browser
-    await browser.close();
+    doc.fontSize(10)
+       .fillColor('#ffffff')
+       .text(invoice.status.toUpperCase(), 355, startY + 150);
+
+    doc.fillColor('#333333'); // Reset color
+  }
+
+  private addInvoiceDetails(doc: PDFKit.PDFDocument, invoice: InvoiceWithDetails) {
+    const startY = 200;
+
+    // Payment terms and currency
+    doc.fontSize(10)
+       .text(`Payment Terms: ${invoice.payment_terms || 'Net 30'}`, 50, startY)
+       .text(`Currency: ${invoice.currency}`, 50, startY + 15);
+
+    if (invoice.exchange_rate && invoice.exchange_rate !== 1) {
+      doc.text(`Exchange Rate: ${invoice.exchange_rate}`, 50, startY + 30);
+    }
+  }
+
+  private addBillingInfo(doc: PDFKit.PDFDocument, invoice: InvoiceWithDetails) {
+    const startY = 250;
+
+    // Bill To section
+    doc.fontSize(12)
+       .fillColor('#2563eb')
+       .text('Bill To:', 50, startY);
+
+    doc.fontSize(10)
+       .fillColor('#333333');
+
+    if (invoice.contact) {
+      doc.text(`${invoice.contact.firstName} ${invoice.contact.lastName}`, 50, startY + 20);
+      
+      if (invoice.contact.company) {
+        doc.text(invoice.contact.company, 50, startY + 35);
+      }
+      
+      if (invoice.contact.address) {
+        doc.text(invoice.contact.address, 50, startY + 50);
+      }
+      
+      if (invoice.contact.city) {
+        const addressLine = `${invoice.contact.city}${invoice.contact.state ? ', ' + invoice.contact.state : ''}${invoice.contact.postalCode ? ' ' + invoice.contact.postalCode : ''}`;
+        doc.text(addressLine, 50, startY + 65);
+      }
+      
+      if (invoice.contact.country) {
+        doc.text(invoice.contact.country, 50, startY + 80);
+      }
+      
+      if (invoice.contact.email) {
+        doc.text(invoice.contact.email, 50, startY + 95);
+      }
+    } else {
+      doc.text('Customer information not available', 50, startY + 20);
+    }
+  }
+
+  private addItemsTable(doc: PDFKit.PDFDocument, invoice: InvoiceWithDetails) {
+    const startY = 380;
+    const tableTop = startY;
+    const itemHeight = 20;
+
+    // Table headers
+    doc.fontSize(10)
+       .fillColor('#ffffff');
+
+    // Header background
+    doc.rect(50, tableTop, 495, 20)
+       .fill('#2563eb');
+
+    // Header text
+    doc.text('Description', 55, tableTop + 5)
+       .text('Qty', 300, tableTop + 5)
+       .text('Price', 350, tableTop + 5)
+       .text('Tax', 400, tableTop + 5)
+       .text('Total', 480, tableTop + 5);
+
+    doc.fillColor('#333333');
+
+    // Table rows
+    let currentY = tableTop + 25;
     
-    return Buffer.from(pdf); // Convert Uint8Array to Buffer
-  } catch (error) {
-    console.error('Error generating invoice PDF:', error);
-    throw new Error('Failed to generate invoice PDF');
+    invoice.items.forEach((item, index) => {
+      const rowY = currentY + (index * itemHeight);
+      
+      // Alternate row background
+      if (index % 2 === 1) {
+        doc.rect(50, rowY - 2, 495, itemHeight)
+           .fill('#f8f9fa');
+      }
+
+      doc.fontSize(9)
+         .fillColor('#333333')
+         .text(item.description, 55, rowY + 3, { width: 240 })
+         .text(item.quantity.toString(), 300, rowY + 3)
+         .text(this.formatCurrency(item.unitPrice, invoice.currency), 350, rowY + 3)
+         .text(`${item.taxRate || 0}%`, 400, rowY + 3)
+         .text(this.formatCurrency(item.totalAmount, invoice.currency), 480, rowY + 3);
+    });
+
+    return currentY + (invoice.items.length * itemHeight) + 10;
+  }
+
+  private addTotals(doc: PDFKit.PDFDocument, invoice: InvoiceWithDetails) {
+    const startY = 500;
+
+    // Totals section
+    const totalsX = 350;
+    
+    doc.fontSize(10)
+       .fillColor('#666666');
+
+    // Subtotal
+    doc.text('Subtotal:', totalsX, startY)
+       .text(this.formatCurrency(invoice.subtotal, invoice.currency), 450, startY);
+
+    // Tax
+    if (invoice.taxAmount && invoice.taxAmount > 0) {
+      doc.text(`Tax (${invoice.tax_type || 'Tax'}):`, totalsX, startY + 15)
+         .text(this.formatCurrency(invoice.taxAmount, invoice.currency), 450, startY + 15);
+    }
+
+    // Discount
+    if (invoice.discountAmount && invoice.discountAmount > 0) {
+      doc.text('Discount:', totalsX, startY + 30)
+         .text(`-${this.formatCurrency(invoice.discountAmount, invoice.currency)}`, 450, startY + 30);
+    }
+
+    // Total line
+    doc.rect(totalsX, startY + 45, 145, 1)
+       .fill('#cccccc');
+
+    // Total amount
+    doc.fontSize(12)
+       .fillColor('#2563eb')
+       .text('Total:', totalsX, startY + 55)
+       .text(this.formatCurrency(invoice.totalAmount, invoice.currency), 450, startY + 55);
+
+    // Amount paid and balance due
+    if (invoice.amountPaid && invoice.amountPaid > 0) {
+      doc.fontSize(10)
+         .fillColor('#666666')
+         .text('Amount Paid:', totalsX, startY + 75)
+         .text(this.formatCurrency(invoice.amountPaid, invoice.currency), 450, startY + 75);
+
+      const balanceDue = invoice.totalAmount - invoice.amountPaid;
+      if (balanceDue > 0) {
+        doc.fontSize(11)
+           .fillColor('#dc2626')
+           .text('Balance Due:', totalsX, startY + 90)
+           .text(this.formatCurrency(balanceDue, invoice.currency), 450, startY + 90);
+      }
+    }
+  }
+
+  private addPaymentTermsAndNotes(doc: PDFKit.PDFDocument, invoice: InvoiceWithDetails) {
+    const startY = 620;
+
+    // Payment instructions
+    if (invoice.payment_instructions) {
+      doc.fontSize(10)
+         .fillColor('#2563eb')
+         .text('Payment Instructions:', 50, startY);
+         
+      doc.fontSize(9)
+         .fillColor('#333333')
+         .text(invoice.payment_instructions, 50, startY + 15, { width: 495 });
+    }
+
+    // Notes
+    if (invoice.notes) {
+      doc.fontSize(10)
+         .fillColor('#2563eb')
+         .text('Notes:', 50, startY + 60);
+         
+      doc.fontSize(9)
+         .fillColor('#333333')
+         .text(invoice.notes, 50, startY + 75, { width: 495 });
+    }
+
+    // Terms and conditions
+    if (invoice.terms) {
+      doc.fontSize(10)
+         .fillColor('#2563eb')
+         .text('Terms & Conditions:', 50, startY + 120);
+         
+      doc.fontSize(9)
+         .fillColor('#333333')
+         .text(invoice.terms, 50, startY + 135, { width: 495 });
+    }
+  }
+
+  private addFooter(
+    doc: PDFKit.PDFDocument,
+    invoice: InvoiceWithDetails,
+    options: PDFGenerationOptions
+  ) {
+    const footerY = 750;
+
+    // Footer line
+    doc.rect(50, footerY, 495, 1)
+       .fill('#cccccc');
+
+    // Footer text
+    const footerText = options.customization?.footerText || 
+      'Thank you for your business! Please remit payment by the due date.';
+
+    doc.fontSize(8)
+       .fillColor('#666666')
+       .text(footerText, 50, footerY + 10, { align: 'center', width: 495 });
+
+    // Page number
+    doc.text(`Page 1 of 1`, 50, footerY + 25, { align: 'center', width: 495 });
+  }
+
+  private getStatusColor(status: string): string {
+    switch (status?.toLowerCase()) {
+      case 'paid':
+        return '#10b981';
+      case 'sent':
+        return '#3b82f6';
+      case 'overdue':
+        return '#ef4444';
+      case 'draft':
+        return '#6b7280';
+      default:
+        return '#f59e0b';
+    }
+  }
+
+  // Method to generate and save PDF
+  async generateAndSavePDF(invoiceId: number, options: PDFGenerationOptions = {}): Promise<string> {
+    const pdfBuffer = await this.generateInvoicePDF(invoiceId, options);
+    
+    // In a real implementation, you would save this to cloud storage (AWS S3, etc.)
+    // For now, we'll return a URL that the backend can serve
+    const pdfUrl = `/api/invoices/${invoiceId}/pdf`;
+    
+    // Update the invoice to mark PDF as generated
+    await storage.updateInvoice(invoiceId, {
+      pdf_generated: true,
+      pdf_url: pdfUrl,
+      updatedAt: new Date().toISOString(),
+    });
+
+    return pdfUrl;
+  }
+
+  // Method to customize invoice template
+  async generateWithTemplate(invoiceId: number, templateId: number): Promise<Buffer> {
+    const template = await storage.getInvoiceTemplate(templateId);
+    if (!template) {
+      throw new Error('Template not found');
+    }
+
+    const customization = template.template_data as any;
+    return this.generateInvoicePDF(invoiceId, { 
+      templateId,
+      customization: customization?.customization 
+    });
   }
 }
 
-// Create directory for invoice templates if it doesn't exist
-export function ensureTemplateDirectoryExists() {
-  const templateDir = path.join(__dirname, '../templates');
-  if (!fs.existsSync(templateDir)) {
-    fs.mkdirSync(templateDir, { recursive: true });
-  }
-  
-  // Create basic template file if it doesn't exist
-  const templatePath = path.join(templateDir, 'invoice.html');
-  if (!fs.existsSync(templatePath)) {
-    const basicTemplate = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <title>Invoice {{invoice.invoice_number}}</title>
-        <style>
-          body { font-family: Arial, sans-serif; margin: 0; padding: 20px; color: #333; }
-          .invoice-header { display: flex; justify-content: space-between; margin-bottom: 30px; }
-          .invoice-title { font-size: 24px; font-weight: bold; margin-bottom: 5px; }
-          .company-details, .client-details { margin-bottom: 20px; }
-          .invoice-meta { margin-bottom: 20px; }
-          .invoice-meta-row { display: flex; justify-content: space-between; margin-bottom: 5px; }
-          table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-          th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
-          th { background-color: #f2f2f2; }
-          .text-right { text-align: right; }
-          .totals { margin-left: auto; width: 300px; }
-          .totals-row { display: flex; justify-content: space-between; padding: 5px 0; }
-          .totals-row.grand-total { font-weight: bold; border-top: 2px solid #333; padding-top: 10px; }
-          .notes { margin-top: 30px; padding-top: 10px; border-top: 1px solid #ddd; }
-          .footer { margin-top: 50px; text-align: center; font-size: 12px; color: #777; }
-        </style>
-      </head>
-      <body>
-        <div class="invoice-header">
-          <div>
-            <div class="invoice-title">INVOICE</div>
-            <div class="invoice-number">#{{invoice.invoice_number}}</div>
-          </div>
-          <div class="company-logo">
-            <!-- Logo would go here -->
-          </div>
-        </div>
-        
-        <div class="company-details">
-          {{#if company.logo}}
-          <img src="{{company.logo}}" alt="{{company.legalName}} Logo" style="max-height: 70px; margin-bottom: 10px;" />
-          {{/if}}
-          <div class="company-name">{{company.legalName}}</div>
-          {{#if (hasProps company.principalBusinessAddress)}}
-          {{#with company.principalBusinessAddress}}
-          <div>{{street}}</div>
-          <div>{{city}}{{#if state}}, {{state}}{{/if}} {{zipCode}}</div>
-          <div>{{country}}</div>
-          {{/with}}
-          {{else}}
-          <div>Company address not available</div>
-          {{/if}}
-          {{#if company.phone}}<div>Phone: {{company.phone}}</div>{{/if}}
-          {{#if company.email}}<div>Email: {{company.email}}</div>{{/if}}
-        </div>
-        
-        <div class="client-details">
-          <div><strong>Bill To:</strong></div>
-          <div>{{contact.company}}</div>
-          <div>{{contact.firstName}} {{contact.lastName}}</div>
-          <div>{{contact.address}}</div>
-          <div>{{contact.city}}, {{contact.state}} {{contact.postalCode}}</div>
-          <div>{{contact.email}}</div>
-        </div>
-        
-        <div class="invoice-meta">
-          <div class="invoice-meta-row">
-            <div><strong>Invoice Date:</strong></div>
-            <div>{{formatDate invoice.issue_date}}</div>
-          </div>
-          <div class="invoice-meta-row">
-            <div><strong>Due Date:</strong></div>
-            <div>{{formatDate invoice.due_date}}</div>
-          </div>
-          <div class="invoice-meta-row">
-            <div><strong>Status:</strong></div>
-            <div>{{invoice.status}}</div>
-          </div>
-        </div>
-        
-        <table>
-          <thead>
-            <tr>
-              <th>Item</th>
-              <th>Description</th>
-              <th class="text-right">Quantity</th>
-              <th class="text-right">Unit Price</th>
-              <th class="text-right">Discount</th>
-              <th class="text-right">Tax Rate</th>
-              <th class="text-right">Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            {{#each items}}
-            <tr>
-              <td>{{product.name}}</td>
-              <td>{{description}}</td>
-              <td class="text-right">{{quantity}}</td>
-              <td class="text-right">{{formatCurrency unit_price ../invoice.currency}}</td>
-              <td class="text-right">{{formatCurrency discount ../invoice.currency}}</td>
-              <td class="text-right">{{tax_rate}}%</td>
-              <td class="text-right">{{calculateRowTotal quantity unit_price discount tax_rate}}</td>
-            </tr>
-            {{/each}}
-          </tbody>
-        </table>
-        
-        <div class="totals">
-          <div class="totals-row">
-            <div>Subtotal:</div>
-            <div>{{formatCurrency invoice.subtotal invoice.currency}}</div>
-          </div>
-          <div class="totals-row">
-            <div>Tax:</div>
-            <div>{{formatCurrency invoice.tax_amount invoice.currency}}</div>
-          </div>
-          <div class="totals-row">
-            <div>Discount:</div>
-            <div>{{formatCurrency invoice.discount_amount invoice.currency}}</div>
-          </div>
-          <div class="totals-row grand-total">
-            <div>Total:</div>
-            <div>{{formatCurrency invoice.total_amount invoice.currency}}</div>
-          </div>
-          <div class="totals-row">
-            <div>Amount Paid:</div>
-            <div>{{formatCurrency invoice.amount_paid invoice.currency}}</div>
-          </div>
-          <div class="totals-row grand-total">
-            <div>Balance Due:</div>
-            <div>{{formatCurrency (subtract invoice.total_amount invoice.amount_paid) invoice.currency}}</div>
-          </div>
-        </div>
-        
-        {{#if invoice.notes}}
-        <div class="notes">
-          <div><strong>Notes:</strong></div>
-          <div>{{invoice.notes}}</div>
-        </div>
-        {{/if}}
-        
-        {{#if invoice.terms}}
-        <div class="notes">
-          <div><strong>Terms and Conditions:</strong></div>
-          <div>{{invoice.terms}}</div>
-        </div>
-        {{/if}}
-        
-        <div class="footer">
-          <p>Thank you for your business!</p>
-        </div>
-      </body>
-      </html>
-    `;
-    fs.writeFileSync(templatePath, basicTemplate);
-  }
-}
+export const invoicePDFService = new InvoicePDFService();
