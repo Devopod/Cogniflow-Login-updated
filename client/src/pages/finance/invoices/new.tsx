@@ -273,52 +273,8 @@ export default function NewInvoicePage() {
   const { data: contacts = [] } = useContacts();
   const { data: apiProducts = [] } = useProducts();
   
-  // Sample products to use when no products are available from the API
-  const sampleProducts = [
-    {
-      id: -1,
-      name: "Web Development Service",
-      description: "Professional web development service",
-      price: 120,
-      taxRate: 10,
-      sku: "WEB-DEV-001"
-    },
-    {
-      id: -2,
-      name: "Mobile App Development",
-      description: "Custom mobile application development",
-      price: 150,
-      taxRate: 10,
-      sku: "MOB-DEV-001"
-    },
-    {
-      id: -3,
-      name: "UI/UX Design",
-      description: "User interface and experience design",
-      price: 95,
-      taxRate: 10,
-      sku: "DESIGN-001"
-    },
-    {
-      id: -4,
-      name: "SEO Optimization",
-      description: "Search engine optimization service",
-      price: 75,
-      taxRate: 5,
-      sku: "SEO-001"
-    },
-    {
-      id: -5,
-      name: "Content Writing",
-      description: "Professional content writing service",
-      price: 50,
-      taxRate: 5,
-      sku: "CONTENT-001"
-    }
-  ];
-  
-  // Use API products if available, otherwise use sample products
-  const products = apiProducts.length > 0 ? apiProducts : sampleProducts;
+  // Use dynamic products from API
+  const products = apiProducts;
 
   // Initialize form with default values
   const form = useForm<InvoiceFormValues>({

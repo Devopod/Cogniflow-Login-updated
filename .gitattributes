@@ -1,4 +1,4 @@
-# Set default behavior to automatically normalize line endings
+# Set default line ending behavior for all files
 * text=auto
 
 # Explicitly declare text files you want to always be normalized and converted
@@ -9,16 +9,18 @@
 *.jsx text
 *.json text
 *.md text
-*.txt text
-*.yml text
-*.yaml text
 *.css text
 *.scss text
 *.html text
 *.xml text
+*.yml text
+*.yaml text
+*.toml text
+*.sql text
 
 # Declare files that will always have CRLF line endings on checkout
 *.bat text eol=crlf
+*.cmd text eol=crlf
 
 # Declare files that will always have LF line endings on checkout
 *.sh text eol=lf
@@ -29,6 +31,37 @@
 *.jpeg binary
 *.gif binary
 *.ico binary
-*.pdf binary
+*.mov binary
+*.mp4 binary
+*.mp3 binary
+*.flv binary
+*.fla binary
+*.swf binary
+*.gz binary
 *.zip binary
-*.tar.gz binary
+*.7z binary
+*.ttf binary
+*.eot binary
+*.woff binary
+*.woff2 binary
+*.pyc binary
+*.pdf binary
+*.ez binary
+*.bz2 binary
+*.swp binary
+*.image binary
+*.tgz binary
+*.jar binary
+*.class binary
+*.exe binary
+*.dll binary
+*.so binary
+*.app binary
+
+# Exclude files from exporting
+.gitattributes export-ignore
+.gitignore export-ignore
+.github export-ignore
+.vscode export-ignore
+README.md export-ignore
+*.md export-ignore

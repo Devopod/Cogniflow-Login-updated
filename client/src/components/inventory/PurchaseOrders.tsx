@@ -87,28 +87,11 @@ import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 
-// Sample suppliers
-const suppliers = [
-  { id: 1, name: "TechSource Inc.", contactPerson: "John Smith", email: "john@techsource.com", phone: "+1 (555) 123-4567", paymentTerms: "Net 30", rating: 4.8 },
-  { id: 2, name: "Furniture Plus", contactPerson: "Emily Johnson", email: "emily@furnitureplus.com", phone: "+1 (555) 234-5678", paymentTerms: "Net 45", rating: 4.2 },
-  { id: 3, name: "Office Supplies Direct", contactPerson: "Michael Brown", email: "michael@officesupplies.com", phone: "+1 (555) 345-6789", paymentTerms: "Net 15", rating: 4.5 },
-  { id: 4, name: "Enterprise IT Solutions", contactPerson: "Sarah Wilson", email: "sarah@enterpriseit.com", phone: "+1 (555) 456-7890", paymentTerms: "Net 60", rating: 3.9 },
-  { id: 5, name: "SafetyFirst Supplies", contactPerson: "David Rodriguez", email: "david@safetyfirst.com", phone: "+1 (555) 567-8901", paymentTerms: "Net 30", rating: 4.7 },
-];
+import { useQuery } from '@tanstack/react-query';
+import { useProducts } from '@/hooks/use-inventory-data';
+import { useWebSocket } from '@/hooks/use-websocket';
 
-// Sample products
-const products = [
-  { id: "PRD-2023-001", sku: "ELC-LPT-001", name: "Business Laptop Pro", category: "Electronics", unitPrice: 899.99, availableStock: 23 },
-  { id: "PRD-2023-002", sku: "OFF-DSK-002", name: "Ergonomic Office Desk", category: "Furniture", unitPrice: 450.00, availableStock: 15 },
-  { id: "PRD-2023-003", sku: "OFF-CHR-003", name: "Executive Office Chair", category: "Furniture", unitPrice: 220.00, availableStock: 12 },
-  { id: "PRD-2023-004", sku: "ELC-PRT-004", name: "LaserJet Printer Pro", category: "Electronics", unitPrice: 320.00, availableStock: 8 },
-  { id: "PRD-2023-005", sku: "OFF-STN-005", name: "Office Stationery Kit", category: "Office Supplies", unitPrice: 14.50, availableStock: 50 },
-  { id: "PRD-2023-006", sku: "IT-SRV-006", name: "Enterprise Server", category: "IT Equipment", unitPrice: 4200.00, availableStock: 3 },
-  { id: "PRD-2023-007", sku: "SFT-HMT-007", name: "Safety Helmet", category: "Safety Gear", unitPrice: 18.50, availableStock: 75 },
-  { id: "PRD-2023-008", sku: "RAW-STL-008", name: "Steel Sheet (Industrial Grade)", category: "Raw Materials", unitPrice: 65.00, availableStock: 120 },
-];
-
-// Sample purchase orders
+// Sample purchase orders - TODO: Convert to dynamic data
 const purchaseOrders = [
   {
     id: "PO-2023-001",
@@ -341,6 +324,25 @@ const getPaymentStatusBadge = (status: string) => {
 // Main component
 const PurchaseOrders = () => {
   const { toast } = useToast();
+  
+  // Dynamic data hooks
+  const { data: suppliers = [], isLoading: isLoadingSuppliers } = useQuery({
+    queryKey: ['suppliers'],
+    queryFn: async () => {
+      const response = await fetch('/api/suppliers');
+      if (!response.ok) throw new Error('Failed to fetch suppliers');
+      return response.json();
+    }
+  });
+
+  const { data: products = [], isLoading: isLoadingProducts } = useProducts();
+  
+  // Real-time updates via WebSocket
+  useWebSocket({
+    resource: 'purchase',
+    invalidateQueries: [['suppliers'], ['products'], ['purchaseOrders']]
+  });
+  
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [dateRange, setDateRange] = useState<{ from: Date | undefined, to: Date | undefined }>({

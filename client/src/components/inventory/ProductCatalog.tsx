@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useProducts } from '@/hooks/use-inventory-data';
+import { useWebSocket } from '@/hooks/use-websocket';
 import {
   Card,
   CardContent,
@@ -97,8 +99,8 @@ const productCategories = [
   { id: 7, name: "Safety Gear", count: 9 },
 ];
 
-// Sample product data
-const products = [
+// Sample product data - TODO: Convert to dynamic data
+const sampleProducts = [
   {
     id: "PRD-2023-001",
     sku: "ELC-LPT-001",
@@ -467,6 +469,16 @@ const suppliers = [
 
 const ProductCatalog = () => {
   const { toast } = useToast();
+  
+  // Dynamic data hooks
+  const { data: products = [], isLoading: isLoadingProducts } = useProducts();
+  
+  // Real-time updates via WebSocket for inventory changes
+  useWebSocket({
+    resource: 'inventory',
+    invalidateQueries: [['products'], ['lowStockItems']]
+  });
+  
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");

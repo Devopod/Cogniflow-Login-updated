@@ -294,6 +294,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...req.body,
         userId: req.user!.id
       });
+      
+      // Broadcast product creation via WebSocket
+      wsService.broadcast('product_created', {
+        type: 'product_created',
+        data: product,
+        userId: req.user!.id
+      });
+      
+      wsService.broadcastToResource('inventory', 'all', 'product_created', {
+        product: product
+      });
+      
       res.status(201).json(product);
     } catch (error) {
       console.error("Error creating product:", error);
@@ -311,6 +323,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const updatedProduct = await storage.updateProduct(productId, req.body);
+      
+      // Broadcast product update via WebSocket
+      wsService.broadcast('product_updated', {
+        type: 'product_updated',
+        data: updatedProduct,
+        userId: req.user!.id
+      });
+      
+      wsService.broadcastToResource('inventory', 'all', 'product_updated', {
+        product: updatedProduct
+      });
+      
       res.json(updatedProduct);
     } catch (error) {
       console.error("Error updating product:", error);
@@ -328,6 +352,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       await storage.deleteProduct(productId);
+      
+      // Broadcast product deletion via WebSocket
+      wsService.broadcast('product_deleted', {
+        type: 'product_deleted',
+        data: { id: productId },
+        userId: req.user!.id
+      });
+      
+      wsService.broadcastToResource('inventory', 'all', 'product_deleted', {
+        productId: productId
+      });
+      
       res.status(204).end();
     } catch (error) {
       console.error("Error deleting product:", error);
@@ -1575,6 +1611,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         userId: req.user!.id,
         createdAt: new Date(),
         updatedAt: new Date()
+      });
+      
+      // Broadcast supplier creation via WebSocket
+      wsService.broadcast('supplier_created', {
+        type: 'supplier_created',
+        data: supplier,
+        userId: req.user!.id
+      });
+      
+      wsService.broadcastToResource('purchase', 'all', 'supplier_created', {
+        supplier: supplier
       });
       
       res.status(201).json(supplier);
