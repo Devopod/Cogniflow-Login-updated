@@ -153,11 +153,26 @@ class TaskScheduler {
 // Create a singleton instance
 export const scheduler = new TaskScheduler();
 
-// Only register tasks if we have a valid database connection
+// Only register tasks if we have a valid database connection and schema
 const shouldRegisterTasks = () => {
   const dbUrl = process.env.DATABASE_URL;
-  return dbUrl && !dbUrl.includes('dummy') && !dbUrl.includes('localhost');
+  // Disable tasks if:
+  // 1. No database URL
+  // 2. Contains dummy/localhost (development)
+  // 3. Environment variable to disable scheduler
+  // 4. NODE_ENV is development (extra safety)
+  return dbUrl && 
+         !dbUrl.includes('dummy') && 
+         !dbUrl.includes('localhost') &&
+         process.env.ENABLE_TASK_SCHEDULER === 'true' &&
+         process.env.NODE_ENV !== 'development';
 };
+
+// Log the task scheduler status
+console.log('Task scheduler configuration:');
+console.log('- DATABASE_URL:', process.env.DATABASE_URL ? 'set' : 'not set');
+console.log('- ENABLE_TASK_SCHEDULER:', process.env.ENABLE_TASK_SCHEDULER);
+console.log('- Should register tasks:', shouldRegisterTasks());
 
 if (shouldRegisterTasks()) {
   // Register tasks
@@ -167,6 +182,14 @@ if (shouldRegisterTasks()) {
     interval: 24 * 60 * 60 * 1000, // Once a day
     fn: async () => {
       try {
+        // Check if required columns exist by testing a simple query first
+        try {
+          await db.execute(sql`SELECT payment_terms FROM invoices LIMIT 1`);
+        } catch (columnError) {
+          console.log('Skipping overdue invoice check - database schema not ready');
+          return;
+        }
+
         // Find invoices that are overdue but not marked as overdue
         const overdueInvoices = await db.select()
           .from(invoices)
@@ -214,6 +237,14 @@ if (shouldRegisterTasks()) {
     interval: 24 * 60 * 60 * 1000, // Once a day
     fn: async () => {
       try {
+        // Check if required columns exist by testing a simple query first
+        try {
+          await db.execute(sql`SELECT payment_overdue_reminder_sent FROM invoices LIMIT 1`);
+        } catch (columnError) {
+          console.log('Skipping payment reminders - database schema not ready');
+          return;
+        }
+
         // Find invoices that are overdue and haven't had a reminder sent in the last 7 days
         const overdueInvoices = await db.select()
           .from(invoices)

@@ -8,7 +8,7 @@ import {
   PlusIcon, 
   TrashIcon, 
   ArrowDownOnSquareIcon, 
-  SendIcon as PaperAirplaneIcon, 
+  PaperAirplaneIcon, 
   CalendarIcon,
   UserIcon,
   CurrencyDollarIcon,
