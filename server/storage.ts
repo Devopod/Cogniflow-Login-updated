@@ -4,6 +4,14 @@ import {
   products, type Product, type InsertProduct, 
   employees, type Employee, type InsertEmployee, 
   invoices, type Invoice, type InsertInvoice,
+  invoiceItems, type InvoiceItem, type InsertInvoiceItem,
+  payments, type Payment, type InsertPayment,
+  taxRates, type TaxRate, type InsertTaxRate,
+  invoiceTemplates, type InvoiceTemplate, type InsertInvoiceTemplate,
+  emailTemplates, type EmailTemplate, type InsertEmailTemplate,
+  invoiceActivities, type InvoiceActivity, type InsertInvoiceActivity,
+  paymentLinks, type PaymentLink, type InsertPaymentLink,
+  currencyRates, type CurrencyRate, type InsertCurrencyRate,
   suppliers, type Supplier, type InsertSupplier,
   purchaseRequests, type PurchaseRequest, type InsertPurchaseRequest,
   purchaseRequestItems, type PurchaseRequestItem, type InsertPurchaseRequestItem,
@@ -15,7 +23,7 @@ import {
   quotationItems, type QuotationItem, type InsertQuotationItem
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, and } from "drizzle-orm";
 import connectPg from "connect-pg-simple";
 import session from "express-session";
 import { pool } from "./db";
@@ -68,6 +76,55 @@ export interface IStorage {
   createPayment(payment: Partial<InsertPayment>): Promise<Payment>;
   updatePayment(id: number, data: Partial<InsertPayment>): Promise<Payment | undefined>;
   deletePayment(id: number): Promise<boolean>;
+  
+  // Tax Rates
+  getTaxRate(id: number): Promise<TaxRate | undefined>;
+  getTaxRatesByUser(userId: number): Promise<TaxRate[]>;
+  createTaxRate(taxRate: InsertTaxRate): Promise<TaxRate>;
+  updateTaxRate(id: number, data: Partial<InsertTaxRate>): Promise<TaxRate | undefined>;
+  deleteTaxRate(id: number): Promise<boolean>;
+  
+  // Invoice Templates
+  getInvoiceTemplate(id: number): Promise<InvoiceTemplate | undefined>;
+  getInvoiceTemplatesByUser(userId: number): Promise<InvoiceTemplate[]>;
+  createInvoiceTemplate(template: InsertInvoiceTemplate): Promise<InvoiceTemplate>;
+  updateInvoiceTemplate(id: number, data: Partial<InsertInvoiceTemplate>): Promise<InvoiceTemplate | undefined>;
+  deleteInvoiceTemplate(id: number): Promise<boolean>;
+  
+  // Email Templates
+  getEmailTemplate(id: number): Promise<EmailTemplate | undefined>;
+  getEmailTemplatesByUser(userId: number): Promise<EmailTemplate[]>;
+  getEmailTemplateByType(userId: number, templateType: string): Promise<EmailTemplate | undefined>;
+  createEmailTemplate(template: InsertEmailTemplate): Promise<EmailTemplate>;
+  updateEmailTemplate(id: number, data: Partial<InsertEmailTemplate>): Promise<EmailTemplate | undefined>;
+  deleteEmailTemplate(id: number): Promise<boolean>;
+  
+  // Invoice Activities
+  getInvoiceActivity(id: number): Promise<InvoiceActivity | undefined>;
+  getInvoiceActivitiesByInvoice(invoiceId: number): Promise<InvoiceActivity[]>;
+  createInvoiceActivity(activity: InsertInvoiceActivity): Promise<InvoiceActivity>;
+  
+  // Payment Links
+  getPaymentLink(id: number): Promise<PaymentLink | undefined>;
+  getPaymentLinkByToken(token: string): Promise<PaymentLink | undefined>;
+  getPaymentLinksByInvoice(invoiceId: number): Promise<PaymentLink[]>;
+  createPaymentLink(link: InsertPaymentLink): Promise<PaymentLink>;
+  updatePaymentLink(id: number, data: Partial<InsertPaymentLink>): Promise<PaymentLink | undefined>;
+  deletePaymentLink(id: number): Promise<boolean>;
+  
+  // Currency Rates
+  getCurrencyRate(fromCurrency: string, toCurrency: string, date?: string): Promise<CurrencyRate | undefined>;
+  getCurrencyRatesByDate(date: string): Promise<CurrencyRate[]>;
+  createCurrencyRate(rate: InsertCurrencyRate): Promise<CurrencyRate>;
+  updateCurrencyRate(id: number, data: Partial<InsertCurrencyRate>): Promise<CurrencyRate | undefined>;
+  
+  // Enhanced Invoice Methods
+  generateInvoiceNumber(userId: number, prefix?: string): Promise<string>;
+  createRecurringInvoice(parentInvoiceId: number): Promise<Invoice>;
+  getRecurringInvoices(userId: number): Promise<Invoice[]>;
+  getOverdueInvoices(userId: number): Promise<Invoice[]>;
+  generateInvoicePDF(invoiceId: number): Promise<string>;
+  sendInvoiceEmail(invoiceId: number, templateId?: number): Promise<boolean>;
   
   // Sales - Orders
   getOrder(id: number): Promise<Order | undefined>;
@@ -477,6 +534,376 @@ export class DatabaseStorage implements IStorage {
     await db
       .delete(payments)
       .where(eq(payments.id, id));
+    return true;
+  }
+  
+  // Tax Rates
+  async getTaxRate(id: number): Promise<TaxRate | undefined> {
+    const [taxRate] = await db.select().from(taxRates).where(eq(taxRates.id, id));
+    return taxRate;
+  }
+  
+  async getTaxRatesByUser(userId: number): Promise<TaxRate[]> {
+    const taxRateList = await db.select().from(taxRates).where(eq(taxRates.userId, userId));
+    return taxRateList;
+  }
+  
+  async createTaxRate(taxRate: InsertTaxRate): Promise<TaxRate> {
+    const [newTaxRate] = await db
+      .insert(taxRates)
+      .values(taxRate)
+      .returning();
+    return newTaxRate;
+  }
+  
+  async updateTaxRate(id: number, data: Partial<InsertTaxRate>): Promise<TaxRate | undefined> {
+    const [taxRate] = await db
+      .update(taxRates)
+      .set(data)
+      .where(eq(taxRates.id, id))
+      .returning();
+    return taxRate;
+  }
+  
+  async deleteTaxRate(id: number): Promise<boolean> {
+    await db
+      .delete(taxRates)
+      .where(eq(taxRates.id, id));
+    return true;
+  }
+  
+  // Invoice Templates
+  async getInvoiceTemplate(id: number): Promise<InvoiceTemplate | undefined> {
+    const [template] = await db.select().from(invoiceTemplates).where(eq(invoiceTemplates.id, id));
+    return template;
+  }
+  
+  async getInvoiceTemplatesByUser(userId: number): Promise<InvoiceTemplate[]> {
+    const templateList = await db.select().from(invoiceTemplates).where(eq(invoiceTemplates.userId, userId));
+    return templateList;
+  }
+  
+  async createInvoiceTemplate(template: InsertInvoiceTemplate): Promise<InvoiceTemplate> {
+    const [newTemplate] = await db
+      .insert(invoiceTemplates)
+      .values(template)
+      .returning();
+    return newTemplate;
+  }
+  
+  async updateInvoiceTemplate(id: number, data: Partial<InsertInvoiceTemplate>): Promise<InvoiceTemplate | undefined> {
+    const [template] = await db
+      .update(invoiceTemplates)
+      .set(data)
+      .where(eq(invoiceTemplates.id, id))
+      .returning();
+    return template;
+  }
+  
+  async deleteInvoiceTemplate(id: number): Promise<boolean> {
+    await db
+      .delete(invoiceTemplates)
+      .where(eq(invoiceTemplates.id, id));
+    return true;
+  }
+  
+  // Email Templates
+  async getEmailTemplate(id: number): Promise<EmailTemplate | undefined> {
+    const [template] = await db.select().from(emailTemplates).where(eq(emailTemplates.id, id));
+    return template;
+  }
+  
+  async getEmailTemplatesByUser(userId: number): Promise<EmailTemplate[]> {
+    const templateList = await db.select().from(emailTemplates).where(eq(emailTemplates.userId, userId));
+    return templateList;
+  }
+  
+  async getEmailTemplateByType(userId: number, templateType: string): Promise<EmailTemplate | undefined> {
+    const [template] = await db.select().from(emailTemplates)
+      .where(and(
+        eq(emailTemplates.userId, userId),
+        eq(emailTemplates.templateType, templateType)
+      ));
+    return template;
+  }
+  
+  async createEmailTemplate(template: InsertEmailTemplate): Promise<EmailTemplate> {
+    const [newTemplate] = await db
+      .insert(emailTemplates)
+      .values(template)
+      .returning();
+    return newTemplate;
+  }
+  
+  async updateEmailTemplate(id: number, data: Partial<InsertEmailTemplate>): Promise<EmailTemplate | undefined> {
+    const [template] = await db
+      .update(emailTemplates)
+      .set(data)
+      .where(eq(emailTemplates.id, id))
+      .returning();
+    return template;
+  }
+  
+  async deleteEmailTemplate(id: number): Promise<boolean> {
+    await db
+      .delete(emailTemplates)
+      .where(eq(emailTemplates.id, id));
+    return true;
+  }
+  
+  // Invoice Activities
+  async getInvoiceActivity(id: number): Promise<InvoiceActivity | undefined> {
+    const [activity] = await db.select().from(invoiceActivities).where(eq(invoiceActivities.id, id));
+    return activity;
+  }
+  
+  async getInvoiceActivitiesByInvoice(invoiceId: number): Promise<InvoiceActivity[]> {
+    const activityList = await db.select().from(invoiceActivities).where(eq(invoiceActivities.invoiceId, invoiceId));
+    return activityList;
+  }
+  
+  async createInvoiceActivity(activity: InsertInvoiceActivity): Promise<InvoiceActivity> {
+    const [newActivity] = await db
+      .insert(invoiceActivities)
+      .values(activity)
+      .returning();
+    return newActivity;
+  }
+  
+  // Payment Links
+  async getPaymentLink(id: number): Promise<PaymentLink | undefined> {
+    const [link] = await db.select().from(paymentLinks).where(eq(paymentLinks.id, id));
+    return link;
+  }
+  
+  async getPaymentLinkByToken(token: string): Promise<PaymentLink | undefined> {
+    const [link] = await db.select().from(paymentLinks).where(eq(paymentLinks.link_token, token));
+    return link;
+  }
+  
+  async getPaymentLinksByInvoice(invoiceId: number): Promise<PaymentLink[]> {
+    const linkList = await db.select().from(paymentLinks).where(eq(paymentLinks.invoiceId, invoiceId));
+    return linkList;
+  }
+  
+  async createPaymentLink(link: InsertPaymentLink): Promise<PaymentLink> {
+    const [newLink] = await db
+      .insert(paymentLinks)
+      .values(link)
+      .returning();
+    return newLink;
+  }
+  
+  async updatePaymentLink(id: number, data: Partial<InsertPaymentLink>): Promise<PaymentLink | undefined> {
+    const [link] = await db
+      .update(paymentLinks)
+      .set(data)
+      .where(eq(paymentLinks.id, id))
+      .returning();
+    return link;
+  }
+  
+  async deletePaymentLink(id: number): Promise<boolean> {
+    await db
+      .delete(paymentLinks)
+      .where(eq(paymentLinks.id, id));
+    return true;
+  }
+  
+  // Currency Rates
+  async getCurrencyRate(fromCurrency: string, toCurrency: string, date?: string): Promise<CurrencyRate | undefined> {
+    const [rate] = await db.select().from(currencyRates)
+      .where(and(
+        eq(currencyRates.from_currency, fromCurrency),
+        eq(currencyRates.to_currency, toCurrency),
+        eq(currencyRates.rate_date, date || new Date().toISOString().slice(0, 10))
+      ));
+    return rate;
+  }
+  
+  async getCurrencyRatesByDate(date: string): Promise<CurrencyRate[]> {
+    const rateList = await db.select().from(currencyRates).where(eq(currencyRates.rate_date, date));
+    return rateList;
+  }
+  
+  async createCurrencyRate(rate: InsertCurrencyRate): Promise<CurrencyRate> {
+    const [newRate] = await db
+      .insert(currencyRates)
+      .values(rate)
+      .returning();
+    return newRate;
+  }
+  
+  async updateCurrencyRate(id: number, data: Partial<InsertCurrencyRate>): Promise<CurrencyRate | undefined> {
+    const [rate] = await db
+      .update(currencyRates)
+      .set(data)
+      .where(eq(currencyRates.id, id))
+      .returning();
+    return rate;
+  }
+  
+  // Enhanced Invoice Methods
+  async generateInvoiceNumber(userId: number, prefix?: string): Promise<string> {
+    const invoicePrefix = prefix || 'INV';
+    const year = new Date().getFullYear();
+    
+    // Get the last invoice for this user to determine the next number
+    const result = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(invoices)
+      .where(and(
+        eq(invoices.userId, userId),
+        sql`${invoices.invoiceNumber} LIKE ${invoicePrefix + '-' + year + '-%'}`
+      ));
+    
+    const nextNumber = ((result[0]?.count || 0) + 1).toString().padStart(4, '0');
+    return `${invoicePrefix}-${year}-${nextNumber}`;
+  }
+  
+  async createRecurringInvoice(parentInvoiceId: number): Promise<Invoice> {
+    const [parentInvoice] = await db.select().from(invoices).where(eq(invoices.id, parentInvoiceId));
+    if (!parentInvoice) {
+      throw new Error('Parent invoice not found');
+    }
+ 
+    // Generate new invoice number
+    const newInvoiceNumber = await this.generateInvoiceNumber(parentInvoice.userId);
+     
+    // Calculate new dates based on recurring frequency
+    const issueDate = new Date();
+    const dueDate = new Date(issueDate);
+    dueDate.setDate(dueDate.getDate() + 30); // Default 30 days
+     
+    const newInvoiceData = {
+      userId: parentInvoice.userId,
+      contactId: parentInvoice.contactId,
+      invoiceNumber: newInvoiceNumber,
+      issueDate: issueDate.toISOString().slice(0, 10),
+      dueDate: dueDate.toISOString().slice(0, 10),
+      subtotal: parentInvoice.subtotal,
+      taxAmount: parentInvoice.taxAmount,
+      discountAmount: parentInvoice.discountAmount,
+      totalAmount: parentInvoice.totalAmount,
+      amountPaid: 0,
+      status: 'draft',
+      payment_status: 'Unpaid',
+      notes: parentInvoice.notes,
+      terms: parentInvoice.terms,
+      currency: parentInvoice.currency,
+      payment_terms: parentInvoice.payment_terms,
+      is_recurring: false, // This is a generated invoice, not a template
+      parent_recurring_invoice_id: parentInvoiceId
+    };
+ 
+    const [recurringInvoice] = await db
+      .insert(invoices)
+      .values(newInvoiceData)
+      .returning();
+ 
+    // Copy invoice items
+    const parentItems = await db.select().from(invoiceItems).where(eq(invoiceItems.invoiceId, parentInvoiceId));
+    if (parentItems.length > 0) {
+      const newItems = parentItems.map(item => ({
+        invoiceId: recurringInvoice.id,
+        productId: item.productId,
+        description: item.description,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        taxRate: item.taxRate,
+        taxAmount: item.taxAmount,
+        discountRate: item.discountRate,
+        discountAmount: item.discountAmount,
+        subtotal: item.subtotal,
+        totalAmount: item.totalAmount
+      }));
+      
+      await db.insert(invoiceItems).values(newItems);
+    }
+ 
+    return recurringInvoice;
+  }
+  
+  async getRecurringInvoices(userId: number): Promise<Invoice[]> {
+    const recurringInvoices = await db
+      .select()
+      .from(invoices)
+      .where(and(
+        eq(invoices.userId, userId),
+        eq(invoices.is_recurring, true)
+      ))
+      .orderBy(invoices.createdAt);
+    return recurringInvoices;
+  }
+  
+  async getOverdueInvoices(userId: number): Promise<Invoice[]> {
+    const today = new Date().toISOString().slice(0, 10);
+    const overdueInvoices = await db
+      .select()
+      .from(invoices)
+      .where(and(
+        eq(invoices.userId, userId),
+        sql`${invoices.dueDate} < ${today}`,
+        sql`${invoices.payment_status} != 'Paid'`
+      ))
+      .orderBy(invoices.dueDate);
+    return overdueInvoices;
+  }
+  
+  async generateInvoicePDF(invoiceId: number): Promise<string> {
+    // This would integrate with the PDF service
+    // For now, return a placeholder URL
+    const timestamp = new Date().getTime();
+    const pdfUrl = `/api/invoices/${invoiceId}/pdf?t=${timestamp}`;
+    
+    // Update invoice to mark PDF as generated
+    await db
+      .update(invoices)
+      .set({ 
+        pdf_generated: true,
+        pdf_url: pdfUrl,
+        updatedAt: new Date().toISOString()
+      })
+      .where(eq(invoices.id, invoiceId));
+    
+    return pdfUrl;
+  }
+  
+  async sendInvoiceEmail(invoiceId: number, templateId?: number): Promise<boolean> {
+    const [invoice] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
+    if (!invoice) {
+      throw new Error('Invoice not found');
+    }
+ 
+    // Get email template if specified
+    let template: EmailTemplate | undefined;
+    if (templateId) {
+      template = await this.getEmailTemplate(templateId);
+    } else {
+      // Get default invoice send template
+      template = await this.getEmailTemplateByType(invoice.userId, 'invoice_send');
+    }
+ 
+    // Mark invoice as sent
+    await db
+      .update(invoices)
+      .set({ 
+        email_sent: true,
+        email_sent_date: new Date().toISOString(),
+        status: 'sent',
+        updatedAt: new Date().toISOString()
+      })
+      .where(eq(invoices.id, invoiceId));
+ 
+    // Log the activity
+    await this.createInvoiceActivity({
+      invoiceId: invoiceId,
+      userId: invoice.userId,
+      activity_type: 'sent',
+      description: `Invoice ${invoice.invoiceNumber} sent via email`,
+      metadata: { templateId: templateId || null }
+    });
+ 
     return true;
   }
   

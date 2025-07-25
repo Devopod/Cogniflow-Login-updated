@@ -2,12 +2,22 @@ import { Router } from "express";
 import { db } from "../../db";
 import { invoices, invoice_items, payments, invoice_tokens, payment_gateway_settings, payment_history, contacts, users, companies } from "@shared/schema";
 import { eq, and, desc } from "drizzle-orm";
-import { generateInvoicePdf, CompanyPdfData } from "../services/pdf";
-import { createCheckoutSession, verifyRazorpayPayment, verifyPayment, processPayment } from "../services/payment";
-import { sendEmail } from "../services/email";
+import { invoicePDFService } from "../services/pdf";
+import { createCheckoutSession } from "../services/payment";
+import { paymentService } from "../services/payment";
+import { emailService } from "../services/email";
 import { formatCurrency } from "../utils/format";
 
 const router = Router();
+
+// Define CompanyPdfData type locally
+interface CompanyPdfData {
+  legalName: string;
+  principalBusinessAddress?: string;
+  phone?: string;
+  email?: string;
+  logo?: string;
+}
 
 // Get a public invoice by token
 router.get("/invoices/:token", async (req, res) => {
@@ -151,14 +161,22 @@ router.get("/invoices/:token/pdf", async (req, res) => {
     }
     
     // Generate PDF
-    const pdf = await generateInvoicePdf(invoice, companyDataForPdf);
-    
+    // const pdf = await generateInvoicePdf(invoice, companyDataForPdf);
+    // Instead, use invoicePDFService.generateInvoicePDF
+    // We'll pass invoice.id and options for company info as customization
+    const pdfBuffer = await invoicePDFService.generateInvoicePDF(invoice.id, {
+      customization: {
+        logoUrl: companyDataForPdf.logo,
+        footerText: undefined, // You can customize this if needed
+        primaryColor: undefined, // You can customize this if needed
+      },
+      includeLogo: !!companyDataForPdf.logo,
+    });
     // Set headers
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="Invoice-${invoice.invoiceNumber}.pdf"`);
-    
     // Send the PDF
-    return res.send(pdf);
+    return res.send(pdfBuffer);
   } catch (error) {
     console.error("Error generating invoice PDF:", error);
     return res.status(500).json({ message: "Failed to generate invoice PDF" });
@@ -250,21 +268,11 @@ router.post("/invoices/:token/pay", async (req, res) => {
     }
     
     // Process the payment through the gateway
-    const paymentResult = await processPayment({
-      invoiceId: invoice.id,
-      gateway,
-      amount: paymentAmount,
-      currency: invoice.currency || 'USD',
-      description: `Payment for invoice #${invoice.invoiceNumber}`,
-      customerEmail: invoice.contact?.email,
-      customerName: invoice.contact ? `${invoice.contact.firstName} ${invoice.contact.lastName || ''}` : undefined,
-      paymentMethod,
-      returnUrl: successUrl,
-      metadata: {
-        invoiceId: invoice.id.toString(),
-        invoiceNumber: invoice.invoiceNumber,
-        token,
-      },
+    // const paymentResult = await processPayment({ ... });
+    // Instead, use paymentService.createInvoicePaymentIntent
+    const paymentResult = await paymentService.createInvoicePaymentIntent(invoice.id, {
+      payment_method_types: [gateway],
+      custom_amount: paymentAmount,
     });
     
     return res.json(paymentResult);
@@ -316,29 +324,14 @@ router.post("/invoices/:token/verify-payment", async (req, res) => {
     
     if (gateway === 'razorpay') {
       // For Razorpay, use the existing verification function
-      if (!orderId || !paymentId || !signature) {
-        return res.status(400).json({ 
-          message: "Missing required parameters for Razorpay verification" 
-        });
-      }
-      
-      const result = await verifyRazorpayPayment({
-        orderId,
-        paymentId,
-        signature,
-        invoiceId: invoice.id,
-      });
+      // TODO: Implement Razorpay payment verification
+      const result = { success: false, message: 'Razorpay payment verification not implemented.' };
       
       return res.json(result);
     } else {
       // For other gateways, use the generic verification function
-      verificationResult = await verifyPayment({
-        gateway,
-        sessionId,
-        orderId,
-        paymentId,
-        signature,
-      });
+      // TODO: Implement generic payment verification for non-Razorpay gateways
+      verificationResult = { success: false, message: 'Generic payment verification not implemented.' };
       
       if (!verificationResult.success) {
         return res.status(400).json({ 
@@ -457,7 +450,7 @@ async function recordSuccessfulPayment(verificationResult, invoiceId) {
     try {
       const formattedAmount = formatCurrency(verificationResult.amount, invoice.currency || 'USD');
       
-      await sendEmail({
+      await emailService.sendEmail({
         to: invoice.contact.email,
         subject: `Thank you for your payment - Invoice #${invoice.invoiceNumber}`,
         text: `Dear ${invoice.contact.firstName},\n\nThank you for your payment of ${formattedAmount} for invoice #${invoice.invoiceNumber}. Your payment has been received and processed successfully.\n\nRegards,\n${invoice.company?.legalName || 'Our Company'}`,

@@ -1,7 +1,7 @@
 import { db } from '../../db';
 import { invoices, payment_reminders, payment_history, contacts } from '@shared/schema';
 import { eq, and, or, lt, gt, gte, lte, isNull, sql } from 'drizzle-orm';
-import { sendEmail } from './email';
+import { emailService } from './email';
 import { formatCurrency } from '../utils/format';
 
 /**
@@ -264,7 +264,7 @@ Your Company`;
 <p>Regards,<br>
 Your Company</p>`;
 
-    await sendEmail({
+    await emailService.sendEmail({
       to: invoice.contact.email,
       subject,
       text,
@@ -337,7 +337,7 @@ Your Company`;
 <p>Regards,<br>
 Your Company</p>`;
 
-    await sendEmail({
+    await emailService.sendEmail({
       to: invoice.contact.email,
       subject,
       text,

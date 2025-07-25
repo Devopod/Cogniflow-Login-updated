@@ -5,8 +5,8 @@ import { eq, and, sql, desc, asc, gt, lt, gte, lte, isNull } from "drizzle-orm";
 import { authenticateUser } from "../middleware/auth";
 import { WSService } from "../../websocket";
 import { v4 as uuidv4 } from 'uuid';
-import { sendEmail } from "../services/email";
-import { processPayment, refundPayment, getPaymentGateways } from "../services/payment";
+import { emailService } from "../services/email";
+import { paymentService } from "../services/payment";
 
 // Get the WebSocket service instance
 let wsService: WSService;
@@ -267,7 +267,7 @@ router.post("/", authenticateUser, async (req, res) => {
               const [contact] = await db.select().from(contacts).where(eq(contacts.id, invoice.contactId));
               
               if (contact && contact.email) {
-                await sendEmail({
+                await emailService.sendEmail({
                   to: contact.email,
                   subject: `Thank you for your payment - Invoice #${invoice.invoiceNumber}`,
                   text: `Dear ${contact.firstName},\n\nThank you for your payment of ${amount} for invoice #${invoice.invoiceNumber}. Your payment has been received and processed successfully.\n\nRegards,\nYour Company`,
@@ -608,13 +608,7 @@ router.post("/:id/refund", authenticateUser, async (req, res) => {
     // If this is an online payment, process the refund through the gateway
     if (payment.payment_gateway && payment.transaction_id) {
       try {
-        const refundResult = await refundPayment({
-          paymentId: payment.id,
-          gateway: payment.payment_gateway,
-          transactionId: payment.transaction_id,
-          amount: amount || payment.amount, // Full refund if amount not specified
-          reason,
-        });
+        const refundResult = await paymentService.createRefund(payment.id, amount || payment.amount, reason);
         
         // Update payment with refund details
         const [updatedPayment] = await db.update(payments)
@@ -866,7 +860,7 @@ router.post("/process", authenticateUser, async (req, res) => {
     }
     
     // Process the payment through the gateway
-    const paymentResult = await processPayment({
+    const paymentResult = await paymentService.processPayment({
       invoiceId: invoice.id,
       gateway,
       amount: paymentAmount,

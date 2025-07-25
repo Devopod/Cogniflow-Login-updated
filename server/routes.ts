@@ -12,6 +12,7 @@ import { WSService } from "./websocket";
 import { setWSService } from "./src/routes/invoices";
 import { setPaymentWSService } from "./src/services/payment";
 import { setSchedulerWSService } from "./src/services/scheduler";
+import { setWSService as setWebSocketService } from "./src/services/websocket";
 import scheduler from "./src/services/scheduler";
 
 // Set up multer for file uploads
@@ -61,6 +62,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   setWSService(wsService);
   setPaymentWSService(wsService);
   setSchedulerWSService(wsService);
+  setWebSocketService(wsService);
   
   // Store WebSocket service in app.locals for access in routes
   app.locals.wsService = wsService;

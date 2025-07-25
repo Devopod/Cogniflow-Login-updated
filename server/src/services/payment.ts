@@ -1,941 +1,592 @@
 import Stripe from 'stripe';
-import Razorpay from 'razorpay';
-import crypto from 'crypto';
-import { db } from '../../db';
-import { payments, invoices, payment_history, payment_gateway_settings } from '@shared/schema';
-import { eq, and, desc } from 'drizzle-orm';
+import { storage } from '../../storage';
+import { Invoice, Payment, Contact } from '@shared/schema';
 import { WSService } from '../../websocket';
-import { sendEmail } from './email';
 
-// Initialize payment gateways
-let stripe: Stripe;
-let razorpay: Razorpay;
-let paypal: any; // PayPal SDK would be initialized here
+// Initialize Stripe
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
+  apiVersion: '2023-10-16',
+});
 
-// Initialize gateways with configuration from database
-async function initializeGateways() {
-  try {
-    // Check if payment_gateway_settings table exists
-    try {
-      // Get gateway settings from database
-      const gatewaySettings = await db.query.payment_gateway_settings.findMany({
-        where: eq(payment_gateway_settings.is_enabled, true),
-      });
-      
-      // Initialize each gateway
-      for (const gateway of gatewaySettings) {
-        if (gateway.gateway_name === 'stripe') {
-          const apiKey = gateway.test_mode ? gateway.test_api_key_secret : gateway.api_key_secret;
-          if (apiKey) {
-            stripe = new Stripe(apiKey, {
-              apiVersion: '2023-10-16',
-            });
-            console.log('Stripe gateway initialized');
-          }
-        } else if (gateway.gateway_name === 'razorpay') {
-          const keyId = gateway.test_mode ? gateway.test_api_key_public : gateway.api_key_public;
-          const keySecret = gateway.test_mode ? gateway.test_api_key_secret : gateway.api_key_secret;
-          if (keyId && keySecret) {
-            razorpay = new Razorpay({
-              key_id: keyId,
-              key_secret: keySecret,
-            });
-            console.log('Razorpay gateway initialized');
-          }
-        }
-        // Add other gateways as needed
-      }
-    } catch (dbError) {
-      // If there's an error with the database query, fall back to environment variables
-      throw new Error(`Database error: ${dbError.message}`);
-    }
-  } catch (error) {
-    console.error('Error initializing payment gateways:', error);
-    
-    // Fallback to environment variables if database initialization fails
-    stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_example', {
-      apiVersion: '2023-10-16',
-    });
-    
-    razorpay = new Razorpay({
-      key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_example',
-      key_secret: process.env.RAZORPAY_KEY_SECRET || 'example_secret',
-    });
-    
-    console.log('Payment gateways initialized from environment variables');
-  }
-}
+let wsService: WSService | null = null;
 
-// Initialize gateways on module load
-initializeGateways().catch(console.error);
-
-// Function to refresh gateway settings
-export async function refreshGatewaySettings() {
-  await initializeGateways();
-  return { success: true, message: 'Payment gateways refreshed' };
-}
-
-// Get WebSocket service instance
-let wsService: WSService;
-export const setPaymentWSService = (ws: WSService) => {
+export function setPaymentWSService(ws: WSService) {
   wsService = ws;
-};
-
-// Payment gateway interface
-interface PaymentGateway {
-  name: string;
-  processPayment(options: ProcessPaymentOptions): Promise<PaymentResult>;
-  verifyPayment(options: VerifyPaymentOptions): Promise<VerificationResult>;
-  refundPayment(options: RefundOptions): Promise<RefundResult>;
 }
 
-// Stripe gateway implementation
-class StripeGateway implements PaymentGateway {
-  name = 'stripe';
-  
-  async processPayment(options: ProcessPaymentOptions): Promise<PaymentResult> {
-    if (!stripe) {
-      throw new Error('Stripe gateway not initialized');
-    }
-    
-    const { amount, currency, description, metadata, customerEmail, customerName, returnUrl } = options;
-    
-    // Create a checkout session
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
-      line_items: [
-        {
-          price_data: {
-            currency: currency.toLowerCase(),
-            product_data: {
-              name: description,
-              description: description,
-            },
-            unit_amount: Math.round(amount * 100), // Stripe requires amount in cents
-          },
-          quantity: 1,
-        },
-      ],
-      mode: 'payment',
-      success_url: `${returnUrl}?session_id={CHECKOUT_SESSION_ID}&gateway=stripe`,
-      cancel_url: `${returnUrl}?canceled=true&gateway=stripe`,
-      customer_email: customerEmail,
-      metadata,
-    });
-    
-    return {
-      success: true,
-      gateway: 'stripe',
-      redirectUrl: session.url,
-      sessionId: session.id,
-      amount: amount,
-      currency: currency,
-    };
-  }
-  
-  async verifyPayment(options: VerifyPaymentOptions): Promise<VerificationResult> {
-    if (!stripe) {
-      throw new Error('Stripe gateway not initialized');
-    }
-    
-    const { sessionId } = options;
-    
-    if (!sessionId) {
-      throw new Error('Session ID is required for Stripe verification');
-    }
-    
-    // Retrieve the session
-    const session = await stripe.checkout.sessions.retrieve(sessionId);
-    
-    if (session.payment_status !== 'paid') {
-      return {
-        success: false,
-        message: `Payment not completed. Status: ${session.payment_status}`,
-      };
-    }
-    
-    // Get payment intent details
-    const paymentIntentId = session.payment_intent as string;
-    const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
-    
-    return {
-      success: true,
-      transactionId: paymentIntentId,
-      amount: paymentIntent.amount / 100, // Convert from cents
-      currency: paymentIntent.currency,
-      paymentMethod: 'card',
-      gatewayResponse: paymentIntent,
-      metadata: session.metadata,
-    };
-  }
-  
-  async refundPayment(options: RefundOptions): Promise<RefundResult> {
-    if (!stripe) {
-      throw new Error('Stripe gateway not initialized');
-    }
-    
-    const { transactionId, amount, reason } = options;
-    
-    // Process refund through Stripe
-    const refund = await stripe.refunds.create({
-      payment_intent: transactionId,
-      amount: amount ? Math.round(amount * 100) : undefined, // Convert to cents if partial refund
-      reason: reason === 'requested_by_customer' ? 'requested_by_customer' : 'other',
-    });
-    
-    return {
-      success: true,
-      refundTransactionId: refund.id,
-      amount: refund.amount / 100, // Convert from cents
-      currency: refund.currency,
-      status: refund.status,
-      gatewayResponse: refund,
-    };
-  }
-}
-
-// Razorpay gateway implementation
-class RazorpayGateway implements PaymentGateway {
-  name = 'razorpay';
-  
-  async processPayment(options: ProcessPaymentOptions): Promise<PaymentResult> {
-    if (!razorpay) {
-      throw new Error('Razorpay gateway not initialized');
-    }
-    
-    const { amount, currency, description, metadata, customerEmail, customerName } = options;
-    
-    // Create a Razorpay order
-    const order = await razorpay.orders.create({
-      amount: Math.round(amount * 100), // Razorpay requires amount in smallest currency unit
-      currency: currency.toUpperCase(),
-      receipt: `receipt_${Date.now()}`,
-      notes: metadata,
-    });
-    
-    // Get gateway settings for key ID
-    const [gatewaySetting] = await db.select({
-      keyId: payment_gateway_settings.api_key_public,
-      testKeyId: payment_gateway_settings.test_api_key_public,
-      testMode: payment_gateway_settings.test_mode,
-    })
-    .from(payment_gateway_settings)
-    .where(eq(payment_gateway_settings.gateway_name, 'razorpay'));
-    
-    const keyId = gatewaySetting?.testMode ? gatewaySetting.testKeyId : gatewaySetting?.keyId;
-    
-    return {
-      success: true,
-      gateway: 'razorpay',
-      orderId: order.id,
-      amount: order.amount / 100, // Convert back to decimal
-      currency: order.currency,
-      keyId: keyId || process.env.RAZORPAY_KEY_ID || 'rzp_test_example',
-      prefill: {
-        email: customerEmail,
-        name: customerName,
-      },
-      notes: metadata,
-    };
-  }
-  
-  async verifyPayment(options: VerifyPaymentOptions): Promise<VerificationResult> {
-    const { orderId, paymentId, signature } = options;
-    
-    if (!orderId || !paymentId || !signature) {
-      throw new Error('Order ID, Payment ID, and Signature are required for Razorpay verification');
-    }
-    
-    // Get gateway settings for key secret
-    const [gatewaySetting] = await db.select({
-      keySecret: payment_gateway_settings.api_key_secret,
-      testKeySecret: payment_gateway_settings.test_api_key_secret,
-      testMode: payment_gateway_settings.test_mode,
-    })
-    .from(payment_gateway_settings)
-    .where(eq(payment_gateway_settings.gateway_name, 'razorpay'));
-    
-    const keySecret = gatewaySetting?.testMode ? gatewaySetting.testKeySecret : gatewaySetting?.keySecret;
-    const secret = keySecret || process.env.RAZORPAY_KEY_SECRET || 'example_secret';
-    
-    // Verify the payment signature
-    const generatedSignature = crypto
-      .createHmac('sha256', secret)
-      .update(`${orderId}|${paymentId}`)
-      .digest('hex');
-    
-    if (generatedSignature !== signature) {
-      return {
-        success: false,
-        message: 'Invalid signature',
-      };
-    }
-    
-    // Fetch payment details from Razorpay
-    const payment = await razorpay.payments.fetch(paymentId);
-    
-    return {
-      success: true,
-      transactionId: paymentId,
-      amount: payment.amount / 100, // Convert from smallest unit
-      currency: payment.currency,
-      paymentMethod: 'razorpay',
-      gatewayResponse: payment,
-      metadata: payment.notes,
-    };
-  }
-  
-  async refundPayment(options: RefundOptions): Promise<RefundResult> {
-    if (!razorpay) {
-      throw new Error('Razorpay gateway not initialized');
-    }
-    
-    const { transactionId, amount, reason } = options;
-    
-    // Process refund through Razorpay
-    const refund = await razorpay.payments.refund(transactionId, {
-      amount: amount ? Math.round(amount * 100) : undefined, // Convert to smallest unit if partial refund
-      notes: {
-        reason: reason || 'Customer requested',
-      },
-    });
-    
-    return {
-      success: true,
-      refundTransactionId: refund.id,
-      amount: refund.amount / 100, // Convert from smallest unit
-      currency: refund.currency,
-      status: refund.status,
-      gatewayResponse: refund,
-    };
-  }
-}
-
-// Factory to get the appropriate gateway
-function getGateway(gatewayName: string): PaymentGateway {
-  switch (gatewayName.toLowerCase()) {
-    case 'stripe':
-      return new StripeGateway();
-    case 'razorpay':
-      return new RazorpayGateway();
-    // Add other gateways as needed
-    default:
-      throw new Error(`Unsupported payment gateway: ${gatewayName}`);
-  }
-}
-
-// Types for payment processing
-interface ProcessPaymentOptions {
-  invoiceId: number;
-  gateway: string;
+export interface PaymentIntentData {
   amount: number;
   currency: string;
-  description: string;
-  customerEmail?: string;
-  customerName?: string;
-  paymentMethod?: string;
-  returnUrl?: string;
+  description?: string;
   metadata?: Record<string, string>;
+  customer?: string;
+  payment_method_types?: string[];
+  setup_future_usage?: 'on_session' | 'off_session';
 }
 
-interface PaymentResult {
-  success: boolean;
-  gateway: string;
-  redirectUrl?: string;
-  sessionId?: string;
-  orderId?: string;
-  amount: number;
-  currency: string;
-  keyId?: string;
-  prefill?: {
-    email?: string;
-    name?: string;
+export interface PaymentMethodData {
+  type: 'card' | 'ach_debit' | 'bank_transfer';
+  card?: {
+    number: string;
+    exp_month: number;
+    exp_year: number;
+    cvc: string;
   };
-  notes?: Record<string, string>;
-  error?: string;
+  billing_details?: {
+    name?: string;
+    email?: string;
+    address?: {
+      line1?: string;
+      city?: string;
+      state?: string;
+      postal_code?: string;
+      country?: string;
+    };
+  };
 }
 
-interface VerifyPaymentOptions {
-  gateway: string;
-  sessionId?: string;
-  orderId?: string;
-  paymentId?: string;
-  signature?: string;
-}
-
-interface VerificationResult {
+export interface PaymentResult {
   success: boolean;
-  message?: string;
-  transactionId?: string;
+  paymentId?: string;
+  clientSecret?: string;
+  error?: string;
   amount?: number;
   currency?: string;
-  paymentMethod?: string;
-  gatewayResponse?: any;
-  metadata?: Record<string, string>;
+  status?: string;
 }
 
-interface RefundOptions {
-  paymentId: number;
-  gateway: string;
-  transactionId: string;
-  amount?: number; // Optional for partial refunds
-  reason?: string;
-}
+export class PaymentService {
+  // Create a payment intent for invoice payment
+  async createInvoicePaymentIntent(
+    invoiceId: number,
+    options: {
+      payment_method_types?: string[];
+      setup_future_usage?: 'on_session' | 'off_session';
+      custom_amount?: number; // For partial payments
+    } = {}
+  ): Promise<PaymentResult> {
+    try {
+      const invoice = await storage.getInvoiceWithItems(invoiceId);
+      if (!invoice) {
+        return { success: false, error: 'Invoice not found' };
+      }
 
-interface RefundResult {
-  success: boolean;
-  refundTransactionId: string;
-  amount: number;
-  currency: string;
-  status: string;
-  gatewayResponse: any;
-  error?: string;
-}
+      const contact = invoice.contactId 
+        ? await storage.getContact(invoice.contactId)
+        : null;
 
-/**
- * Process a payment through the specified gateway
- */
-export async function processPayment(options: ProcessPaymentOptions): Promise<PaymentResult> {
-  try {
-    const gateway = getGateway(options.gateway);
-    return await gateway.processPayment(options);
-  } catch (error) {
-    console.error(`Error processing payment with ${options.gateway}:`, error);
-    return {
-      success: false,
-      gateway: options.gateway,
-      amount: options.amount,
-      currency: options.currency,
-      error: error.message,
-    };
-  }
-}
+      // Calculate amount to charge (handle partial payments)
+      const amountDue = invoice.totalAmount - (invoice.amountPaid || 0);
+      const chargeAmount = options.custom_amount 
+        ? Math.min(options.custom_amount, amountDue)
+        : amountDue;
 
-/**
- * Verify a payment from a gateway
- */
-export async function verifyPayment(options: VerifyPaymentOptions): Promise<VerificationResult> {
-  try {
-    const gateway = getGateway(options.gateway);
-    return await gateway.verifyPayment(options);
-  } catch (error) {
-    console.error(`Error verifying payment with ${options.gateway}:`, error);
-    return {
-      success: false,
-      message: error.message,
-    };
-  }
-}
+      if (chargeAmount <= 0) {
+        return { success: false, error: 'Invoice is already fully paid' };
+      }
 
-/**
- * Process a refund through the appropriate gateway
- */
-export async function refundPayment(options: RefundOptions): Promise<RefundResult> {
-  try {
-    const gateway = getGateway(options.gateway);
-    return await gateway.refundPayment(options);
-  } catch (error) {
-    console.error(`Error processing refund with ${options.gateway}:`, error);
-    throw error;
-  }
-}
+      // Get or create Stripe customer
+      let stripeCustomer: Stripe.Customer | undefined;
+      if (contact) {
+        stripeCustomer = await this.getOrCreateStripeCustomer(contact);
+      }
 
-/**
- * Get available payment gateways
- */
-export async function getPaymentGateways() {
-  try {
-    const gateways = await db.query.payment_gateway_settings.findMany({
-      where: eq(payment_gateway_settings.is_enabled, true),
-    });
-    
-    // Filter sensitive information
-    return gateways.map(gateway => ({
-      id: gateway.id,
-      name: gateway.gateway_name,
-      displayName: gateway.display_name || gateway.gateway_name,
-      supportedCurrencies: gateway.supported_currencies,
-      supportedPaymentMethods: gateway.supported_payment_methods,
-      isDefault: gateway.is_default,
-      logoUrl: gateway.logo_url,
-      testMode: gateway.test_mode,
-    }));
-  } catch (error) {
-    console.error('Error fetching payment gateways:', error);
-    throw error;
-  }
-}
-
-/**
- * Process a successful payment and update the invoice
- */
-export async function recordSuccessfulPayment(verificationResult: VerificationResult, invoiceId: number) {
-  try {
-    if (!verificationResult.success || !verificationResult.transactionId) {
-      throw new Error('Invalid verification result');
-    }
-    
-    // Get the invoice
-    const invoice = await db.query.invoices.findFirst({
-      where: eq(invoices.id, invoiceId),
-      with: {
-        contact: true,
-      },
-    });
-    
-    if (!invoice) {
-      throw new Error(`Invoice ${invoiceId} not found`);
-    }
-    
-    // Generate a unique payment number
-    const paymentNumber = `PAY-${new Date().getFullYear()}-${crypto.randomBytes(4).toString('hex')}`;
-    
-    // Create a payment record
-    const [payment] = await db.insert(payments)
-      .values({
-        userId: invoice.userId,
-        invoiceId: invoice.id,
-        contactId: invoice.contactId,
-        paymentNumber,
-        amount: verificationResult.amount,
-        payment_method: verificationResult.paymentMethod || 'online',
-        payment_gateway: verificationResult.gateway,
-        transaction_id: verificationResult.transactionId,
-        gateway_response: verificationResult.gatewayResponse,
-        payment_date: new Date(),
-        description: `Online payment for invoice #${invoice.invoiceNumber}`,
-        status: 'completed',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .returning();
-    
-    // Update invoice amount_paid and status
-    const totalPaid = await db.select({
-      total: db.sql`SUM(${payments.amount})`,
-    })
-    .from(payments)
-    .where(and(
-      eq(payments.invoiceId, invoiceId),
-      eq(payments.status, 'completed')
-    ));
-    
-    const amountPaid = totalPaid[0]?.total || 0;
-    
-    // Determine new payment status
-    let newPaymentStatus = invoice.payment_status;
-    if (amountPaid >= invoice.totalAmount) {
-      newPaymentStatus = 'Paid';
-    } else if (amountPaid > 0) {
-      newPaymentStatus = 'Partial Payment';
-    }
-    
-    // Update the invoice
-    const [updatedInvoice] = await db.update(invoices)
-      .set({
-        amountPaid,
-        payment_status: newPaymentStatus,
-        last_payment_date: new Date(),
-        last_payment_amount: verificationResult.amount,
-        last_payment_method: verificationResult.paymentMethod || 'online',
-        updatedAt: new Date(),
-      })
-      .where(eq(invoices.id, invoiceId))
-      .returning();
-    
-    // Record in payment history
-    await db.insert(payment_history)
-      .values({
-        invoiceId,
-        paymentId: payment.id,
-        event_type: 'payment_recorded',
-        event_timestamp: new Date(),
-        details: {
-          amount: verificationResult.amount,
-          payment_method: verificationResult.paymentMethod || 'online',
-          gateway: verificationResult.gateway,
-          transaction_id: verificationResult.transactionId,
-          old_status: invoice.payment_status,
-          new_status: newPaymentStatus,
+      // Create payment intent
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: Math.round(chargeAmount * 100), // Convert to cents
+        currency: invoice.currency.toLowerCase(),
+        description: `Payment for Invoice ${invoice.invoiceNumber}`,
+        customer: stripeCustomer?.id,
+        payment_method_types: options.payment_method_types || ['card'],
+        setup_future_usage: options.setup_future_usage,
+        metadata: {
+          invoiceId: invoiceId.toString(),
+          invoiceNumber: invoice.invoiceNumber,
+          customerId: contact?.id?.toString() || 'unknown',
+          userId: invoice.userId.toString(),
         },
-        created_at: new Date(),
       });
-    
-    // Send thank you email if payment completes the invoice
-    if (newPaymentStatus === 'Paid' && !invoice.payment_thank_you_sent && invoice.contact?.email) {
-      try {
-        await sendEmail({
-          to: invoice.contact.email,
-          subject: `Thank you for your payment - Invoice #${invoice.invoiceNumber}`,
-          text: `Dear ${invoice.contact.firstName},\n\nThank you for your payment of ${verificationResult.amount} for invoice #${invoice.invoiceNumber}. Your payment has been received and processed successfully.\n\nRegards,\nYour Company`,
-          html: `<p>Dear ${invoice.contact.firstName},</p><p>Thank you for your payment of ${verificationResult.amount} for invoice #${invoice.invoiceNumber}. Your payment has been received and processed successfully.</p><p>Regards,<br>Your Company</p>`,
-        });
-        
-        // Update invoice to mark thank you as sent
-        await db.update(invoices)
-          .set({
-            payment_thank_you_sent: true,
-          })
-          .where(eq(invoices.id, invoiceId));
-      } catch (emailError) {
-        console.error("Error sending thank you email:", emailError);
-        // Don't fail the request if email fails
-      }
+
+      return {
+        success: true,
+        paymentId: paymentIntent.id,
+        clientSecret: paymentIntent.client_secret || undefined,
+        amount: chargeAmount,
+        currency: invoice.currency,
+        status: paymentIntent.status,
+      };
+    } catch (error) {
+      console.error('Error creating payment intent:', error);
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Payment creation failed' 
+      };
     }
-    
-    // Notify via WebSocket if available
-    if (wsService) {
-      // Broadcast payment added
-      wsService.broadcastToResource('invoices', invoiceId.toString(), 'payment_added', {
-        invoiceId,
-        payment,
-        amount: verificationResult.amount,
-        newStatus: newPaymentStatus,
-        amountPaid,
+  }
+
+  // Get or create a Stripe customer
+  async getOrCreateStripeCustomer(contact: Contact): Promise<Stripe.Customer> {
+    try {
+      // Check if customer already exists in Stripe
+      if (contact.payment_portal_token) {
+        try {
+          const customer = await stripe.customers.retrieve(contact.payment_portal_token);
+          if (!customer.deleted) {
+            return customer as Stripe.Customer;
+          }
+        } catch (error) {
+          // Customer doesn't exist, create new one
+        }
+      }
+
+      // Create new customer
+      const customer = await stripe.customers.create({
+        email: contact.email || undefined,
+        name: `${contact.firstName} ${contact.lastName}`,
+        phone: contact.phone || undefined,
+        address: contact.address ? {
+          line1: contact.address,
+          city: contact.city || undefined,
+          state: contact.state || undefined,
+          postal_code: contact.postalCode || undefined,
+          country: contact.country || undefined,
+        } : undefined,
+        metadata: {
+          contactId: contact.id.toString(),
+        },
       });
+
+      // Update contact with Stripe customer ID
+      await storage.updateContact(contact.id, {
+        payment_portal_token: customer.id,
+      });
+
+      return customer;
+    } catch (error) {
+      console.error('Error creating Stripe customer:', error);
+      throw error;
+    }
+  }
+
+  // Process successful payment webhook
+  async handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent): Promise<void> {
+    try {
+      const { invoiceId, userId } = paymentIntent.metadata;
       
-      // If status changed, send a specific status change notification
-      if (newPaymentStatus !== invoice.payment_status) {
-        wsService.broadcastToResource('invoices', invoiceId.toString(), 'status_changed', {
-          invoiceId,
-          previousStatus: invoice.payment_status,
-          status: newPaymentStatus,
-          timestamp: new Date().toISOString()
+      if (!invoiceId) {
+        console.error('No invoice ID in payment metadata');
+        return;
+      }
+
+      const invoice = await storage.getInvoice(parseInt(invoiceId));
+      if (!invoice) {
+        console.error('Invoice not found:', invoiceId);
+        return;
+      }
+
+      // Calculate payment amount from Stripe (convert from cents)
+      const paymentAmount = paymentIntent.amount / 100;
+
+      // Create payment record
+      const payment = await storage.createPayment({
+        userId: parseInt(userId),
+        invoiceId: parseInt(invoiceId),
+        contactId: invoice.contactId,
+        amount: paymentAmount,
+        payment_method: this.getPaymentMethodType(paymentIntent),
+        payment_gateway: 'stripe',
+        transaction_id: paymentIntent.id,
+        gateway_fee: this.calculateStripeFee(paymentAmount),
+        gateway_response: paymentIntent as any,
+        status: 'completed',
+        reference: `Stripe Payment - ${paymentIntent.id}`,
+        description: `Payment for Invoice ${invoice.invoiceNumber}`,
+      });
+
+      // Update invoice payment status
+      const newAmountPaid = (invoice.amountPaid || 0) + paymentAmount;
+      const isFullyPaid = newAmountPaid >= invoice.totalAmount;
+      
+      await storage.updateInvoice(parseInt(invoiceId), {
+        amountPaid: newAmountPaid,
+        payment_status: isFullyPaid ? 'Paid' : 'Partial Payment',
+        last_payment_date: new Date().toISOString(),
+        last_payment_amount: paymentAmount,
+        last_payment_method: this.getPaymentMethodType(paymentIntent),
+        updatedAt: new Date().toISOString(),
+      });
+
+      // Log payment activity
+      await storage.createInvoiceActivity({
+        invoiceId: parseInt(invoiceId),
+        userId: parseInt(userId),
+        activity_type: 'paid',
+        description: `Payment of ${paymentAmount} ${invoice.currency} received via ${this.getPaymentMethodType(paymentIntent)}`,
+        metadata: {
+          paymentId: payment.id,
+          paymentIntentId: paymentIntent.id,
+          amount: paymentAmount,
+          currency: invoice.currency,
+          paymentMethod: this.getPaymentMethodType(paymentIntent),
+        },
+      });
+
+      // Broadcast payment update via WebSocket
+      if (wsService) {
+        wsService.broadcastToResource('invoices', parseInt(invoiceId), 'payment_received', {
+          invoiceId: parseInt(invoiceId),
+          paymentId: payment.id,
+          amount: paymentAmount,
+          currency: invoice.currency,
+          isFullyPaid,
+          newAmountPaid,
+          totalAmount: invoice.totalAmount,
+        });
+
+        wsService.broadcast('payment_received', {
+          invoiceId: parseInt(invoiceId),
+          amount: paymentAmount,
+          currency: invoice.currency,
+          isFullyPaid,
         });
       }
+
+      console.log(`Payment processed successfully for invoice ${invoice.invoiceNumber}: ${paymentAmount} ${invoice.currency}`);
+    } catch (error) {
+      console.error('Error handling payment success:', error);
     }
-    
-    return {
-      success: true,
-      payment,
-      invoice: updatedInvoice,
-    };
-  } catch (error) {
-    console.error('Error recording successful payment:', error);
-    throw error;
+  }
+
+  // Handle payment failure
+  async handlePaymentFailure(paymentIntent: Stripe.PaymentIntent): Promise<void> {
+    try {
+      const { invoiceId, userId } = paymentIntent.metadata;
+      
+      if (!invoiceId) {
+        console.error('No invoice ID in payment metadata');
+        return;
+      }
+
+      // Log failed payment activity
+      await storage.createInvoiceActivity({
+        invoiceId: parseInt(invoiceId),
+        userId: parseInt(userId),
+        activity_type: 'payment_failed',
+        description: `Payment attempt failed: ${paymentIntent.last_payment_error?.message || 'Unknown error'}`,
+        metadata: {
+          paymentIntentId: paymentIntent.id,
+          errorCode: paymentIntent.last_payment_error?.code,
+          errorMessage: paymentIntent.last_payment_error?.message,
+        },
+      });
+
+      // Broadcast payment failure via WebSocket
+      if (wsService) {
+        wsService.broadcastToResource('invoices', parseInt(invoiceId), 'payment_failed', {
+          invoiceId: parseInt(invoiceId),
+          error: paymentIntent.last_payment_error?.message || 'Payment failed',
+        });
+      }
+
+      console.log(`Payment failed for invoice ${invoiceId}: ${paymentIntent.last_payment_error?.message}`);
+    } catch (error) {
+      console.error('Error handling payment failure:', error);
+    }
+  }
+
+  // Create a refund
+  async createRefund(
+    paymentId: number,
+    amount?: number,
+    reason?: string
+  ): Promise<PaymentResult> {
+    try {
+      const payment = await storage.getPayment(paymentId);
+      if (!payment) {
+        return { success: false, error: 'Payment not found' };
+      }
+
+      if (!payment.transaction_id) {
+        return { success: false, error: 'No transaction ID found for refund' };
+      }
+
+      // Calculate refund amount
+      const refundAmount = amount || payment.amount;
+      
+      if (refundAmount > payment.amount) {
+        return { success: false, error: 'Refund amount cannot exceed payment amount' };
+      }
+
+      // Create refund in Stripe
+      const refund = await stripe.refunds.create({
+        payment_intent: payment.transaction_id,
+        amount: Math.round(refundAmount * 100), // Convert to cents
+        reason: reason as any || 'requested_by_customer',
+        metadata: {
+          paymentId: paymentId.toString(),
+          invoiceId: payment.invoiceId?.toString() || '',
+        },
+      });
+
+      // Update payment record
+      await storage.updatePayment(paymentId, {
+        refund_status: refundAmount === payment.amount ? 'full' : 'partial',
+        refund_amount: refundAmount,
+        refund_transaction_id: refund.id,
+        refund_date: new Date().toISOString(),
+        refund_reason: reason,
+        status: refundAmount === payment.amount ? 'refunded' : 'completed',
+        updatedAt: new Date().toISOString(),
+      });
+
+      // If this is for an invoice, update the invoice
+      if (payment.invoiceId) {
+        const invoice = await storage.getInvoice(payment.invoiceId);
+        if (invoice) {
+          const newAmountPaid = Math.max(0, (invoice.amountPaid || 0) - refundAmount);
+          await storage.updateInvoice(payment.invoiceId, {
+            amountPaid: newAmountPaid,
+            payment_status: newAmountPaid === 0 ? 'Unpaid' : 
+                          newAmountPaid < invoice.totalAmount ? 'Partial Payment' : 'Paid',
+            updatedAt: new Date().toISOString(),
+          });
+
+          // Log refund activity
+          await storage.createInvoiceActivity({
+            invoiceId: payment.invoiceId,
+            userId: payment.userId,
+            activity_type: 'refunded',
+            description: `Refund of ${refundAmount} ${invoice.currency} processed`,
+            metadata: {
+              refundId: refund.id,
+              originalPaymentId: paymentId,
+              refundAmount,
+              reason,
+            },
+          });
+        }
+      }
+
+      return {
+        success: true,
+        paymentId: refund.id,
+        amount: refundAmount,
+        status: refund.status,
+      };
+    } catch (error) {
+      console.error('Error creating refund:', error);
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Refund creation failed' 
+      };
+    }
+  }
+
+  // Get payment methods for a customer
+  async getCustomerPaymentMethods(contactId: number): Promise<Stripe.PaymentMethod[]> {
+    try {
+      const contact = await storage.getContact(contactId);
+      if (!contact || !contact.payment_portal_token) {
+        return [];
+      }
+
+      const paymentMethods = await stripe.paymentMethods.list({
+        customer: contact.payment_portal_token,
+        type: 'card',
+      });
+
+      return paymentMethods.data;
+    } catch (error) {
+      console.error('Error fetching payment methods:', error);
+      return [];
+    }
+  }
+
+  // Save payment method for future use
+  async savePaymentMethod(
+    contactId: number,
+    paymentMethodId: string
+  ): Promise<boolean> {
+    try {
+      const contact = await storage.getContact(contactId);
+      if (!contact) {
+        return false;
+      }
+
+      // Get or create Stripe customer
+      const stripeCustomer = await this.getOrCreateStripeCustomer(contact);
+
+      // Attach payment method to customer
+      await stripe.paymentMethods.attach(paymentMethodId, {
+        customer: stripeCustomer.id,
+      });
+
+      // Update contact's saved payment methods
+      const savedMethods = contact.saved_payment_methods as any[] || [];
+      savedMethods.push({
+        stripe_payment_method_id: paymentMethodId,
+        created_at: new Date().toISOString(),
+      });
+
+      await storage.updateContact(contactId, {
+        saved_payment_methods: savedMethods,
+      });
+
+      return true;
+    } catch (error) {
+      console.error('Error saving payment method:', error);
+      return false;
+    }
+  }
+
+  // Helper methods
+  private getPaymentMethodType(paymentIntent: Stripe.PaymentIntent): string {
+    const charges = paymentIntent.charges?.data;
+    if (charges && charges.length > 0) {
+      const charge = charges[0];
+      if (charge.payment_method_details?.card) {
+        return `card_${charge.payment_method_details.card.brand}`;
+      }
+      if (charge.payment_method_details?.ach_debit) {
+        return 'ach_debit';
+      }
+    }
+    return 'unknown';
+  }
+
+  private calculateStripeFee(amount: number): number {
+    // Standard Stripe fee: 2.9% + $0.30
+    return Math.round((amount * 0.029 + 0.30) * 100) / 100;
+  }
+
+  // Setup intent for saving payment methods
+  async createSetupIntent(contactId: number): Promise<PaymentResult> {
+    try {
+      const contact = await storage.getContact(contactId);
+      if (!contact) {
+        return { success: false, error: 'Contact not found' };
+      }
+
+      const stripeCustomer = await this.getOrCreateStripeCustomer(contact);
+
+      const setupIntent = await stripe.setupIntents.create({
+        customer: stripeCustomer.id,
+        payment_method_types: ['card'],
+        usage: 'off_session',
+        metadata: {
+          contactId: contactId.toString(),
+        },
+      });
+
+      return {
+        success: true,
+        paymentId: setupIntent.id,
+        clientSecret: setupIntent.client_secret || undefined,
+        status: setupIntent.status,
+      };
+    } catch (error) {
+      console.error('Error creating setup intent:', error);
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Setup intent creation failed' 
+      };
+    }
+  }
+
+  // Create subscription for recurring payments
+  async createRecurringPayment(
+    invoiceId: number,
+    frequency: 'monthly' | 'quarterly' | 'yearly'
+  ): Promise<PaymentResult> {
+    try {
+      const invoice = await storage.getInvoice(invoiceId);
+      if (!invoice) {
+        return { success: false, error: 'Invoice not found' };
+      }
+
+      const contact = invoice.contactId 
+        ? await storage.getContact(invoice.contactId)
+        : null;
+
+      if (!contact) {
+        return { success: false, error: 'Contact not found' };
+      }
+
+      const stripeCustomer = await this.getOrCreateStripeCustomer(contact);
+
+      // Create price for the subscription
+      const price = await stripe.prices.create({
+        unit_amount: Math.round(invoice.totalAmount * 100),
+        currency: invoice.currency.toLowerCase(),
+        recurring: {
+          interval: frequency === 'monthly' ? 'month' : 
+                   frequency === 'quarterly' ? 'month' : 'year',
+          interval_count: frequency === 'quarterly' ? 3 : 1,
+        },
+        product_data: {
+          name: `Recurring Invoice ${invoice.invoiceNumber}`,
+          description: `Recurring payment for ${invoice.invoiceNumber}`,
+        },
+        metadata: {
+          invoiceId: invoiceId.toString(),
+        },
+      });
+
+      // Create subscription
+      const subscription = await stripe.subscriptions.create({
+        customer: stripeCustomer.id,
+        items: [{ price: price.id }],
+        metadata: {
+          invoiceId: invoiceId.toString(),
+          originalInvoiceNumber: invoice.invoiceNumber,
+        },
+      });
+
+      // Update invoice as recurring
+      await storage.updateInvoice(invoiceId, {
+        is_recurring: true,
+        recurring_frequency: frequency,
+        recurring_start_date: new Date().toISOString().slice(0, 10),
+        updatedAt: new Date().toISOString(),
+      });
+
+      return {
+        success: true,
+        paymentId: subscription.id,
+        status: subscription.status,
+      };
+    } catch (error) {
+      console.error('Error creating recurring payment:', error);
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Recurring payment creation failed' 
+      };
+    }
+  }
+
+  // Get payment statistics
+  async getPaymentStats(userId: number, dateRange?: { from: Date; to: Date }): Promise<{
+    totalRevenue: number;
+    totalTransactions: number;
+    averageTransaction: number;
+    successRate: number;
+    topPaymentMethods: Array<{ method: string; count: number; total: number }>;
+  }> {
+    try {
+      // This would need to be implemented with proper SQL queries
+      // For now, return mock data
+      return {
+        totalRevenue: 0,
+        totalTransactions: 0,
+        averageTransaction: 0,
+        successRate: 0,
+        topPaymentMethods: [],
+      };
+    } catch (error) {
+      console.error('Error getting payment stats:', error);
+      throw error;
+    }
   }
 }
 
-/**
- * Process a webhook event from Stripe
- */
-export async function handleStripeWebhook(signature: string, rawBody: Buffer) {
-  try {
-    if (!stripe) {
-      throw new Error('Stripe gateway not initialized');
-    }
-    
-    // Get webhook secret from database
-    const [gatewaySetting] = await db.select({
-      webhookSecret: payment_gateway_settings.webhook_secret,
-      testWebhookSecret: payment_gateway_settings.test_webhook_secret,
-      testMode: payment_gateway_settings.test_mode,
-    })
-    .from(payment_gateway_settings)
-    .where(eq(payment_gateway_settings.gateway_name, 'stripe'));
-    
-    const webhookSecret = gatewaySetting?.testMode 
-      ? gatewaySetting.testWebhookSecret 
-      : gatewaySetting?.webhookSecret;
-    
-    // Verify the webhook signature
-    const event = stripe.webhooks.constructEvent(
-      rawBody,
-      signature,
-      webhookSecret || process.env.STRIPE_WEBHOOK_SECRET || 'whsec_example'
-    );
-    
-    // Handle different event types
-    switch (event.type) {
-      case 'payment_intent.succeeded':
-        const paymentIntent = event.data.object as Stripe.PaymentIntent;
-        const invoiceId = paymentIntent.metadata?.invoiceId;
-        
-        if (invoiceId) {
-          // Verify the payment
-          const verificationResult: VerificationResult = {
-            success: true,
-            transactionId: paymentIntent.id,
-            amount: paymentIntent.amount / 100, // Convert from cents
-            currency: paymentIntent.currency,
-            paymentMethod: 'card',
-            gatewayResponse: paymentIntent,
-            metadata: paymentIntent.metadata,
-            gateway: 'stripe',
-          };
-          
-          // Record the payment
-          await recordSuccessfulPayment(verificationResult, parseInt(invoiceId));
-        }
-        break;
-        
-      case 'checkout.session.completed':
-        const session = event.data.object as Stripe.Checkout.Session;
-        if (session.payment_status === 'paid') {
-          const sessionInvoiceId = session.metadata?.invoiceId;
-          
-          if (sessionInvoiceId) {
-            // Get payment intent details
-            const paymentIntentId = session.payment_intent as string;
-            const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
-            
-            // Verify the payment
-            const verificationResult: VerificationResult = {
-              success: true,
-              transactionId: paymentIntentId,
-              amount: paymentIntent.amount / 100, // Convert from cents
-              currency: paymentIntent.currency,
-              paymentMethod: 'card',
-              gatewayResponse: paymentIntent,
-              metadata: session.metadata,
-              gateway: 'stripe',
-            };
-            
-            // Record the payment
-            await recordSuccessfulPayment(verificationResult, parseInt(sessionInvoiceId));
-          }
-        }
-        break;
-        
-      case 'charge.refunded':
-        const charge = event.data.object as Stripe.Charge;
-        
-        // Find the payment with this transaction ID
-        const [paymentToUpdate] = await db.select()
-          .from(payments)
-          .where(eq(payments.transaction_id, charge.payment_intent as string));
-        
-        if (paymentToUpdate) {
-          // Update payment with refund details
-          await db.update(payments)
-            .set({
-              status: 'refunded',
-              refund_status: charge.amount_refunded < charge.amount ? 'partial' : 'full',
-              refund_amount: charge.amount_refunded / 100, // Convert from cents
-              refund_transaction_id: charge.refunds.data[0]?.id,
-              refund_date: new Date(),
-              updatedAt: new Date(),
-            })
-            .where(eq(payments.id, paymentToUpdate.id));
-          
-          // If payment is for an invoice, update the invoice
-          if (paymentToUpdate.invoiceId) {
-            // Recalculate total valid payments
-            const totalPaid = await db.select({
-              total: db.sql`SUM(${payments.amount})`,
-            })
-            .from(payments)
-            .where(and(
-              eq(payments.invoiceId, paymentToUpdate.invoiceId),
-              eq(payments.status, 'completed')
-            ));
-            
-            const amountPaid = totalPaid[0]?.total || 0;
-            
-            // Determine new payment status
-            let newPaymentStatus = 'Unpaid';
-            if (amountPaid > 0) {
-              newPaymentStatus = amountPaid >= paymentToUpdate.amount ? 'Paid' : 'Partial Payment';
-            } else {
-              // If fully refunded
-              newPaymentStatus = 'Refunded';
-            }
-            
-            // Update the invoice
-            await db.update(invoices)
-              .set({
-                amountPaid,
-                payment_status: newPaymentStatus,
-                updatedAt: new Date(),
-              })
-              .where(eq(invoices.id, paymentToUpdate.invoiceId));
-            
-            // Record in payment history
-            await db.insert(payment_history)
-              .values({
-                invoiceId: paymentToUpdate.invoiceId,
-                paymentId: paymentToUpdate.id,
-                event_type: 'refund_processed',
-                event_timestamp: new Date(),
-                details: {
-                  amount: charge.amount_refunded / 100, // Convert from cents
-                  refund_transaction_id: charge.refunds.data[0]?.id,
-                },
-                created_at: new Date(),
-              });
-          }
-        }
-        break;
-    }
-    
-    return { received: true };
-  } catch (error) {
-    console.error('Error handling Stripe webhook:', error);
-    throw error;
-  }
-}
-
-/**
- * Handle Razorpay webhook events
- */
-export async function handleRazorpayWebhook(payload: any) {
-  try {
-    const { event, payload: eventPayload } = payload;
-    
-    switch (event) {
-      case 'payment.authorized':
-        const payment = eventPayload.payment.entity;
-        const orderId = payment.order_id;
-        
-        // Get order details to find invoice ID
-        const order = await razorpay.orders.fetch(orderId);
-        const invoiceId = order.notes?.invoiceId;
-        
-        if (invoiceId) {
-          // Verify the payment
-          const verificationResult: VerificationResult = {
-            success: true,
-            transactionId: payment.id,
-            amount: payment.amount / 100, // Convert from smallest unit
-            currency: payment.currency,
-            paymentMethod: 'razorpay',
-            gatewayResponse: payment,
-            metadata: order.notes,
-            gateway: 'razorpay',
-          };
-          
-          // Record the payment
-          await recordSuccessfulPayment(verificationResult, parseInt(invoiceId));
-        }
-        break;
-        
-      case 'refund.processed':
-        const refund = eventPayload.refund.entity;
-        const paymentId = refund.payment_id;
-        
-        // Find the payment with this transaction ID
-        const [paymentToUpdate] = await db.select()
-          .from(payments)
-          .where(eq(payments.transaction_id, paymentId));
-        
-        if (paymentToUpdate) {
-          // Update payment with refund details
-          await db.update(payments)
-            .set({
-              status: 'refunded',
-              refund_status: refund.amount < paymentToUpdate.amount * 100 ? 'partial' : 'full',
-              refund_amount: refund.amount / 100, // Convert from smallest unit
-              refund_transaction_id: refund.id,
-              refund_date: new Date(),
-              updatedAt: new Date(),
-            })
-            .where(eq(payments.id, paymentToUpdate.id));
-          
-          // If payment is for an invoice, update the invoice
-          if (paymentToUpdate.invoiceId) {
-            // Similar logic as in Stripe webhook for updating invoice
-            // ...
-          }
-        }
-        break;
-    }
-    
-    return { received: true };
-  } catch (error) {
-    console.error('Error handling Razorpay webhook:', error);
-    throw error;
-  }
-}
-
-/**
- * Verify a Razorpay payment
- */
-export async function verifyRazorpayPayment(options: {
-  orderId: string;
-  paymentId: string;
-  signature: string;
-  invoiceId: number;
-}) {
-  try {
-    const { orderId, paymentId, signature, invoiceId } = options;
-    
-    // Verify the payment
-    const verificationResult = await verifyPayment({
-      gateway: 'razorpay',
-      orderId,
-      paymentId,
-      signature,
-    });
-    
-    if (!verificationResult.success) {
-      throw new Error(verificationResult.message || 'Payment verification failed');
-    }
-    
-    // Record the successful payment
-    return await recordSuccessfulPayment({
-      ...verificationResult,
-      gateway: 'razorpay',
-    }, invoiceId);
-  } catch (error) {
-    console.error('Error verifying Razorpay payment:', error);
-    throw error;
-  }
-}
-
-/**
- * Create a checkout session for an invoice
- */
-export async function createCheckoutSession(options: {
-  invoiceId: number;
-  successUrl: string;
-  cancelUrl: string;
-  customerEmail?: string;
-  gateway?: string;
-}) {
-  try {
-    const { invoiceId, successUrl, cancelUrl, customerEmail, gateway = 'stripe' } = options;
-    
-    // Get the invoice
-    const invoice = await db.query.invoices.findFirst({
-      where: eq(invoices.id, invoiceId),
-      with: {
-        contact: true,
-      },
-    });
-    
-    if (!invoice) {
-      throw new Error(`Invoice ${invoiceId} not found`);
-    }
-    
-    // Check if invoice allows online payment
-    if (!invoice.allow_online_payment) {
-      throw new Error('Online payment is not enabled for this invoice');
-    }
-    
-    // Calculate the amount due
-    const amountDue = invoice.totalAmount - (invoice.amountPaid || 0);
-    
-    if (amountDue <= 0) {
-      throw new Error('Invoice is already fully paid');
-    }
-    
-    // Process the payment through the gateway
-    return await processPayment({
-      invoiceId,
-      gateway,
-      amount: amountDue,
-      currency: invoice.currency || 'USD',
-      description: `Payment for invoice #${invoice.invoiceNumber}`,
-      customerEmail: invoice.contact?.email || customerEmail,
-      customerName: invoice.contact ? `${invoice.contact.firstName} ${invoice.contact.lastName || ''}` : undefined,
-      returnUrl: successUrl,
-      metadata: {
-        invoiceId: invoiceId.toString(),
-        invoiceNumber: invoice.invoiceNumber,
-      },
-    });
-  } catch (error) {
-    console.error('Error creating checkout session:', error);
-    throw error;
-  }
-}
+export const paymentService = new PaymentService();

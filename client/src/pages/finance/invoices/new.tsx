@@ -1,290 +1,143 @@
-import React, { useState } from "react";
-import { useAIInvoiceAssistant } from "@/hooks/use-ai-invoice-assistant";
-import { Loader2, Wand } from "lucide-react";
-import { useCompany } from "@/hooks/use-company";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useCreateInvoice } from "@/hooks/use-finance-data";
-import { useContacts, useCreateContact } from "@/hooks/use-crm-data";
-import { useProducts } from "@/hooks/use-inventory-data";
+import { format } from "date-fns";
+import { 
+  PlusIcon, 
+  TrashIcon, 
+  SaveIcon, 
+  SendIcon, 
+  CalendarIcon,
+  UserIcon,
+  CurrencyDollarIcon,
+  DocumentTextIcon,
+  CalculatorIcon,
+  LinkIcon,
+  EyeIcon,
+  ClockIcon
+} from "@heroicons/react/24/outline";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Separator } from "@/components/ui/separator";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { toast } from "@/components/ui/use-toast";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "@/components/ui/command";
-import { format } from "date-fns";
-import { CalendarIcon, Plus, Trash2, Save, Send, Download, Eye, FileText, Calculator, ChevronsUpDown, Search, X, AlertCircle, Info, DollarSign, Percent } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
-// Define the invoice form schema
-const invoiceFormSchema = z.object({
-  contactId: z.number({
-    required_error: "Please select a customer",
-  }),
-  invoiceNumber: z.string().min(1, "Invoice number is required"),
-  issueDate: z.date({
-    required_error: "Issue date is required",
-  }),
-  dueDate: z.date({
-    required_error: "Due date is required",
-  }),
+import { 
+  useCreateInvoice, 
+  useUpdateInvoice, 
+  useInvoice, 
+  useSendInvoice,
+  useGenerateInvoicePDF,
+  useCreatePaymentLink,
+  useInvoiceWorkflow
+} from "@/hooks/use-finance-data";
+import { useContacts } from "@/hooks/use-contacts";
+import { useWebSocket } from "@/hooks/use-websocket";
+import { useAIInvoiceAssistant } from "@/hooks/use-ai-invoice-assistant";
+
+// Invoice form schema
+const invoiceSchema = z.object({
+  contactId: z.number().min(1, "Customer is required"),
+  invoiceDate: z.string().min(1, "Invoice date is required"),
+  dueDate: z.string().min(1, "Due date is required"),
+  paymentTerms: z.string().default("Due on Receipt"),
   currency: z.string().default("USD"),
-  status: z.string().default("draft"),
+  exchangeRate: z.number().default(1),
+  taxInclusive: z.boolean().default(false),
+  taxType: z.string().default("VAT"),
   notes: z.string().optional(),
-  terms: z.string().optional(),
-  items: z.array(
-    z.object({
-      productId: z.number().optional(),
-      description: z.string().min(1, "Description is required"),
-      quantity: z.number().min(0.01, "Quantity must be greater than 0"),
-      unitPrice: z.number().min(0, "Unit price must be non-negative"),
-      taxRate: z.number().default(0),
-      discountRate: z.number().default(0),
-      subtotal: z.number(),
-      totalAmount: z.number(),
-    })
-  ).min(1, "At least one item is required"),
-  subtotal: z.number(),
-  taxAmount: z.number(),
-  discountAmount: z.number(),
-  totalAmount: z.number(),
+  termsAndConditions: z.string().optional(),
   isRecurring: z.boolean().default(false),
-  recurringFrequency: z.string().optional(),
-  recurringEndDate: z.date().optional(),
+  recurringFrequency: z.enum(["daily", "weekly", "monthly", "quarterly", "yearly"]).optional(),
+  recurringStartDate: z.string().optional(),
+  recurringEndDate: z.string().optional(),
+  recurringCount: z.number().optional(),
+  autoReminderEnabled: z.boolean().default(false),
+  lateFeeEnabled: z.boolean().default(false),
+  lateFeeAmount: z.number().optional(),
+  lateFeePercentage: z.number().optional(),
+  items: z.array(z.object({
+    description: z.string().min(1, "Description is required"),
+    quantity: z.number().min(0.01, "Quantity must be greater than 0"),
+    unitPrice: z.number().min(0, "Unit price must be non-negative"),
+    taxRate: z.number().min(0).max(100, "Tax rate must be between 0 and 100"),
+    discountRate: z.number().min(0).max(100, "Discount rate must be between 0 and 100"),
+  })).min(1, "At least one item is required"),
 });
 
-type InvoiceFormValues = z.infer<typeof invoiceFormSchema>;
+type InvoiceFormData = z.infer<typeof invoiceSchema>;
 
-// Invoice Preview Component
-function InvoicePreview({ data }: { data: InvoiceFormValues }) {
-  const { data: contacts = [] } = useContacts();
-  const { companyName } = useCompany();
-  return (
-    <div className="bg-white rounded-lg border shadow-sm p-8 max-w-4xl mx-auto">
-      <div className="flex justify-between items-start mb-8">
-        <div>
-          <h1 className="text-2xl font-bold">INVOICE</h1>
-          <p className="text-muted-foreground">{data.invoiceNumber}</p>
-        </div>
-        <div className="text-right">
-          {/* TODO: Add full company address and email from useCompany once available */}
-          <p className="font-bold">{companyName || "Your Company Name"}</p>
-          <p>123 Business Street</p>
-          <p>City, State 12345</p>
-          <p>contact@yourcompany.com</p>
-        </div>
-      </div>
+const CURRENCIES = [
+  { code: "USD", symbol: "$", name: "US Dollar" },
+  { code: "EUR", symbol: "€", name: "Euro" },
+  { code: "GBP", symbol: "£", name: "British Pound" },
+  { code: "INR", symbol: "₹", name: "Indian Rupee" },
+  { code: "JPY", symbol: "¥", name: "Japanese Yen" },
+  { code: "CAD", symbol: "C$", name: "Canadian Dollar" },
+  { code: "AUD", symbol: "A$", name: "Australian Dollar" },
+];
 
-      <div className="grid grid-cols-2 gap-8 mb-8">
-        <div>
-          <h3 className="font-semibold text-muted-foreground mb-2">Bill To:</h3>
-          {data.contactId ? (() => {
-            const contact = contacts.find(c => c.id === data.contactId);
-            return contact ? (
-              <>
-                <p className="font-medium">{contact.firstName} {contact.lastName}</p>
-                {contact.company && <p>{contact.company}</p>}
-                <p>{contact.address}</p>
-                <p>{contact.city}, {contact.state} {contact.postalCode}</p>
-                <p>{contact.email}</p>
-              </>
-            ) : (
-              <p className="font-medium">Customer details not available</p>
-            );
-          })() : (
-            <p className="font-medium">No customer selected</p>
-          )}
-        </div>
-        <div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <h3 className="font-semibold text-muted-foreground mb-2">Invoice Date:</h3>
-              <p>{format(data.issueDate, "MMMM d, yyyy")}</p>
-            </div>
-            <div>
-              <h3 className="font-semibold text-muted-foreground mb-2">Due Date:</h3>
-              <p>{format(data.dueDate, "MMMM d, yyyy")}</p>
-            </div>
-            <div>
-              <h3 className="font-semibold text-muted-foreground mb-2">Status:</h3>
-              <Badge className={
-                data.status === "draft" ? "bg-gray-500" :
-                data.status === "pending" ? "bg-amber-500" :
-                data.status === "paid" ? "bg-green-500" :
-                data.status === "overdue" ? "bg-red-500" : ""
-              }>
-                                              {data.status?.charAt(0).toUpperCase() + data.status?.slice(1) || 'Unknown'}
-              </Badge>
-            </div>
-            {data.isRecurring && (
-              <div>
-                <h3 className="font-semibold text-muted-foreground mb-2">Recurring:</h3>
-                <Badge variant="outline">
-                  {data.recurringFrequency 
-                    ? data.recurringFrequency?.charAt(0).toUpperCase() + data.recurringFrequency?.slice(1) 
-                    : "Monthly"}
-                </Badge>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+const PAYMENT_TERMS = [
+  "Due on Receipt",
+  "Net 15",
+  "Net 30",
+  "Net 45",
+  "Net 60",
+  "Net 90",
+  "Custom"
+];
 
-      <div className="mb-8">
-        <div className="rounded-md border">
-          <table className="w-full caption-bottom text-sm">
-            <thead className="[&_tr]:border-b bg-muted/50">
-              <tr className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
-                <th className="h-12 px-4 text-left align-middle font-medium">Item</th>
-                <th className="h-12 px-4 text-right align-middle font-medium w-[100px]">Qty</th>
-                <th className="h-12 px-4 text-right align-middle font-medium w-[150px]">Price</th>
-                <th className="h-12 px-4 text-right align-middle font-medium w-[100px]">Tax</th>
-                <th className="h-12 px-4 text-right align-middle font-medium w-[100px]">Discount</th>
-                <th className="h-12 px-4 text-right align-middle font-medium w-[150px]">Amount</th>
-              </tr>
-            </thead>
-            <tbody className="[&_tr:last-child]:border-0">
-              {data.items.map((item, index) => (
-                <tr key={index} className="border-b transition-colors hover:bg-muted/50">
-                  <td className="p-4 align-middle font-medium">{item.description}</td>
-                  <td className="p-4 align-middle text-right">{item.quantity}</td>
-                  <td className="p-4 align-middle text-right">
-                    {new Intl.NumberFormat("en-US", {
-                      style: "currency",
-                      currency: data.currency,
-                    }).format(item.unitPrice)}
-                  </td>
-                  <td className="p-4 align-middle text-right">{item.taxRate}%</td>
-                  <td className="p-4 align-middle text-right">{item.discountRate}%</td>
-                  <td className="p-4 align-middle text-right font-medium">
-                    {new Intl.NumberFormat("en-US", {
-                      style: "currency",
-                      currency: data.currency,
-                    }).format(item.totalAmount)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+export default function NewInvoice() {
+  const [location, navigate] = useLocation();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [selectedCurrency, setSelectedCurrency] = useState(CURRENCIES[0]);
+  const [lastSavedInvoiceId, setLastSavedInvoiceId] = useState<number | null>(null);
 
-      <div className="flex justify-end mb-8">
-        <div className="w-80">
-          <div className="flex justify-between py-2">
-            <span className="text-muted-foreground">Subtotal</span>
-            <span className="font-medium">
-              {new Intl.NumberFormat("en-US", {
-                style: "currency",
-                currency: data.currency,
-              }).format(data.subtotal)}
-            </span>
-          </div>
-          <div className="flex justify-between py-2">
-            <span className="text-muted-foreground">Tax</span>
-            <span className="font-medium">
-              {new Intl.NumberFormat("en-US", {
-                style: "currency",
-                currency: data.currency,
-              }).format(data.taxAmount)}
-            </span>
-          </div>
-          <div className="flex justify-between py-2">
-            <span className="text-muted-foreground">Discount</span>
-            <span className="font-medium">
-              -{new Intl.NumberFormat("en-US", {
-                style: "currency",
-                currency: data.currency,
-              }).format(data.discountAmount)}
-            </span>
-          </div>
-          <Separator className="my-2" />
-          <div className="flex justify-between py-2">
-            <span className="text-lg font-semibold">Total</span>
-            <span className="text-lg font-semibold">
-              {new Intl.NumberFormat("en-US", {
-                style: "currency",
-                currency: data.currency,
-              }).format(data.totalAmount)}
-            </span>
-          </div>
-        </div>
-      </div>
+  // Get invoice ID from URL if editing
+  const invoiceId = location.includes("/edit/") ? parseInt(location.split("/edit/")[1]) : null;
+  const isEditing = !!invoiceId;
 
-      {(data.notes || data.terms) && (
-        <div className="border-t pt-6 space-y-4">
-          {data.notes && (
-            <div>
-              <h3 className="font-semibold mb-2">Notes</h3>
-              <p className="text-muted-foreground">{data.notes}</p>
-            </div>
-          )}
-          {data.terms && (
-            <div>
-              <h3 className="font-semibold mb-2">Terms & Conditions</h3>
-              <p className="text-muted-foreground">{data.terms}</p>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
+  // Hooks
+  const { data: contacts } = useContacts();
+  const { data: existingInvoice } = useInvoice(invoiceId || 0, { enabled: isEditing });
+  const createInvoice = useCreateInvoice();
+  const updateInvoice = useUpdateInvoice();
+  const sendInvoice = useSendInvoice();
+  const generatePDF = useGenerateInvoicePDF();
+  const createPaymentLink = useCreatePaymentLink();
+  const { suggestDescription, suggestPrice } = useAIInvoiceAssistant();
 
-export default function NewInvoicePage() {
-  const [, navigate] = useLocation();
-  const [isAddingCustomer, setIsAddingCustomer] = useState(false);
-  const [openContactCombobox, setOpenContactCombobox] = useState(false);
-  const [openProductCombobox, setOpenProductCombobox] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState("details");
-  const [previewMode, setPreviewMode] = useState(false);
-
-  // Remove loading state and render invoice details page directly on invoice click
-  // Assuming this is related to invoice list or navigation, so no loading state here
-  const [newCustomer, setNewCustomer] = useState({
-    firstName: "",
-    lastName: "",
-    email: "",
-    phone: "",
-    company: "",
-    address: "",
-    city: "",
-    state: "",
-    postalCode: "",
-    country: "",
+  // Use the enhanced workflow hook for the current invoice if editing
+  const workflow = useInvoiceWorkflow(invoiceId || lastSavedInvoiceId || 0, {
+    enabled: !!(invoiceId || lastSavedInvoiceId)
   });
 
-  const { mutate: createInvoice, isPending } = useCreateInvoice();
-  const { mutate: createContact, isPending: isCreatingContact } = useCreateContact();
-  const { data: contacts = [] } = useContacts();
-  const { data: apiProducts = [] } = useProducts();
-  
-  // Use dynamic products from API
-  const products = apiProducts;
-
-  // Initialize form with default values
-  const form = useForm<InvoiceFormValues>({
-    resolver: zodResolver(invoiceFormSchema),
+  // Form setup
+  const form = useForm<InvoiceFormData>({
+    resolver: zodResolver(invoiceSchema),
     defaultValues: {
-      invoiceNumber: generateInvoiceNumber(),
-      issueDate: new Date(),
-      dueDate: new Date(new Date().setDate(new Date().getDate() + 30)),
+      contactId: 0,
+      invoiceDate: format(new Date(), "yyyy-MM-dd"),
+      dueDate: format(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), "yyyy-MM-dd"),
+      paymentTerms: "Due on Receipt",
       currency: "USD",
-      status: "draft",
+      exchangeRate: 1,
+      taxInclusive: false,
+      taxType: "VAT",
+      notes: "",
+      termsAndConditions: "",
+      isRecurring: false,
+      autoReminderEnabled: false,
+      lateFeeEnabled: false,
       items: [
         {
           description: "",
@@ -292,1334 +145,929 @@ export default function NewInvoicePage() {
           unitPrice: 0,
           taxRate: 0,
           discountRate: 0,
-          subtotal: 0,
-          totalAmount: 0,
-        },
+        }
       ],
-      subtotal: 0,
-      taxAmount: 0,
-      discountAmount: 0,
-      totalAmount: 0,
-      isRecurring: false,
     },
   });
 
-  // Set up field array for invoice items
   const { fields, append, remove } = useFieldArray({
     control: form.control,
     name: "items",
   });
 
-  // Watch form values for calculations
   const watchedItems = form.watch("items");
   const watchedCurrency = form.watch("currency");
+  const watchedTaxInclusive = form.watch("taxInclusive");
   const watchedIsRecurring = form.watch("isRecurring");
 
-  // Calculate totals whenever items change
-  React.useEffect(() => {
+  // Calculate totals
+  const calculateTotals = () => {
     let subtotal = 0;
-    let taxAmount = 0;
-    let discountAmount = 0;
+    let totalTax = 0;
+    let totalDiscount = 0;
 
-    watchedItems.forEach((item, index) => {
-      const quantity = item.quantity || 0;
-      const unitPrice = item.unitPrice || 0;
-      const taxRate = item.taxRate || 0;
-      const discountRate = item.discountRate || 0;
-
-      const itemSubtotal = quantity * unitPrice;
-      const itemDiscount = itemSubtotal * (discountRate / 100);
-      const itemTax = (itemSubtotal - itemDiscount) * (taxRate / 100);
-      const itemTotal = itemSubtotal - itemDiscount + itemTax;
-
-      // Update the item's calculated values
-      form.setValue(`items.${index}.subtotal`, parseFloat(itemSubtotal.toFixed(2)));
-      form.setValue(`items.${index}.totalAmount`, parseFloat(itemTotal.toFixed(2)));
+    watchedItems.forEach((item) => {
+      const itemSubtotal = item.quantity * item.unitPrice;
+      const itemDiscount = (itemSubtotal * item.discountRate) / 100;
+      const itemTaxableAmount = itemSubtotal - itemDiscount;
+      const itemTax = (itemTaxableAmount * item.taxRate) / 100;
 
       subtotal += itemSubtotal;
-      taxAmount += itemTax;
-      discountAmount += itemDiscount;
+      totalDiscount += itemDiscount;
+      totalTax += itemTax;
     });
 
-    const totalAmount = subtotal - discountAmount + taxAmount;
+    const total = subtotal - totalDiscount + (watchedTaxInclusive ? 0 : totalTax);
 
-    // Update the invoice totals
-    form.setValue("subtotal", parseFloat(subtotal.toFixed(2)));
-    form.setValue("taxAmount", parseFloat(taxAmount.toFixed(2)));
-    form.setValue("discountAmount", parseFloat(discountAmount.toFixed(2)));
-    form.setValue("totalAmount", parseFloat(totalAmount.toFixed(2)));
-  }, [watchedItems, form]);
+    return {
+      subtotal,
+      totalDiscount,
+      totalTax,
+      total,
+    };
+  };
+
+  const totals = calculateTotals();
+
+  // Update currency symbol when currency changes
+  useEffect(() => {
+    const currency = CURRENCIES.find(c => c.code === watchedCurrency);
+    if (currency) {
+      setSelectedCurrency(currency);
+    }
+  }, [watchedCurrency]);
+
+  // Load existing invoice data
+  useEffect(() => {
+    if (existingInvoice && isEditing) {
+      form.reset({
+        contactId: existingInvoice.contactId,
+        invoiceDate: format(new Date(existingInvoice.invoiceDate), "yyyy-MM-dd"),
+        dueDate: format(new Date(existingInvoice.dueDate), "yyyy-MM-dd"),
+        paymentTerms: existingInvoice.paymentTerms || "Due on Receipt",
+        currency: existingInvoice.currency || "USD",
+        exchangeRate: existingInvoice.exchangeRate || 1,
+        taxInclusive: existingInvoice.taxInclusive || false,
+        taxType: existingInvoice.taxType || "VAT",
+        notes: existingInvoice.notes || "",
+        termsAndConditions: existingInvoice.termsAndConditions || "",
+        isRecurring: existingInvoice.isRecurring || false,
+        recurringFrequency: existingInvoice.recurringFrequency,
+        recurringStartDate: existingInvoice.recurringStartDate ? format(new Date(existingInvoice.recurringStartDate), "yyyy-MM-dd") : undefined,
+        recurringEndDate: existingInvoice.recurringEndDate ? format(new Date(existingInvoice.recurringEndDate), "yyyy-MM-dd") : undefined,
+        recurringCount: existingInvoice.recurringCount,
+        autoReminderEnabled: existingInvoice.autoReminderEnabled || false,
+        lateFeeEnabled: existingInvoice.lateFeeEnabled || false,
+        lateFeeAmount: existingInvoice.lateFeeAmount,
+        lateFeePercentage: existingInvoice.lateFeePercentage,
+        items: existingInvoice.items || [
+          {
+            description: "",
+            quantity: 1,
+            unitPrice: 0,
+            taxRate: 0,
+            discountRate: 0,
+          }
+        ],
+      });
+    }
+  }, [existingInvoice, isEditing, form]);
 
   // Handle form submission
-  const onSubmit = (data: InvoiceFormValues) => {
-    // Calculate totals before submission
-    const subtotal = data.items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
-    const taxAmount = data.items.reduce((sum, item) => {
-      const itemSubtotal = item.quantity * item.unitPrice;
-      const itemDiscount = itemSubtotal * (item.discountRate / 100);
-      return sum + ((itemSubtotal - itemDiscount) * (item.taxRate / 100));
-    }, 0);
-    const discountAmount = data.items.reduce((sum, item) => {
-      const itemSubtotal = item.quantity * item.unitPrice;
-      return sum + (itemSubtotal * (item.discountRate / 100));
-    }, 0);
-    const totalAmount = subtotal - discountAmount + taxAmount;
+  const onSubmit = async (data: InvoiceFormData, action: "draft" | "send" | "schedule") => {
+    try {
+      setIsSubmitting(true);
 
-    // Map camelCase fields to snake_case for backend
-    const invoiceData = {
-      contact_id: data.contactId,
-      invoice_number: data.invoiceNumber,
-      issue_date: data.issueDate.toISOString(),
-      due_date: data.dueDate.toISOString(),
-      status: data.status,
-      notes: data.notes,
-      terms: data.terms,
-      currency: data.currency,
-      subtotal,
-      tax_amount: taxAmount,
-      discount_amount: discountAmount,
-      total_amount: totalAmount,
-      is_recurring: data.isRecurring,
-      recurring_frequency: data.recurringFrequency,
-      recurring_end_date: data.recurringEndDate ? data.recurringEndDate.toISOString() : undefined,
-      items: data.items.map((item) => ({
-        product_id: item.productId,
-        description: item.description,
-        quantity: item.quantity,
-        unit_price: item.unitPrice,
-        tax_rate: item.taxRate,
-        discount: item.discountRate ? (item.quantity * item.unitPrice) * (item.discountRate / 100) : 0,
-        // subtotal and totalAmount are calculated on backend
-      })),
-    };
+      const invoiceData = {
+        ...data,
+        subtotal: totals.subtotal,
+        taxAmount: totals.totalTax,
+        discountAmount: totals.totalDiscount,
+        totalAmount: totals.total,
+        status: action === "draft" ? "Draft" : action === "schedule" ? "Scheduled" : "Sent",
+        paymentStatus: "Pending",
+      };
 
-    console.log("Submitting invoice (snake_case):", invoiceData);
-
-    createInvoice(invoiceData, {
-      onSuccess: () => {
-        toast({
-          title: "Invoice created",
-          description: `Invoice ${data.invoiceNumber} has been created successfully.`,
+      let result;
+      if (isEditing) {
+        result = await updateInvoice.mutateAsync({
+          id: invoiceId!,
+          ...invoiceData,
         });
-        console.log("Invoice created successfully! Redirecting to /invoices...");
-        window.location.href = "/invoices";
-      },
-      onError: async (error: any) => {
-        let errorMsg = error.message || "There was an error creating the invoice. Please try again.";
-        // Try to extract backend error message if available
-        if (error.response) {
-          try {
-            const errJson = await error.response.json();
-            errorMsg = errJson.message || errorMsg;
-            // Log full backend error for debugging
-            console.error("Backend error:", errJson);
-          } catch (e) {
-            // Ignore JSON parse errors
-          }
-        } else {
-          // Log the error object for debugging
-          console.error("Error creating invoice:", error);
-        }
-        toast({
-          title: "Error creating invoice",
-          description: errorMsg,
-          variant: "destructive",
-        });
-      },
-    });
-  };
-
-  // Generate a unique invoice number
-  function generateInvoiceNumber() {
-    const prefix = "INV";
-    const year = new Date().getFullYear();
-    const randomNum = Math.floor(Math.random() * 10000).toString().padStart(4, "0");
-    return `${prefix}-${year}-${randomNum}`;
-  }
-  
-  // Function to handle saving a new customer
-  const handleSaveCustomer = () => {
-    if (!newCustomer.firstName || !newCustomer.lastName) {
-      toast({
-        title: "Error",
-        description: "First name and last name are required",
-        variant: "destructive",
-      });
-      return;
-    }
-    
-    createContact(
-      {
-        // The userId will be set by the server based on the authenticated user
-        firstName: newCustomer.firstName,
-        lastName: newCustomer.lastName,
-        email: newCustomer.email,
-        phone: newCustomer.phone,
-        company: newCustomer.company,
-        address: newCustomer.address,
-        city: newCustomer.city,
-        state: newCustomer.state,
-        postalCode: newCustomer.postalCode,
-        country: newCustomer.country,
-        type: "customer", // Set the type to customer
-      },
-      {
-        onSuccess: (newContact) => {
-          toast({
-            title: "Success",
-            description: "Customer added successfully",
-          });
-          
-          // Set the new contact as the selected contact in the invoice form
-          form.setValue("contactId", newContact.id);
-          
-          // Reset the new customer form
-          setNewCustomer({
-            firstName: "",
-            lastName: "",
-            email: "",
-            phone: "",
-            company: "",
-            address: "",
-            city: "",
-            state: "",
-            postalCode: "",
-            country: "",
-          });
-          
-          // Close the dialog
-          setIsAddingCustomer(false);
-        },
-        onError: (error) => {
-          toast({
-            title: "Error",
-            description: "Failed to add customer. Please try again.",
-            variant: "destructive",
-          });
-          console.error("Error adding customer:", error);
-        }
+      } else {
+        result = await createInvoice.mutateAsync(invoiceData);
+        setLastSavedInvoiceId(result.id);
       }
-    );
+
+      // Send invoice if requested
+      if (action === "send" && result.id) {
+        await sendInvoice.mutateAsync({
+          invoiceId: result.id,
+          sendEmail: true,
+        });
+      }
+
+      navigate(`/finance/invoices/${result.id}`);
+    } catch (error) {
+      console.error("Error saving invoice:", error);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  // Format currency
-  function formatCurrency(amount: number) {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: watchedCurrency,
-      minimumFractionDigits: 2,
-    }).format(amount);
-  }
+  // Enhanced action handlers
+  const handlePreviewPDF = async () => {
+    const currentInvoiceId = invoiceId || lastSavedInvoiceId;
+    if (!currentInvoiceId) {
+      // Save draft first
+      const formData = form.getValues();
+      const invoiceData = {
+        ...formData,
+        subtotal: totals.subtotal,
+        taxAmount: totals.totalTax,
+        discountAmount: totals.totalDiscount,
+        totalAmount: totals.total,
+        status: "Draft",
+        paymentStatus: "Pending",
+      };
+      
+      const result = await createInvoice.mutateAsync(invoiceData);
+      setLastSavedInvoiceId(result.id);
+      
+      // Generate PDF
+      await generatePDF.mutateAsync({ invoiceId: result.id });
+    } else {
+      await generatePDF.mutateAsync({ invoiceId: currentInvoiceId });
+    }
+  };
 
-  // Add a new item to the invoice
-  function addItem() {
+  const handleCreatePaymentLink = async () => {
+    const currentInvoiceId = invoiceId || lastSavedInvoiceId;
+    if (!currentInvoiceId) {
+      // Save draft first
+      const formData = form.getValues();
+      const invoiceData = {
+        ...formData,
+        subtotal: totals.subtotal,
+        taxAmount: totals.totalTax,
+        discountAmount: totals.totalDiscount,
+        totalAmount: totals.total,
+        status: "Draft",
+        paymentStatus: "Pending",
+      };
+      
+      const result = await createInvoice.mutateAsync(invoiceData);
+      setLastSavedInvoiceId(result.id);
+      
+      // Create payment link
+      const linkResult = await createPaymentLink.mutateAsync({ 
+        invoiceId: result.id,
+        customMessage: "Please pay this invoice at your convenience"
+      });
+      
+      // Copy to clipboard
+      if (linkResult.paymentUrl) {
+        navigator.clipboard.writeText(linkResult.paymentUrl);
+        // You could show a toast notification here
+      }
+    } else {
+      const linkResult = await createPaymentLink.mutateAsync({ 
+        invoiceId: currentInvoiceId,
+        customMessage: "Please pay this invoice at your convenience"
+      });
+      
+      if (linkResult.paymentUrl) {
+        navigator.clipboard.writeText(linkResult.paymentUrl);
+      }
+    }
+  };
+
+  // Add new item
+  const addItem = () => {
     append({
-      productId: undefined,  // Explicitly set to undefined for new items
       description: "",
       quantity: 1,
       unitPrice: 0,
       taxRate: 0,
       discountRate: 0,
-      subtotal: 0,
-      totalAmount: 0,
     });
-    
-    // Focus on the new item after a short delay
-    setTimeout(() => {
-      const newIndex = fields.length;
-      setOpenProductCombobox(newIndex);
-    }, 100);
-  }
-
-  // Handle product selection
-  function handleProductSelect(productId: number, index: number) {
-    const product = products.find((p) => p.id === productId);
-    if (product) {
-      // Update product details
-      form.setValue(`items.${index}.productId`, product.id);
-      form.setValue(`items.${index}.description`, product.name);
-      form.setValue(`items.${index}.unitPrice`, product.price);
-      form.setValue(`items.${index}.taxRate`, product.taxRate || 0);
-      
-      // Get current quantity (default to 1 if not set)
-      const quantity = form.getValues(`items.${index}.quantity`) || 1;
-      const discountRate = form.getValues(`items.${index}.discountRate`) || 0;
-      
-      // Calculate subtotal and total
-      const subtotal = quantity * product.price;
-      const discount = subtotal * (discountRate / 100);
-      const tax = (subtotal - discount) * ((product.taxRate || 0) / 100);
-      const total = subtotal - discount + tax;
-      
-      // Update calculated values
-      form.setValue(`items.${index}.subtotal`, parseFloat(subtotal.toFixed(2)));
-      form.setValue(`items.${index}.totalAmount`, parseFloat(total.toFixed(2)));
-    }
-    // Close the dropdown
-    setOpenProductCombobox(null);
-  }
-
-  // AI Invoice Assistant hook
-  const {
-    loading: aiLoading,
-    generateDescription,
-    suggestPricing,
-  } = useAIInvoiceAssistant();
-
-  // Function to handle AI description generation for an item
-  const handleGenerateDescription = async (index: number) => {
-    const notes = form.getValues(`items.${index}.description`);
-    if (!notes) {
-      toast({
-        title: "Error",
-        description: "Please enter some notes to generate description",
-        variant: "destructive",
-      });
-      return;
-    }
-    try {
-      const description = await generateDescription(0, notes); // 0 or invoiceId if available
-      form.setValue(`items.${index}.description`, description);
-      toast({
-        title: "AI Description Generated",
-        description: "Invoice item description updated with AI suggestion",
-      });
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to generate AI description",
-        variant: "destructive",
-      });
-    }
   };
 
-  // Function to handle AI pricing suggestion for an item
-  const handleSuggestPricing = async (index: number) => {
-    const productId = form.getValues(`items.${index}.productId`);
-    const product = products.find((p) => p.id === productId);
-    if (!product) {
-      toast({
-        title: "Error",
-        description: "Please select a product to get pricing suggestion",
-        variant: "destructive",
-      });
-      return;
-    }
-    try {
-      const suggestion = await suggestPricing(0, product.name, product.price); // 0 or invoiceId if available
-      // Parse suggested price from AI response (simple parse, can be improved)
-      const match = suggestion.match(/\$?([0-9]+(\.[0-9]+)?)/);
-      if (match) {
-        const suggestedPrice = parseFloat(match[1]);
-        form.setValue(`items.${index}.unitPrice`, suggestedPrice);
-        toast({
-          title: "AI Pricing Suggestion",
-          description: `Suggested price: $${suggestedPrice.toFixed(2)}`,
-        });
-      } else {
-        toast({
-          title: "AI Pricing Suggestion",
-          description: suggestion,
-        });
+  // AI suggestion handlers
+  const handleAISuggestion = async (index: number, type: "description" | "price") => {
+    const item = watchedItems[index];
+    if (type === "description" && item.description) {
+      const suggestion = await suggestDescription(item.description);
+      if (suggestion) {
+        form.setValue(`items.${index}.description`, suggestion);
       }
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to get AI pricing suggestion",
-        variant: "destructive",
-      });
+    } else if (type === "price" && item.description) {
+      const suggestion = await suggestPrice(item.description);
+      if (suggestion) {
+        form.setValue(`items.${index}.unitPrice`, suggestion);
+      }
     }
   };
 
   return (
-    <div className="container mx-auto py-6 max-w-7xl">
-      <div className="flex justify-between items-center mb-6">
+    <div className="container mx-auto py-6 space-y-6">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">New Invoice</h1>
-          <p className="text-muted-foreground">Create a new invoice for your customer</p>
+          <h1 className="text-3xl font-bold tracking-tight">
+            {isEditing ? "Edit Invoice" : "Create New Invoice"}
+          </h1>
+          <p className="text-muted-foreground">
+            {isEditing ? "Update invoice details" : "Create a professional invoice for your customer"}
+          </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => navigate("/finance/invoices")}>
-            Cancel
-          </Button>
-          <Button variant="outline" onClick={() => setPreviewMode(!previewMode)}>
-            {previewMode ? (
-              <>
-                <FileText className="mr-2 h-4 w-4" />
-                Edit
-              </>
-            ) : (
-              <>
-                <Eye className="mr-2 h-4 w-4" />
-                Preview
-              </>
-            )}
-          </Button>
-          <Button 
-            onClick={form.handleSubmit(onSubmit)} 
-            disabled={isPending}
-          >
-            {isPending ? (
-              <>Saving...</>
-            ) : (
-              <>
-                <Save className="mr-2 h-4 w-4" />
-                Save Invoice
-              </>
-            )}
-          </Button>
-        </div>
+        <Badge variant={isEditing ? "secondary" : "default"}>
+          {isEditing ? `Editing Invoice #${existingInvoice?.invoiceNumber}` : "New Invoice"}
+        </Badge>
       </div>
 
-      {previewMode ? (
-        <InvoicePreview data={form.getValues()} />
-      ) : (
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)}>
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Left column - Customer & Invoice Details */}
-              <div className="lg:col-span-2 space-y-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Customer Information</CardTitle>
-                    <CardDescription>Select an existing customer or create a new one</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-1 gap-4">
-                      <FormField
-                        control={form.control}
-                        name="contactId"
-                        render={({ field }) => (
-                          <FormItem className="flex flex-col">
-                            <FormLabel>Customer</FormLabel>
-                            <Popover open={openContactCombobox} onOpenChange={setOpenContactCombobox}>
-                              <PopoverTrigger asChild>
-                                <FormControl>
-                                  <Button
-                                    variant="outline"
-                                    role="combobox"
-                                    aria-expanded={openContactCombobox}
-                                    className="justify-between w-full"
-                                  >
-                                    {field.value
-                                      ? contacts.find((contact) => contact.id === field.value)?.firstName + " " + 
-                                        contacts.find((contact) => contact.id === field.value)?.lastName
-                                      : "Select customer..."}
-                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                  </Button>
-                                </FormControl>
-                              </PopoverTrigger>
-                              <PopoverContent className="w-full p-0">
-                                <Command>
-                                  <CommandInput placeholder="Search customer..." />
-                                  <CommandEmpty>
-                                    <div className="py-6 text-center">
-                                      <p className="text-sm text-muted-foreground mb-2">No customer found</p>
-                                      <Button 
-                                        variant="outline" 
-                                        size="sm" 
-                                        onClick={() => setIsAddingCustomer(true)}
-                                      >
-                                        <Plus className="mr-2 h-4 w-4" />
-                                        Add New Customer
-                                      </Button>
-                                    </div>
-                                  </CommandEmpty>
-                                  <CommandGroup>
-                                    {contacts.map((contact) => (
-                                      <CommandItem
-                                        key={contact.id}
-                                        value={contact.id.toString()}
-                                        onSelect={() => {
-                                          form.setValue("contactId", contact.id);
-                                          setOpenContactCombobox(false);
-                                        }}
-                                      >
-                                        <div className="flex flex-col">
-                                          <span>{contact.firstName} {contact.lastName}</span>
-                                          <span className="text-xs text-muted-foreground">{contact.email}</span>
-                                        </div>
-                                      </CommandItem>
-                                    ))}
-                                  </CommandGroup>
-                                  <div className="p-2 border-t">
-                                    <Button 
-                                      variant="outline" 
-                                      size="sm" 
-                                      className="w-full"
-                                      onClick={() => setIsAddingCustomer(true)}
-                                    >
-                                      <Plus className="mr-2 h-4 w-4" />
-                                      Add New Customer
-                                    </Button>
-                                  </div>
-                                </Command>
-                              </PopoverContent>
-                            </Popover>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
+      <form onSubmit={form.handleSubmit((data) => onSubmit(data, "draft"))}>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Main Content */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Customer & Basic Info */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <UserIcon className="h-5 w-5" />
+                  Customer & Invoice Details
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="contactId">Customer *</Label>
+                    <Select
+                      value={form.watch("contactId")?.toString()}
+                      onValueChange={(value) => form.setValue("contactId", parseInt(value))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select customer" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {contacts?.map((contact) => (
+                          <SelectItem key={contact.id} value={contact.id.toString()}>
+                            {contact.name} - {contact.email}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {form.formState.errors.contactId && (
+                      <p className="text-sm text-red-500">{form.formState.errors.contactId.message}</p>
+                    )}
+                  </div>
 
-                      {form.watch("contactId") && (() => {
-                        const contact = contacts.find((c) => c.id === form.watch("contactId"));
-                        if (!contact) return null;
-                        return (
-                          <div className="bg-muted p-4 rounded-md">
-                            <h4 className="font-medium mb-2">Customer Details</h4>
-                            <div className="grid grid-cols-2 gap-4 text-sm">
-                              <div>
-                                <p className="text-muted-foreground">Contact</p>
-                                <p>{contact.firstName} {contact.lastName}</p>
-                                <p>{contact.email}</p>
-                                <p>{contact.phone}</p>
-                              </div>
-                              <div>
-                                <p className="text-muted-foreground">Billing Address</p>
-                                <p>{contact.address}</p>
-                                <p>{contact.city}, {contact.state} {contact.postalCode}</p>
-                                <p>{contact.country}</p>
-                              </div>
-                            </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="currency">Currency</Label>
+                    <Select
+                      value={form.watch("currency")}
+                      onValueChange={(value) => form.setValue("currency", value)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CURRENCIES.map((currency) => (
+                          <SelectItem key={currency.code} value={currency.code}>
+                            {currency.symbol} {currency.code} - {currency.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="invoiceDate">Invoice Date *</Label>
+                    <Input
+                      id="invoiceDate"
+                      type="date"
+                      {...form.register("invoiceDate")}
+                    />
+                    {form.formState.errors.invoiceDate && (
+                      <p className="text-sm text-red-500">{form.formState.errors.invoiceDate.message}</p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="dueDate">Due Date *</Label>
+                    <Input
+                      id="dueDate"
+                      type="date"
+                      {...form.register("dueDate")}
+                    />
+                    {form.formState.errors.dueDate && (
+                      <p className="text-sm text-red-500">{form.formState.errors.dueDate.message}</p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="paymentTerms">Payment Terms</Label>
+                    <Select
+                      value={form.watch("paymentTerms")}
+                      onValueChange={(value) => form.setValue("paymentTerms", value)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PAYMENT_TERMS.map((term) => (
+                          <SelectItem key={term} value={term}>
+                            {term}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="taxType">Tax Type</Label>
+                    <Select
+                      value={form.watch("taxType")}
+                      onValueChange={(value) => form.setValue("taxType", value)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="VAT">VAT</SelectItem>
+                        <SelectItem value="GST">GST</SelectItem>
+                        <SelectItem value="SALES_TAX">Sales Tax</SelectItem>
+                        <SelectItem value="NONE">No Tax</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <Switch
+                    id="taxInclusive"
+                    checked={form.watch("taxInclusive")}
+                    onCheckedChange={(checked) => form.setValue("taxInclusive", checked)}
+                  />
+                  <Label htmlFor="taxInclusive">Tax Inclusive Pricing</Label>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Line Items */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <DocumentTextIcon className="h-5 w-5" />
+                  Line Items
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {fields.map((field, index) => (
+                    <div key={field.id} className="grid grid-cols-12 gap-2 items-end p-4 border rounded-lg">
+                      <div className="col-span-12 md:col-span-4">
+                        <Label htmlFor={`items.${index}.description`}>Description *</Label>
+                        <div className="flex gap-1">
+                          <Input
+                            placeholder="Item description"
+                            {...form.register(`items.${index}.description`)}
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleAISuggestion(index, "description")}
+                            title="AI Suggestion"
+                          >
+                            ✨
+                          </Button>
+                        </div>
+                        {form.formState.errors.items?.[index]?.description && (
+                          <p className="text-sm text-red-500">{form.formState.errors.items[index]?.description?.message}</p>
+                        )}
+                      </div>
+
+                      <div className="col-span-6 md:col-span-1">
+                        <Label htmlFor={`items.${index}.quantity`}>Qty *</Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          placeholder="1"
+                          {...form.register(`items.${index}.quantity`, { valueAsNumber: true })}
+                        />
+                      </div>
+
+                      <div className="col-span-6 md:col-span-2">
+                        <Label htmlFor={`items.${index}.unitPrice`}>Price *</Label>
+                        <div className="flex gap-1">
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-sm text-muted-foreground">
+                              {selectedCurrency.symbol}
+                            </span>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              placeholder="0.00"
+                              className="pl-8"
+                              {...form.register(`items.${index}.unitPrice`, { valueAsNumber: true })}
+                            />
                           </div>
-                        );
-                      })()}
-                    </div>
-                  </CardContent>
-                </Card>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleAISuggestion(index, "price")}
+                            title="AI Price Suggestion"
+                          >
+                            ✨
+                          </Button>
+                        </div>
+                      </div>
 
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Invoice Details</CardTitle>
-                    <CardDescription>Enter the basic invoice information</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <FormField
-                        control={form.control}
-                        name="invoiceNumber"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Invoice Number</FormLabel>
-                            <FormControl>
-                              <Input {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      <FormField
-                        control={form.control}
-                        name="currency"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Currency</FormLabel>
-                            <Select onValueChange={field.onChange} defaultValue={field.value}>
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select currency" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                <SelectItem value="USD">USD - US Dollar</SelectItem>
-                                <SelectItem value="INR">INR - Indian Rupee</SelectItem>
-                                <SelectItem value="EUR">EUR - Euro</SelectItem>
-                                <SelectItem value="GBP">GBP - British Pound</SelectItem>
-                                <SelectItem value="JPY">JPY - Japanese Yen</SelectItem>
-                                <SelectItem value="CAD">CAD - Canadian Dollar</SelectItem>
-                                <SelectItem value="AUD">AUD - Australian Dollar</SelectItem>
-                                <SelectItem value="KES">KES - Kenyan Shilling</SelectItem>
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      <FormField
-                        control={form.control}
-                        name="issueDate"
-                        render={({ field }) => (
-                          <FormItem className="flex flex-col">
-                            <FormLabel>Issue Date</FormLabel>
-                            <Popover>
-                              <PopoverTrigger asChild>
-                                <FormControl>
-                                  <Button
-                                    variant={"outline"}
-                                    className={cn(
-                                      "w-full pl-3 text-left font-normal",
-                                      !field.value && "text-muted-foreground"
-                                    )}
-                                  >
-                                    {field.value ? (
-                                      format(field.value, "PPP")
-                                    ) : (
-                                      <span>Pick a date</span>
-                                    )}
-                                    <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                  </Button>
-                                </FormControl>
-                              </PopoverTrigger>
-                              <PopoverContent className="w-auto p-0" align="start">
-                                <Calendar
-                                  mode="single"
-                                  selected={field.value}
-                                  onSelect={field.onChange}
-                                  initialFocus
-                                />
-                              </PopoverContent>
-                            </Popover>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      <FormField
-                        control={form.control}
-                        name="dueDate"
-                        render={({ field }) => (
-                          <FormItem className="flex flex-col">
-                            <FormLabel>Due Date</FormLabel>
-                            <Popover>
-                              <PopoverTrigger asChild>
-                                <FormControl>
-                                  <Button
-                                    variant={"outline"}
-                                    className={cn(
-                                      "w-full pl-3 text-left font-normal",
-                                      !field.value && "text-muted-foreground"
-                                    )}
-                                  >
-                                    {field.value ? (
-                                      format(field.value, "PPP")
-                                    ) : (
-                                      <span>Pick a date</span>
-                                    )}
-                                    <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                  </Button>
-                                </FormControl>
-                              </PopoverTrigger>
-                              <PopoverContent className="w-auto p-0" align="start">
-                                <Calendar
-                                  mode="single"
-                                  selected={field.value}
-                                  onSelect={field.onChange}
-                                  initialFocus
-                                />
-                              </PopoverContent>
-                            </Popover>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      <div className="md:col-span-2">
-                        <FormField
-                          control={form.control}
-                          name="isRecurring"
-                          render={({ field }) => (
-                            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                              <div className="space-y-0.5">
-                                <FormLabel className="text-base">Recurring Invoice</FormLabel>
-                                <FormDescription>
-                                  Set this invoice to repeat automatically
-                                </FormDescription>
-                              </div>
-                              <FormControl>
-                                <Switch
-                                  checked={field.value}
-                                  onCheckedChange={field.onChange}
-                                />
-                              </FormControl>
-                            </FormItem>
-                          )}
+                      <div className="col-span-6 md:col-span-1">
+                        <Label htmlFor={`items.${index}.taxRate`}>Tax %</Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          max="100"
+                          placeholder="0"
+                          {...form.register(`items.${index}.taxRate`, { valueAsNumber: true })}
                         />
                       </div>
 
-                      {watchedIsRecurring && (
-                        <>
-                          <FormField
-                            control={form.control}
-                            name="recurringFrequency"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Frequency</FormLabel>
-                                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                  <FormControl>
-                                    <SelectTrigger>
-                                      <SelectValue placeholder="Select frequency" />
-                                    </SelectTrigger>
-                                  </FormControl>
-                                  <SelectContent>
-                                    <SelectItem value="weekly">Weekly</SelectItem>
-                                    <SelectItem value="monthly">Monthly</SelectItem>
-                                    <SelectItem value="quarterly">Quarterly</SelectItem>
-                                    <SelectItem value="yearly">Yearly</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-
-                          <FormField
-                            control={form.control}
-                            name="recurringEndDate"
-                            render={({ field }) => (
-                              <FormItem className="flex flex-col">
-                                <FormLabel>End Date (Optional)</FormLabel>
-                                <Popover>
-                                  <PopoverTrigger asChild>
-                                    <FormControl>
-                                      <Button
-                                        variant={"outline"}
-                                        className={cn(
-                                          "w-full pl-3 text-left font-normal",
-                                          !field.value && "text-muted-foreground"
-                                        )}
-                                      >
-                                        {field.value ? (
-                                          format(field.value, "PPP")
-                                        ) : (
-                                          <span>No end date</span>
-                                        )}
-                                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                                      </Button>
-                                    </FormControl>
-                                  </PopoverTrigger>
-                                  <PopoverContent className="w-auto p-0" align="start">
-                                    <Calendar
-                                      mode="single"
-                                      selected={field.value}
-                                      onSelect={field.onChange}
-                                      initialFocus
-                                      disabled={(date) => date < new Date()}
-                                    />
-                                  </PopoverContent>
-                                </Popover>
-                                <FormDescription>
-                                  Leave empty for indefinite recurring
-                                </FormDescription>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                        </>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Invoice Items</CardTitle>
-                    <CardDescription>Add products or services to your invoice</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4">
-                      <div className="rounded-md border overflow-auto">
-                        <div className="min-w-[900px]">
-                          <table className="w-full caption-bottom text-sm">
-                          <thead className="[&_tr]:border-b">
-                            <tr className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
-                              <th className="h-12 px-4 text-left align-middle font-medium">Item</th>
-                              <th className="h-12 px-4 text-center align-middle font-medium w-[140px]">Qty</th>
-                              <th className="h-12 px-4 text-center align-middle font-medium w-[160px]">Price</th>
-                              <th className="h-12 px-4 text-center align-middle font-medium w-[140px]">Tax %</th>
-                              <th className="h-12 px-4 text-center align-middle font-medium w-[140px]">Disc %</th>
-                              <th className="h-12 px-4 text-center align-middle font-medium w-[160px]">Amount</th>
-                              <th className="h-12 w-[50px] px-4 align-middle font-medium"></th>
-                            </tr>
-                          </thead>
-                          <tbody className="[&_tr:last-child]:border-0">
-                            {fields.map((field, index) => (
-                              <tr key={field.id} className="border-b transition-colors hover:bg-muted/50">
-                                <td className="p-2 align-middle">
-                                  <div className="space-y-2">
-                                    <Popover 
-                                      open={openProductCombobox === index} 
-                                      onOpenChange={(open) => {
-                                        setOpenProductCombobox(open ? index : null);
-                                      }}
-                                    >
-                                      <PopoverTrigger asChild>
-                                        <Button
-                                          variant="outline"
-                                          role="combobox"
-                                          className="w-full justify-between"
-                                        >
-                                          {(() => {
-                                            const productId = form.watch(`items.${index}.productId`);
-                                            if (productId) {
-                                              const selectedProduct = products.find(p => p.id === productId);
-                                              return selectedProduct ? selectedProduct.name : "Select product...";
-                                            }
-                                            return "Select product...";
-                                          })()}
-                                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                        </Button>
-                                      </PopoverTrigger>
-                                      <PopoverContent className="w-[400px] p-0">
-                                        <Command>
-                                          <CommandInput placeholder="Search product..." />
-                                          <CommandEmpty>
-                                            <div className="p-2 text-center">
-                                              <p>No product found</p>
-                                              <p className="text-xs text-muted-foreground mt-1">
-                                                Try searching for a different term or select from the list below
-                                              </p>
-                                            </div>
-                                          </CommandEmpty>
-                                          <CommandGroup heading="Available Products">
-                                            {products.map((product) => (
-                                              <CommandItem
-                                                key={product.id}
-                                                value={product.name}
-                                                onSelect={() => {
-                                                  handleProductSelect(product.id, index);
-                                                }}
-                                                className="cursor-pointer"
-                                              >
-                                                <div className="flex flex-col w-full">
-                                                  <div className="flex justify-between items-center w-full">
-                                                    <span className="font-medium">{product.name}</span>
-                                                    <span className="font-semibold">{formatCurrency(product.price)}</span>
-                                                  </div>
-                                                  <div className="flex justify-between items-center w-full text-xs text-muted-foreground mt-1">
-                                                    <span>{product.description || "No description"}</span>
-                                                    <span>SKU: {product.sku || "N/A"}</span>
-                                                  </div>
-                                                </div>
-                                              </CommandItem>
-                                            ))}
-                                          </CommandGroup>
-                                        </Command>
-                                      </PopoverContent>
-                                    </Popover>
-                                <Input
-                                  placeholder="Description"
-                                  {...form.register(`items.${index}.description`)}
-                                />
-                                <div className="mt-1 flex space-x-2">
-                                  <Button 
-                                    size="sm" 
-                                    variant="outline" 
-                                    onClick={() => handleGenerateDescription(index)}
-                                    disabled={aiLoading}
-                                  >
-                                    {aiLoading ? <Loader2 className="animate-spin h-4 w-4" /> : <Wand className="h-4 w-4" />}
-                                    Generate Description
-                                  </Button>
-                                  <Button 
-                                    size="sm" 
-                                    variant="outline" 
-                                    onClick={() => handleSuggestPricing(index)}
-                                    disabled={aiLoading}
-                                  >
-                                    {aiLoading ? <Loader2 className="animate-spin h-4 w-4" /> : <Wand className="h-4 w-4" />}
-                                    Suggest Pricing
-                                  </Button>
-                                </div>
-                              </div>
-                            </td>
-                                <td className="p-2 align-middle">
-                                  <div className="flex items-center">
-                                    <Button 
-                                      type="button"
-                                      variant="outline" 
-                                      size="icon" 
-                                      className="h-8 w-6 rounded-r-none border-r-0 px-0"
-                                      onClick={() => {
-                                        const currentValue = form.getValues(`items.${index}.quantity`) || 0;
-                                        if (currentValue > 0.01) {
-                                          form.setValue(`items.${index}.quantity`, Math.max(0.01, currentValue - 1), { shouldValidate: true });
-                                        }
-                                      }}
-                                    >
-                                      <span className="font-bold">-</span>
-                                    </Button>
-                                    <Input
-                                      type="number"
-                                      min="0.01"
-                                      step="0.01"
-                                      className="rounded-none text-center h-8 w-16 px-1"
-                                      {...form.register(`items.${index}.quantity`, {
-                                        valueAsNumber: true,
-                                      })}
-                                    />
-                                    <Button 
-                                      type="button"
-                                      variant="outline" 
-                                      size="icon" 
-                                      className="h-8 w-6 rounded-l-none border-l-0 px-0"
-                                      onClick={() => {
-                                        const currentValue = form.getValues(`items.${index}.quantity`) || 0;
-                                        form.setValue(`items.${index}.quantity`, currentValue + 1, { shouldValidate: true });
-                                      }}
-                                    >
-                                      <span className="font-bold">+</span>
-                                    </Button>
-                                  </div>
-                                </td>
-                                <td className="p-2 align-middle">
-                                  <div className="flex items-center">
-                                    <Button 
-                                      type="button"
-                                      variant="outline" 
-                                      size="icon" 
-                                      className="h-8 w-6 rounded-r-none border-r-0 px-0"
-                                      onClick={() => {
-                                        const currentValue = form.getValues(`items.${index}.unitPrice`) || 0;
-                                        if (currentValue > 0) {
-                                          form.setValue(`items.${index}.unitPrice`, Math.max(0, currentValue - 1), { shouldValidate: true });
-                                        }
-                                      }}
-                                    >
-                                      <span className="font-bold">-</span>
-                                    </Button>
-                                    <div className="relative">
-                                      <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-                                      <Input
-                                        type="number"
-                                        min="0"
-                                        step="0.01"
-                                        className="rounded-none text-center h-8 pl-6 w-20 px-1"
-                                        {...form.register(`items.${index}.unitPrice`, {
-                                          valueAsNumber: true,
-                                        })}
-                                      />
-                                    </div>
-                                    <Button 
-                                      type="button"
-                                      variant="outline" 
-                                      size="icon" 
-                                      className="h-8 w-6 rounded-l-none border-l-0 px-0"
-                                      onClick={() => {
-                                        const currentValue = form.getValues(`items.${index}.unitPrice`) || 0;
-                                        form.setValue(`items.${index}.unitPrice`, currentValue + 1, { shouldValidate: true });
-                                      }}
-                                    >
-                                      <span className="font-bold">+</span>
-                                    </Button>
-                                  </div>
-                                </td>
-                                <td className="p-2 align-middle">
-                                  <div className="flex items-center">
-                                    <Button 
-                                      type="button"
-                                      variant="outline" 
-                                      size="icon" 
-                                      className="h-8 w-6 rounded-r-none border-r-0 px-0"
-                                      onClick={() => {
-                                        const currentValue = form.getValues(`items.${index}.taxRate`) || 0;
-                                        if (currentValue > 0) {
-                                          form.setValue(`items.${index}.taxRate`, Math.max(0, currentValue - 1), { shouldValidate: true });
-                                        }
-                                      }}
-                                    >
-                                      <span className="font-bold">-</span>
-                                    </Button>
-                                    <div className="relative">
-                                      <Percent className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-                                      <Input
-                                        type="number"
-                                        min="0"
-                                        max="100"
-                                        step="0.1"
-                                        className="rounded-none text-center h-8 pl-6 w-16 px-1"
-                                        {...form.register(`items.${index}.taxRate`, {
-                                          valueAsNumber: true,
-                                        })}
-                                      />
-                                    </div>
-                                    <Button 
-                                      type="button"
-                                      variant="outline" 
-                                      size="icon" 
-                                      className="h-8 w-6 rounded-l-none border-l-0 px-0"
-                                      onClick={() => {
-                                        const currentValue = form.getValues(`items.${index}.taxRate`) || 0;
-                                        form.setValue(`items.${index}.taxRate`, Math.min(100, currentValue + 1), { shouldValidate: true });
-                                      }}
-                                    >
-                                      <span className="font-bold">+</span>
-                                    </Button>
-                                  </div>
-                                </td>
-                                <td className="p-2 align-middle">
-                                  <div className="flex items-center">
-                                    <Button 
-                                      type="button"
-                                      variant="outline" 
-                                      size="icon" 
-                                      className="h-8 w-6 rounded-r-none border-r-0 px-0"
-                                      onClick={() => {
-                                        const currentValue = form.getValues(`items.${index}.discountRate`) || 0;
-                                        if (currentValue > 0) {
-                                          form.setValue(`items.${index}.discountRate`, Math.max(0, currentValue - 1), { shouldValidate: true });
-                                        }
-                                      }}
-                                    >
-                                      <span className="font-bold">-</span>
-                                    </Button>
-                                    <div className="relative">
-                                      <Percent className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-                                      <Input
-                                        type="number"
-                                        min="0"
-                                        max="100"
-                                        step="0.1"
-                                        className="rounded-none text-center h-8 pl-6 w-16 px-1"
-                                        {...form.register(`items.${index}.discountRate`, {
-                                          valueAsNumber: true,
-                                        })}
-                                      />
-                                    </div>
-                                    <Button 
-                                      type="button"
-                                      variant="outline" 
-                                      size="icon" 
-                                      className="h-8 w-6 rounded-l-none border-l-0 px-0"
-                                      onClick={() => {
-                                        const currentValue = form.getValues(`items.${index}.discountRate`) || 0;
-                                        form.setValue(`items.${index}.discountRate`, Math.min(100, currentValue + 1), { shouldValidate: true });
-                                      }}
-                                    >
-                                      <span className="font-bold">+</span>
-                                    </Button>
-                                  </div>
-                                </td>
-                                <td className="p-2 align-middle">
-                                  <div className="flex items-center justify-center">
-                                    <div className="relative w-full">
-                                      <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-                                      <div className="h-8 rounded border border-input bg-background px-2 py-1 text-sm shadow-sm transition-colors text-center pl-6 w-full">
-                                        {formatCurrency(form.watch(`items.${index}.totalAmount`) || 0)}
-                                      </div>
-                                    </div>
-                                  </div>
-                                </td>
-                                <td className="p-2 align-middle">
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={() => remove(index)}
-                                    disabled={fields.length === 1}
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                        </div>
-                      </div>
-                      <div className="flex justify-between items-center mt-4">
-                        <div className="text-sm text-muted-foreground">
-                          {fields.length} {fields.length === 1 ? 'item' : 'items'} in invoice
-                        </div>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="font-medium"
-                          onClick={addItem}
-                        >
-                          <Plus className="mr-2 h-4 w-4" />
-                          Add Another Item
-                        </Button>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Notes & Terms</CardTitle>
-                    <CardDescription>Add additional information to your invoice</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-1 gap-4">
-                      <FormField
-                        control={form.control}
-                        name="notes"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Notes</FormLabel>
-                            <FormControl>
-                              <Textarea
-                                placeholder="Enter any notes for the customer (e.g., 'Thank you for your business')"
-                                className="min-h-[100px]"
-                                {...field}
-                              />
-                            </FormControl>
-                            <FormDescription>
-                              These notes will be displayed on the invoice
-                            </FormDescription>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      <FormField
-                        control={form.control}
-                        name="terms"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Terms & Conditions</FormLabel>
-                            <FormControl>
-                              <Textarea
-                                placeholder="Enter your terms and conditions"
-                                className="min-h-[100px]"
-                                {...field}
-                              />
-                            </FormControl>
-                            <FormDescription>
-                              Standard terms and conditions for this invoice
-                            </FormDescription>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Right column - Summary */}
-              <div className="space-y-6">
-                <Card className="sticky top-6">
-                  <CardHeader>
-                    <CardTitle>Invoice Summary</CardTitle>
-                    <CardDescription>Review your invoice details</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4">
-                      <div className="flex justify-between py-2">
-                        <span className="text-muted-foreground">Subtotal</span>
-                        <span className="font-medium">{formatCurrency(form.watch("subtotal") || 0)}</span>
-                      </div>
-                      <div className="flex justify-between py-2">
-                        <span className="text-muted-foreground">Tax</span>
-                        <span className="font-medium">{formatCurrency(form.watch("taxAmount") || 0)}</span>
-                      </div>
-                      <div className="flex justify-between py-2">
-                        <span className="text-muted-foreground">Discount</span>
-                        <span className="font-medium">-{formatCurrency(form.watch("discountAmount") || 0)}</span>
-                      </div>
-                      <Separator />
-                      <div className="flex justify-between py-2">
-                        <span className="text-lg font-semibold">Total</span>
-                        <span className="text-lg font-semibold">{formatCurrency(form.watch("totalAmount") || 0)}</span>
-                      </div>
-
-                      <div className="rounded-lg bg-muted p-4 mt-6">
-                        <h4 className="font-medium mb-2 flex items-center">
-                          <Info className="h-4 w-4 mr-2" />
-                          Invoice Status
-                        </h4>
-                        <FormField
-                          control={form.control}
-                          name="status"
-                          render={({ field }) => (
-                            <FormItem>
-                              <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                <FormControl>
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Select status" />
-                                  </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                  <SelectItem value="draft">
-                                    <div className="flex items-center">
-                                      <Badge variant="outline" className="mr-2">Draft</Badge>
-                                      <span>Save as draft</span>
-                                    </div>
-                                  </SelectItem>
-                                  <SelectItem value="pending">
-                                    <div className="flex items-center">
-                                      <Badge className="bg-amber-500 mr-2">Pending</Badge>
-                                      <span>Mark as pending</span>
-                                    </div>
-                                  </SelectItem>
-                                  <SelectItem value="sent">
-                                    <div className="flex items-center">
-                                      <Badge className="bg-blue-500 mr-2">Sent</Badge>
-                                      <span>Mark as sent</span>
-                                    </div>
-                                  </SelectItem>
-                                </SelectContent>
-                              </Select>
-                              <FormDescription>
-                                Set the current status of this invoice
-                              </FormDescription>
-                              <FormMessage />
-                            </FormItem>
-                          )}
+                      <div className="col-span-6 md:col-span-1">
+                        <Label htmlFor={`items.${index}.discountRate`}>Disc %</Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          max="100"
+                          placeholder="0"
+                          {...form.register(`items.${index}.discountRate`, { valueAsNumber: true })}
                         />
                       </div>
-                    </div>
-                  </CardContent>
-                  <CardFooter className="flex flex-col gap-4">
-                    <Button className="w-full" onClick={form.handleSubmit(onSubmit)} disabled={isPending}>
-                      {isPending ? (
-                        <>Saving...</>
-                      ) : (
-                        <>
-                          <Save className="mr-2 h-4 w-4" />
-                          Save Invoice
-                        </>
-                      )}
-                    </Button>
-                    <div className="grid grid-cols-2 gap-2 w-full">
-                      <Button variant="outline" className="w-full" type="button">
-                        <Download className="mr-2 h-4 w-4" />
-                        Download
-                      </Button>
-                      <Button variant="outline" className="w-full" type="button">
-                        <Send className="mr-2 h-4 w-4" />
-                        Send
-                      </Button>
-                    </div>
-                  </CardFooter>
-                </Card>
-              </div>
-            </div>
-          </form>
-        </Form>
-      )}
 
-      {/* Add Customer Dialog */}
-      <Dialog open={isAddingCustomer} onOpenChange={setIsAddingCustomer}>
-        <DialogContent className="sm:max-w-[600px]">
-          <DialogHeader>
-            <DialogTitle>Add New Customer</DialogTitle>
-            <DialogDescription>
-              Create a new customer to add to this invoice
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid grid-cols-2 gap-4 py-4">
-            <div className="grid gap-2">
-              <Label htmlFor="firstName">First Name</Label>
-              <Input 
-                id="firstName" 
-                placeholder="John" 
-                value={newCustomer.firstName}
-                onChange={(e) => setNewCustomer({...newCustomer, firstName: e.target.value})}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="lastName">Last Name</Label>
-              <Input 
-                id="lastName" 
-                placeholder="Doe" 
-                value={newCustomer.lastName}
-                onChange={(e) => setNewCustomer({...newCustomer, lastName: e.target.value})}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="email">Email</Label>
-              <Input 
-                id="email" 
-                type="email" 
-                placeholder="john.doe@example.com" 
-                value={newCustomer.email}
-                onChange={(e) => setNewCustomer({...newCustomer, email: e.target.value})}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="phone">Phone</Label>
-              <Input 
-                id="phone" 
-                placeholder="+1 (555) 123-4567" 
-                value={newCustomer.phone}
-                onChange={(e) => setNewCustomer({...newCustomer, phone: e.target.value})}
-              />
-            </div>
-            <div className="grid gap-2 col-span-2">
-              <Label htmlFor="company">Company (Optional)</Label>
-              <Input 
-                id="company" 
-                placeholder="Acme Inc." 
-                value={newCustomer.company}
-                onChange={(e) => setNewCustomer({...newCustomer, company: e.target.value})}
-              />
-            </div>
-            <div className="grid gap-2 col-span-2">
-              <Label htmlFor="address">Address</Label>
-              <Textarea 
-                id="address" 
-                placeholder="123 Main St, Apt 4B" 
-                value={newCustomer.address}
-                onChange={(e) => setNewCustomer({...newCustomer, address: e.target.value})}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="city">City</Label>
-              <Input 
-                id="city" 
-                placeholder="New York" 
-                value={newCustomer.city}
-                onChange={(e) => setNewCustomer({...newCustomer, city: e.target.value})}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="state">State/Province</Label>
-              <Input 
-                id="state" 
-                placeholder="NY" 
-                value={newCustomer.state}
-                onChange={(e) => setNewCustomer({...newCustomer, state: e.target.value})}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="postalCode">Postal Code</Label>
-              <Input 
-                id="postalCode" 
-                placeholder="10001" 
-                value={newCustomer.postalCode}
-                onChange={(e) => setNewCustomer({...newCustomer, postalCode: e.target.value})}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="country">Country</Label>
-              <Input 
-                id="country" 
-                placeholder="United States" 
-                value={newCustomer.country}
-                onChange={(e) => setNewCustomer({...newCustomer, country: e.target.value})}
-              />
-            </div>
+                      <div className="col-span-8 md:col-span-2">
+                        <Label>Total</Label>
+                        <div className="text-lg font-semibold text-right">
+                          {selectedCurrency.symbol}{(
+                            (watchedItems[index]?.quantity || 0) * (watchedItems[index]?.unitPrice || 0) -
+                            ((watchedItems[index]?.quantity || 0) * (watchedItems[index]?.unitPrice || 0) * (watchedItems[index]?.discountRate || 0)) / 100 +
+                            (watchedTaxInclusive ? 0 : (((watchedItems[index]?.quantity || 0) * (watchedItems[index]?.unitPrice || 0) - ((watchedItems[index]?.quantity || 0) * (watchedItems[index]?.unitPrice || 0) * (watchedItems[index]?.discountRate || 0)) / 100) * (watchedItems[index]?.taxRate || 0)) / 100)
+                          ).toFixed(2)}
+                        </div>
+                      </div>
+
+                      <div className="col-span-4 md:col-span-1 flex justify-end">
+                        {fields.length > 1 && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => remove(index)}
+                          >
+                            <TrashIcon className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={addItem}
+                    className="w-full"
+                  >
+                    <PlusIcon className="h-4 w-4 mr-2" />
+                    Add Item
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Notes & Terms */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Notes & Terms</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="notes">Notes</Label>
+                  <Textarea
+                    id="notes"
+                    placeholder="Add any additional notes for this invoice..."
+                    {...form.register("notes")}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="termsAndConditions">Terms & Conditions</Label>
+                  <Textarea
+                    id="termsAndConditions"
+                    placeholder="Add terms and conditions..."
+                    {...form.register("termsAndConditions")}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Advanced Options */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between">
+                  Advanced Options
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowAdvanced(!showAdvanced)}
+                  >
+                    {showAdvanced ? "Hide" : "Show"}
+                  </Button>
+                </CardTitle>
+              </CardHeader>
+              {showAdvanced && (
+                <CardContent className="space-y-6">
+                  {/* Recurring Invoice */}
+                  <div className="space-y-4">
+                    <div className="flex items-center space-x-2">
+                      <Switch
+                        id="isRecurring"
+                        checked={form.watch("isRecurring")}
+                        onCheckedChange={(checked) => form.setValue("isRecurring", checked)}
+                      />
+                      <Label htmlFor="isRecurring">Recurring Invoice</Label>
+                    </div>
+
+                    {watchedIsRecurring && (
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 ml-6">
+                        <div className="space-y-2">
+                          <Label htmlFor="recurringFrequency">Frequency</Label>
+                          <Select
+                            value={form.watch("recurringFrequency")}
+                            onValueChange={(value) => form.setValue("recurringFrequency", value as any)}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select frequency" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="daily">Daily</SelectItem>
+                              <SelectItem value="weekly">Weekly</SelectItem>
+                              <SelectItem value="monthly">Monthly</SelectItem>
+                              <SelectItem value="quarterly">Quarterly</SelectItem>
+                              <SelectItem value="yearly">Yearly</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="recurringStartDate">Start Date</Label>
+                          <Input
+                            id="recurringStartDate"
+                            type="date"
+                            {...form.register("recurringStartDate")}
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="recurringEndDate">End Date (Optional)</Label>
+                          <Input
+                            id="recurringEndDate"
+                            type="date"
+                            {...form.register("recurringEndDate")}
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="recurringCount">Max Occurrences (Optional)</Label>
+                          <Input
+                            id="recurringCount"
+                            type="number"
+                            min="1"
+                            placeholder="Unlimited"
+                            {...form.register("recurringCount", { valueAsNumber: true })}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <Separator />
+
+                  {/* Reminders & Fees */}
+                  <div className="space-y-4">
+                    <div className="flex items-center space-x-2">
+                      <Switch
+                        id="autoReminderEnabled"
+                        checked={form.watch("autoReminderEnabled")}
+                        onCheckedChange={(checked) => form.setValue("autoReminderEnabled", checked)}
+                      />
+                      <Label htmlFor="autoReminderEnabled">Auto Payment Reminders</Label>
+                    </div>
+
+                    <div className="flex items-center space-x-2">
+                      <Switch
+                        id="lateFeeEnabled"
+                        checked={form.watch("lateFeeEnabled")}
+                        onCheckedChange={(checked) => form.setValue("lateFeeEnabled", checked)}
+                      />
+                      <Label htmlFor="lateFeeEnabled">Late Fees</Label>
+                    </div>
+
+                    {form.watch("lateFeeEnabled") && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 ml-6">
+                        <div className="space-y-2">
+                          <Label htmlFor="lateFeeAmount">Late Fee Amount</Label>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-sm text-muted-foreground">
+                              {selectedCurrency.symbol}
+                            </span>
+                            <Input
+                              id="lateFeeAmount"
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              placeholder="0.00"
+                              className="pl-8"
+                              {...form.register("lateFeeAmount", { valueAsNumber: true })}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="lateFeePercentage">Late Fee Percentage</Label>
+                          <Input
+                            id="lateFeePercentage"
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            max="100"
+                            placeholder="0"
+                            {...form.register("lateFeePercentage", { valueAsNumber: true })}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              )}
+            </Card>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsAddingCustomer(false)}>
-              Cancel
-            </Button>
-            <Button 
-              type="button" 
-              onClick={handleSaveCustomer} 
-              disabled={isCreatingContact || !newCustomer.firstName || !newCustomer.lastName}
-            >
-              {isCreatingContact ? "Saving..." : "Save Customer"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+
+          {/* Summary Sidebar */}
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <CalculatorIcon className="h-5 w-5" />
+                  Invoice Summary
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span>Subtotal:</span>
+                    <span>{selectedCurrency.symbol}{totals.subtotal.toFixed(2)}</span>
+                  </div>
+                  {totals.totalDiscount > 0 && (
+                    <div className="flex justify-between text-red-600">
+                      <span>Discount:</span>
+                      <span>-{selectedCurrency.symbol}{totals.totalDiscount.toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between">
+                    <span>Tax {watchedTaxInclusive ? "(Inclusive)" : ""}:</span>
+                    <span>{selectedCurrency.symbol}{totals.totalTax.toFixed(2)}</span>
+                  </div>
+                  <Separator />
+                  <div className="flex justify-between text-lg font-bold">
+                    <span>Total:</span>
+                    <span>{selectedCurrency.symbol}{totals.total.toFixed(2)}</span>
+                  </div>
+                </div>
+
+                {watchedCurrency !== "USD" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="exchangeRate">Exchange Rate (1 USD = ? {watchedCurrency})</Label>
+                    <Input
+                      id="exchangeRate"
+                      type="number"
+                      step="0.0001"
+                      min="0"
+                      placeholder="1.0000"
+                      {...form.register("exchangeRate", { valueAsNumber: true })}
+                    />
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <Button
+                    type="submit"
+                    className="w-full"
+                    disabled={isSubmitting}
+                  >
+                    <SaveIcon className="h-4 w-4 mr-2" />
+                    {isSubmitting ? "Saving..." : isEditing ? "Update Draft" : "Save as Draft"}
+                  </Button>
+
+                  <Button
+                    type="button"
+                    variant="default"
+                    className="w-full"
+                    disabled={isSubmitting}
+                    onClick={form.handleSubmit((data) => onSubmit(data, "send"))}
+                  >
+                    <SendIcon className="h-4 w-4 mr-2" />
+                    {isSubmitting ? "Sending..." : "Save & Send"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Quick Actions */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Quick Actions</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <Button 
+                  variant="outline" 
+                  className="w-full justify-start"
+                  onClick={handlePreviewPDF}
+                  disabled={generatePDF.isPending}
+                >
+                  <EyeIcon className="h-4 w-4 mr-2" />
+                  {generatePDF.isPending ? "Generating..." : "Preview PDF"}
+                </Button>
+                
+                <Button 
+                  variant="outline" 
+                  className="w-full justify-start"
+                  onClick={handleCreatePaymentLink}
+                  disabled={createPaymentLink.isPending}
+                >
+                  <LinkIcon className="h-4 w-4 mr-2" />
+                  {createPaymentLink.isPending ? "Creating..." : "Payment Link"}
+                </Button>
+                
+                <Button 
+                  variant="outline" 
+                  className="w-full justify-start"
+                  onClick={form.handleSubmit((data) => onSubmit(data, "schedule"))}
+                  disabled={isSubmitting}
+                >
+                  <ClockIcon className="h-4 w-4 mr-2" />
+                  Schedule Send
+                </Button>
+
+                {/* Show workflow actions if invoice exists */}
+                {workflow.invoice && (
+                  <>
+                    <Separator className="my-4" />
+                    <div className="space-y-2">
+                      <h4 className="text-sm font-medium">Invoice Actions</h4>
+                      
+                      {workflow.invoice.status === "Draft" && (
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          className="w-full"
+                          onClick={() => workflow.sendInvoice.mutate({ 
+                            invoiceId: workflow.invoice!.id,
+                            sendEmail: true 
+                          })}
+                          disabled={workflow.sendInvoice.isPending}
+                        >
+                          <SendIcon className="h-4 w-4 mr-2" />
+                          {workflow.sendInvoice.isPending ? "Sending..." : "Send Now"}
+                        </Button>
+                      )}
+
+                      {workflow.invoice.paymentStatus !== "Paid" && (
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          className="w-full"
+                          onClick={() => workflow.createPaymentIntent.mutate({ 
+                            invoiceId: workflow.invoice!.id 
+                          })}
+                          disabled={workflow.createPaymentIntent.isPending}
+                        >
+                          <CurrencyDollarIcon className="h-4 w-4 mr-2" />
+                          {workflow.createPaymentIntent.isPending ? "Creating..." : "Payment Intent"}
+                        </Button>
+                      )}
+
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        className="w-full"
+                        onClick={() => workflow.generatePDF.mutate({ 
+                          invoiceId: workflow.invoice!.id 
+                        })}
+                        disabled={workflow.generatePDF.isPending}
+                      >
+                        <DocumentTextIcon className="h-4 w-4 mr-2" />
+                        {workflow.generatePDF.isPending ? "Generating..." : "Download PDF"}
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Real-time Status */}
+            {workflow.invoice && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Invoice Status</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span>Status:</span>
+                    <Badge variant={
+                      workflow.invoice.status === "Paid" ? "default" :
+                      workflow.invoice.status === "Sent" ? "secondary" :
+                      workflow.invoice.status === "Overdue" ? "destructive" :
+                      "outline"
+                    }>
+                      {workflow.invoice.status}
+                    </Badge>
+                  </div>
+                  
+                  <div className="flex items-center justify-between">
+                    <span>Payment:</span>
+                    <Badge variant={
+                      workflow.invoice.paymentStatus === "Paid" ? "default" :
+                      workflow.invoice.paymentStatus === "Partially Paid" ? "secondary" :
+                      "outline"
+                    }>
+                      {workflow.invoice.paymentStatus}
+                    </Badge>
+                  </div>
+
+                  {workflow.invoice.pdfUrl && (
+                    <div className="flex items-center justify-between">
+                      <span>PDF:</span>
+                      <Button 
+                        variant="link" 
+                        size="sm"
+                        onClick={() => window.open(workflow.invoice!.pdfUrl, '_blank')}
+                      >
+                        View
+                      </Button>
+                    </div>
+                  )}
+
+                  {workflow.invoice.emailSent && workflow.invoice.emailSentDate && (
+                    <div className="text-xs text-muted-foreground">
+                      Email sent: {format(new Date(workflow.invoice.emailSentDate), "MMM d, yyyy 'at' h:mm a")}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Activity Feed */}
+            {workflow.activities && workflow.activities.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Recent Activity</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {workflow.activities.slice(0, 5).map((activity) => (
+                      <div key={activity.id} className="text-sm">
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium">{activity.activityType}</span>
+                          <span className="text-muted-foreground">
+                            {format(new Date(activity.createdAt), "MMM d, h:mm a")}
+                          </span>
+                        </div>
+                        {activity.description && (
+                          <p className="text-muted-foreground">{activity.description}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {form.formState.errors.root && (
+              <Alert>
+                <AlertDescription>
+                  {form.formState.errors.root.message}
+                </AlertDescription>
+              </Alert>
+            )}
+          </div>
+        </div>
+      </form>
     </div>
   );
 }
-
-// Label component for the dialog
-function Label({ htmlFor, children }: { htmlFor: string; children: React.ReactNode }) {
-  return (
-    <label htmlFor={htmlFor} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-      {children}
-    </label>
-  );
-}
-
-// Label component for the dialog

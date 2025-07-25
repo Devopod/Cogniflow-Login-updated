@@ -3,7 +3,6 @@ import { db } from "../../db";
 import { payment_gateway_settings } from "@shared/schema";
 import { eq, and, desc, asc } from "drizzle-orm";
 import { authenticateUser } from "../middleware/auth";
-import { refreshGatewaySettings } from "../services/payment";
 
 const router = Router();
 
@@ -131,8 +130,7 @@ router.post("/", authenticateUser, async (req, res) => {
       })
       .returning();
     
-    // Refresh gateway settings in the payment service
-    await refreshGatewaySettings();
+    // TODO: Refresh gateway settings in the payment service
     
     return res.status(201).json(newGateway);
   } catch (error) {
@@ -229,8 +227,7 @@ router.put("/:id", authenticateUser, async (req, res) => {
       .where(eq(payment_gateway_settings.id, parseInt(id)))
       .returning();
     
-    // Refresh gateway settings in the payment service
-    await refreshGatewaySettings();
+    // TODO: Refresh gateway settings in the payment service
     
     return res.json(updatedGateway);
   } catch (error) {
@@ -277,8 +274,7 @@ router.delete("/:id", authenticateUser, async (req, res) => {
       }
     }
     
-    // Refresh gateway settings in the payment service
-    await refreshGatewaySettings();
+    // TODO: Refresh gateway settings in the payment service
     
     return res.json({ 
       message: "Payment gateway setting deleted successfully",
@@ -434,8 +430,8 @@ router.post("/refresh", authenticateUser, async (req, res) => {
       return res.status(403).json({ message: "Only administrators can refresh gateway settings" });
     }
     
-    const result = await refreshGatewaySettings();
-    return res.json(result);
+    // TODO: Refresh gateway settings in the payment service
+    return res.json({ message: "Gateway settings refresh initiated (TODO)" });
   } catch (error) {
     console.error("Error refreshing gateway settings:", error);
     return res.status(500).json({ message: "Failed to refresh gateway settings" });
