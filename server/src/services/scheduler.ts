@@ -153,126 +153,142 @@ class TaskScheduler {
 // Create a singleton instance
 export const scheduler = new TaskScheduler();
 
-// Register tasks
-scheduler.registerTask({
-  id: 'check-overdue-invoices',
-  name: 'Check for Overdue Invoices',
-  interval: 24 * 60 * 60 * 1000, // Once a day
-  fn: async () => {
-    try {
-      // Find invoices that are overdue but not marked as overdue
-      const overdueInvoices = await db.select()
-        .from(invoices)
-        .where(
-          and(
-            lt(invoices.dueDate, new Date()),
-            not(eq(invoices.status, 'paid')),
-            not(eq(invoices.status, 'void')),
-            not(eq(invoices.status, 'overdue'))
-          )
-        );
-      
-      console.log(`Found ${overdueInvoices.length} newly overdue invoices`);
-      
-      // Update each invoice to overdue status
-      for (const invoice of overdueInvoices) {
-        await db.update(invoices)
-          .set({
-            status: 'overdue',
-            updatedAt: new Date(),
-          })
-          .where(eq(invoices.id, invoice.id));
-        
-        // Notify via WebSocket if available
-        if (wsService) {
-          wsService.broadcastToResource('invoices', invoice.id, 'status_changed', {
-            invoiceId: invoice.id,
-            previousStatus: invoice.status,
-            status: 'overdue',
-            timestamp: new Date().toISOString()
-          });
-        }
-        
-        console.log(`Marked invoice #${invoice.invoiceNumber} as overdue`);
-      }
-    } catch (error) {
-      console.error('Error checking for overdue invoices:', error);
-    }
-  }
-});
+// Only register tasks if we have a valid database connection
+const shouldRegisterTasks = () => {
+  const dbUrl = process.env.DATABASE_URL;
+  return dbUrl && !dbUrl.includes('dummy') && !dbUrl.includes('localhost');
+};
 
-scheduler.registerTask({
-  id: 'send-payment-reminders',
-  name: 'Send Payment Reminders',
-  interval: 24 * 60 * 60 * 1000, // Once a day
-  fn: async () => {
-    try {
-      // Find invoices that are overdue and haven't had a reminder sent in the last 7 days
-      // In a real implementation, you would track when reminders were sent
-      // Use a very simple query to avoid any issues
-      const overdueInvoices = await db.execute(`
-        SELECT * FROM invoices 
-        WHERE status = 'overdue' 
-        OR (due_date < CURRENT_DATE AND status != 'paid' AND status != 'void')
-      `).then(result => result.rows);
-      
-      console.log(`Found ${overdueInvoices.length} invoices for payment reminders`);
-      
-      // Send reminder for each invoice
-      for (const invoice of overdueInvoices) {
-        // We need to fetch the contact separately since we're not using relations
-        if (!invoice.contact_id) {
-          console.log(`Skipping reminder for invoice #${invoice.invoice_number}: no contact associated`);
-          continue;
-        }
+if (shouldRegisterTasks()) {
+  // Register tasks
+  scheduler.registerTask({
+    id: 'check-overdue-invoices',
+    name: 'Check for Overdue Invoices',
+    interval: 24 * 60 * 60 * 1000, // Once a day
+    fn: async () => {
+      try {
+        // Find invoices that are overdue but not marked as overdue
+        const overdueInvoices = await db.select()
+          .from(invoices)
+          .where(
+            and(
+              lt(invoices.dueDate, new Date()),
+              not(eq(invoices.status, 'paid')),
+              not(eq(invoices.status, 'void')),
+              not(eq(invoices.status, 'overdue'))
+            )
+          );
         
-        try {
-          // Get contact information
-          const [contact] = await db.select().from(contacts).where(eq(contacts.id, invoice.contact_id));
-          
-          // Skip if no contact or no email
-          if (!contact || !contact.email) {
-            console.log(`Skipping reminder for invoice #${invoice.invoice_number}: no contact email`);
-            continue;
-          }
-          
-          // Send reminder email
-          await sendInvoiceEmail({
-            invoice,
-            to: contact.email,
-            subject: `Payment Reminder: Invoice #${invoice.invoice_number} is Overdue`,
-            message: `This is a friendly reminder that invoice #${invoice.invoice_number} is overdue. Please make payment at your earliest convenience.`,
-          });
-          
-          // Update invoice notes
+        console.log(`Found ${overdueInvoices.length} newly overdue invoices`);
+        
+        // Update each invoice to overdue status
+        for (const invoice of overdueInvoices) {
           await db.update(invoices)
             .set({
-              notes: invoice.notes ? 
-                `${invoice.notes}\n[${new Date().toISOString()}] Payment reminder sent to ${contact.email}` : 
-                `[${new Date().toISOString()}] Payment reminder sent to ${contact.email}`,
-              updated_at: new Date(),
+              status: 'overdue',
+              updatedAt: new Date(),
             })
             .where(eq(invoices.id, invoice.id));
           
           // Notify via WebSocket if available
           if (wsService) {
-            wsService.broadcastToResource('invoices', invoice.id, 'reminder_sent', {
+            wsService.broadcastToResource('invoices', invoice.id, 'status_changed', {
               invoiceId: invoice.id,
-              to: contact.email,
+              previousStatus: invoice.status,
+              status: 'overdue',
               timestamp: new Date().toISOString()
             });
           }
           
-          console.log(`Sent payment reminder for invoice #${invoice.invoice_number} to ${contact.email}`);
-        } catch (error) {
-          console.error(`Error sending reminder for invoice #${invoice.invoice_number}:`, error);
+          console.log(`Marked invoice #${invoice.invoiceNumber} as overdue`);
         }
+      } catch (error) {
+        console.error('Error checking for overdue invoices:', error);
       }
-    } catch (error) {
-      console.error('Error sending payment reminders:', error);
     }
-  }
-});
+  });
+
+  scheduler.registerTask({
+    id: 'send-payment-reminders',
+    name: 'Send Payment Reminders',
+    interval: 24 * 60 * 60 * 1000, // Once a day
+    fn: async () => {
+      try {
+        // Find invoices that are overdue and haven't had a reminder sent in the last 7 days
+        const overdueInvoices = await db.select()
+          .from(invoices)
+          .where(
+            and(
+              or(
+                eq(invoices.status, 'overdue'),
+                and(
+                  lt(invoices.dueDate, new Date()),
+                  not(eq(invoices.status, 'paid')),
+                  not(eq(invoices.status, 'void'))
+                )
+              ),
+              not(eq(invoices.payment_overdue_reminder_sent, true))
+            )
+          );
+        
+        console.log(`Found ${overdueInvoices.length} invoices for payment reminders`);
+        
+        // Send reminder for each invoice
+        for (const invoice of overdueInvoices) {
+          // Skip if no contact associated
+          if (!invoice.contactId) {
+            console.log(`Skipping reminder for invoice #${invoice.invoiceNumber}: no contact associated`);
+            continue;
+          }
+          
+          try {
+            // Get contact information using proper field name
+            const [contact] = await db.select().from(contacts).where(eq(contacts.id, invoice.contactId));
+            
+            // Skip if no contact or no email
+            if (!contact || !contact.email) {
+              console.log(`Skipping reminder for invoice #${invoice.invoiceNumber}: no contact email`);
+              continue;
+            }
+            
+            // Use the proper sendInvoiceEmail function with invoice ID
+            const sent = await sendInvoiceEmail(invoice.id, {
+              customMessage: `This is a friendly reminder that invoice #${invoice.invoiceNumber} is overdue. Please make payment at your earliest convenience.`,
+              includePDF: true
+            });
+            
+            if (sent) {
+              // Mark reminder as sent
+              await db.update(invoices)
+                .set({
+                  payment_overdue_reminder_sent: true,
+                  updatedAt: new Date(),
+                })
+                .where(eq(invoices.id, invoice.id));
+              
+              // Notify via WebSocket if available
+              if (wsService) {
+                wsService.broadcastToResource('invoices', invoice.id, 'reminder_sent', {
+                  invoiceId: invoice.id,
+                  to: contact.email,
+                  timestamp: new Date().toISOString()
+                });
+              }
+              
+              console.log(`Sent payment reminder for invoice #${invoice.invoiceNumber} to ${contact.email}`);
+            }
+          } catch (error) {
+            console.error(`Failed to send invoice email:`, error);
+          }
+        }
+      } catch (error) {
+        console.error('Error sending payment reminders:', error);
+      }
+    }
+  });
+} else {
+  console.log('Task scheduler disabled - no valid database connection detected');
+}
 
 // Export the scheduler instance
 export default scheduler;
