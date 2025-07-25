@@ -3,10 +3,42 @@ import { storage } from '../../storage';
 import { Invoice, Payment, Contact } from '@shared/schema';
 import { WSService } from '../../websocket';
 
-// Initialize Stripe
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
+// Initialize Stripe (only if API key is provided and not a dummy key)
+const stripeKey = process.env.STRIPE_SECRET_KEY;
+const stripe = stripeKey && !stripeKey.includes('dummy') ? new Stripe(stripeKey, {
   apiVersion: '2023-10-16',
+}) : null;
+
+// Create a development stub for Stripe when not configured
+const createStripeStub = () => ({
+  paymentIntents: {
+    create: () => Promise.reject(new Error('Stripe not configured for development')),
+    retrieve: () => Promise.reject(new Error('Stripe not configured for development')),
+  },
+  customers: {
+    create: () => Promise.reject(new Error('Stripe not configured for development')),
+    retrieve: () => Promise.reject(new Error('Stripe not configured for development')),
+    list: () => Promise.reject(new Error('Stripe not configured for development')),
+  },
+  paymentMethods: {
+    list: () => Promise.reject(new Error('Stripe not configured for development')),
+    attach: () => Promise.reject(new Error('Stripe not configured for development')),
+  },
+  refunds: {
+    create: () => Promise.reject(new Error('Stripe not configured for development')),
+  },
+  setupIntents: {
+    create: () => Promise.reject(new Error('Stripe not configured for development')),
+  },
+  prices: {
+    create: () => Promise.reject(new Error('Stripe not configured for development')),
+  },
+  subscriptions: {
+    create: () => Promise.reject(new Error('Stripe not configured for development')),
+  },
 });
+
+const stripeClient = stripe || createStripeStub();
 
 let wsService: WSService | null = null;
 
@@ -66,6 +98,8 @@ export class PaymentService {
     } = {}
   ): Promise<PaymentResult> {
     try {
+
+
       const invoice = await storage.getInvoiceWithItems(invoiceId);
       if (!invoice) {
         return { success: false, error: 'Invoice not found' };
@@ -92,7 +126,7 @@ export class PaymentService {
       }
 
       // Create payment intent
-      const paymentIntent = await stripe.paymentIntents.create({
+      const paymentIntent = await stripeClient.paymentIntents.create({
         amount: Math.round(chargeAmount * 100), // Convert to cents
         currency: invoice.currency.toLowerCase(),
         description: `Payment for Invoice ${invoice.invoiceNumber}`,
@@ -127,10 +161,12 @@ export class PaymentService {
   // Get or create a Stripe customer
   async getOrCreateStripeCustomer(contact: Contact): Promise<Stripe.Customer> {
     try {
+
+
       // Check if customer already exists in Stripe
       if (contact.payment_portal_token) {
         try {
-          const customer = await stripe.customers.retrieve(contact.payment_portal_token);
+          const customer = await stripeClient.customers.retrieve(contact.payment_portal_token);
           if (!customer.deleted) {
             return customer as Stripe.Customer;
           }
@@ -140,7 +176,7 @@ export class PaymentService {
       }
 
       // Create new customer
-      const customer = await stripe.customers.create({
+      const customer = await stripeClient.customers.create({
         email: contact.email || undefined,
         name: `${contact.firstName} ${contact.lastName}`,
         phone: contact.phone || undefined,
@@ -318,7 +354,7 @@ export class PaymentService {
       }
 
       // Create refund in Stripe
-      const refund = await stripe.refunds.create({
+      const refund = await stripeClient.refunds.create({
         payment_intent: payment.transaction_id,
         amount: Math.round(refundAmount * 100), // Convert to cents
         reason: reason as any || 'requested_by_customer',
@@ -390,7 +426,7 @@ export class PaymentService {
         return [];
       }
 
-      const paymentMethods = await stripe.paymentMethods.list({
+      const paymentMethods = await stripeClient.paymentMethods.list({
         customer: contact.payment_portal_token,
         type: 'card',
       });
@@ -417,7 +453,7 @@ export class PaymentService {
       const stripeCustomer = await this.getOrCreateStripeCustomer(contact);
 
       // Attach payment method to customer
-      await stripe.paymentMethods.attach(paymentMethodId, {
+      await stripeClient.paymentMethods.attach(paymentMethodId, {
         customer: stripeCustomer.id,
       });
 
@@ -469,7 +505,7 @@ export class PaymentService {
 
       const stripeCustomer = await this.getOrCreateStripeCustomer(contact);
 
-      const setupIntent = await stripe.setupIntents.create({
+      const setupIntent = await stripeClient.setupIntents.create({
         customer: stripeCustomer.id,
         payment_method_types: ['card'],
         usage: 'off_session',
@@ -515,7 +551,7 @@ export class PaymentService {
       const stripeCustomer = await this.getOrCreateStripeCustomer(contact);
 
       // Create price for the subscription
-      const price = await stripe.prices.create({
+      const price = await stripeClient.prices.create({
         unit_amount: Math.round(invoice.totalAmount * 100),
         currency: invoice.currency.toLowerCase(),
         recurring: {
@@ -533,7 +569,7 @@ export class PaymentService {
       });
 
       // Create subscription
-      const subscription = await stripe.subscriptions.create({
+      const subscription = await stripeClient.subscriptions.create({
         customer: stripeCustomer.id,
         items: [{ price: price.id }],
         metadata: {

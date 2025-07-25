@@ -7,8 +7,8 @@ import { format } from "date-fns";
 import { 
   PlusIcon, 
   TrashIcon, 
-  SaveIcon, 
-  SendIcon, 
+  ArrowDownOnSquareIcon, 
+  SendIcon as PaperAirplaneIcon, 
   CalendarIcon,
   UserIcon,
   CurrencyDollarIcon,
@@ -870,7 +870,7 @@ export default function NewInvoice() {
                     className="w-full"
                     disabled={isSubmitting}
                   >
-                    <SaveIcon className="h-4 w-4 mr-2" />
+                    <ArrowDownOnSquareIcon className="h-4 w-4 mr-2" />
                     {isSubmitting ? "Saving..." : isEditing ? "Update Draft" : "Save as Draft"}
                   </Button>
 
@@ -881,7 +881,7 @@ export default function NewInvoice() {
                     disabled={isSubmitting}
                     onClick={form.handleSubmit((data) => onSubmit(data, "send"))}
                   >
-                    <SendIcon className="h-4 w-4 mr-2" />
+                                            <PaperAirplaneIcon className="h-4 w-4 mr-2" />
                     {isSubmitting ? "Sending..." : "Save & Send"}
                   </Button>
                 </div>
@@ -942,7 +942,7 @@ export default function NewInvoice() {
                           })}
                           disabled={workflow.sendInvoice.isPending}
                         >
-                          <SendIcon className="h-4 w-4 mr-2" />
+                          <PaperAirplaneIcon className="h-4 w-4 mr-2" />
                           {workflow.sendInvoice.isPending ? "Sending..." : "Send Now"}
                         </Button>
                       )}
