@@ -39,6 +39,10 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: number | null }) {
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
   
+  // State for delete dialog
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isDeletingInvoice, setIsDeletingInvoice] = useState(false);
+  
   // State for edit mode
   const [isEditMode, setIsEditMode] = useState(false);
   const [editedInvoice, setEditedInvoice] = useState<Partial<Invoice>>({});
@@ -332,26 +336,66 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: number | null }) {
   
   // Get customer details
   const getCustomerDetails = () => {
-    if (!invoice || !invoice.contactId) return null;
+    if (!invoice) {
+      return (
+        <div className="space-y-1">
+          <p className="text-muted-foreground">No invoice data available</p>
+        </div>
+      );
+    }
     
-    const contact = contacts.find(c => c.id === invoice.contactId);
-    if (!contact) return null;
+    // If invoice has contact data directly (from backend enhancement)
+    if (invoice.contact) {
+      const contact = invoice.contact;
+      return (
+        <div className="space-y-1">
+          <p className="font-medium">{contact.firstName && contact.lastName 
+            ? `${contact.firstName} ${contact.lastName}` 
+            : contact.company || 'N/A'}</p>
+          {contact.company && contact.firstName && <p>{contact.company}</p>}
+          {contact.email && <p>{contact.email}</p>}
+          {contact.phone && <p>{contact.phone}</p>}
+          {contact.address && <p>{contact.address}</p>}
+          {(contact.city || contact.state || contact.postalCode) && (
+            <p>
+              {contact.city}{contact.city && contact.state ? ", " : ""}{contact.state} {contact.postalCode}
+            </p>
+          )}
+          {contact.country && <p>{contact.country}</p>}
+        </div>
+      );
+    }
     
+    // Fallback to contacts array
+    if (invoice.contactId && contacts.length > 0) {
+      const contact = contacts.find(c => c.id === invoice.contactId);
+      if (contact) {
+        return (
+          <div className="space-y-1">
+            <p className="font-medium">{contact.firstName && contact.lastName 
+              ? `${contact.firstName} ${contact.lastName}` 
+              : contact.company || 'N/A'}</p>
+            {contact.company && contact.firstName && <p>{contact.company}</p>}
+            {contact.email && <p>{contact.email}</p>}
+            {contact.phone && <p>{contact.phone}</p>}
+            {contact.address && <p>{contact.address}</p>}
+            {(contact.city || contact.state || contact.postalCode) && (
+              <p>
+                {contact.city}{contact.city && contact.state ? ", " : ""}{contact.state} {contact.postalCode}
+              </p>
+            )}
+            {contact.country && <p>{contact.country}</p>}
+          </div>
+        );
+      }
+    }
+    
+    // If no contact found, show contact ID or default message
     return (
       <div className="space-y-1">
-        <p className="font-medium">{contact.firstName && contact.lastName 
-          ? `${contact.firstName} ${contact.lastName}` 
-          : contact.company}</p>
-        {contact.company && contact.firstName && <p>{contact.company}</p>}
-        {contact.email && <p>{contact.email}</p>}
-        {contact.phone && <p>{contact.phone}</p>}
-        {contact.address && <p>{contact.address}</p>}
-        {(contact.city || contact.state || contact.postalCode) && (
-          <p>
-            {contact.city}{contact.city && contact.state ? ", " : ""}{contact.state} {contact.postalCode}
-          </p>
-        )}
-        {contact.country && <p>{contact.country}</p>}
+        <p className="text-muted-foreground">
+          {invoice.contactId ? `Contact ID: ${invoice.contactId} (Not found)` : 'No contact assigned'}
+        </p>
       </div>
     );
   };
@@ -390,6 +434,41 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: number | null }) {
         variant: "destructive"
       });
       setIsDuplicatingInvoice(false);
+    }
+  };
+  
+  // Handle delete invoice
+  const handleDeleteInvoice = async () => {
+    if (!invoice) return;
+    
+    setIsDeletingInvoice(true);
+    try {
+      const response = await fetch(`/api/invoices/${invoice.id}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to delete invoice');
+      }
+      
+      toast({
+        title: "Invoice Deleted",
+        description: `Invoice ${invoice.invoiceNumber} has been deleted successfully.`,
+      });
+      
+      // Navigate back to invoices list
+      setLocation("/finance/invoices");
+    } catch (error) {
+      console.error("Error deleting invoice:", error);
+      toast({
+        title: "Delete Failed",
+        description: "There was an error deleting the invoice.",
+        variant: "destructive"
+      });
+      setIsDeletingInvoice(false);
     }
   };
   
@@ -506,6 +585,14 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: number | null }) {
               <Button variant="outline" onClick={() => setIsEditMode(true)}>
                 <Edit className="h-4 w-4 mr-2" />
                 Edit
+              </Button>
+              <Button 
+                variant="destructive" 
+                onClick={() => setIsDeleteDialogOpen(true)}
+                disabled={isDeletingInvoice}
+              >
+                {isDeletingInvoice ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <AlertTriangle className="h-4 w-4 mr-2" />}
+                Delete
               </Button>
               {paymentStatus !== 'paid' && (
                 <Button onClick={() => setIsPaymentDialogOpen(true)}>
@@ -972,6 +1059,32 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: number | null }) {
             <Button onClick={handleSendEmail} disabled={isSendingEmail}>
               {isSendingEmail ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
               Send Email
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete Invoice</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete invoice {invoice?.invoiceNumber}? This action cannot be undone and will remove the invoice from all related modules including sales, finance, and reporting.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive" 
+              onClick={handleDeleteInvoice}
+              disabled={isDeletingInvoice}
+            >
+              {isDeletingInvoice ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <AlertTriangle className="h-4 w-4 mr-2" />}
+              Delete Invoice
             </Button>
           </DialogFooter>
         </DialogContent>

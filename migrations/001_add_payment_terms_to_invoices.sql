@@ -1,0 +1,1 @@
+ALTER TABLE invoices ADD COLUMN payment_terms VARCHAR(100) DEFAULT 'Due on Receipt'; 

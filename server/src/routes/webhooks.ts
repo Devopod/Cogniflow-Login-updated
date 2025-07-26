@@ -7,19 +7,26 @@ import { emailService } from "../services/email";
 
 const router = express.Router();
 
-// Initialize Stripe
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+// Initialize Stripe (only if API key is provided and not a dummy key)
+const stripeKey = process.env.STRIPE_SECRET_KEY;
+const stripe = stripeKey && !stripeKey.includes('dummy') ? new Stripe(stripeKey, {
   apiVersion: "2023-10-16",
-});
+}) : null;
 
 // Stripe webhook endpoint signature verification
-const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET!;
+const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
 // Raw body parser for Stripe webhooks
 router.use('/stripe', express.raw({ type: 'application/json' }));
 
 // Stripe webhook handler
 router.post('/stripe', async (req, res) => {
+  // Check if Stripe is configured
+  if (!stripe) {
+    console.log('Stripe webhook received but Stripe is not configured');
+    return res.status(200).json({ received: true, message: 'Stripe not configured' });
+  }
+
   const sig = req.headers['stripe-signature'];
 
   let event: Stripe.Event;
