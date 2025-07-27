@@ -190,7 +190,8 @@ export class EmailService {
       console.log(`🚀 Starting invoice email send for invoice ${invoiceId}`);
       
       // Get invoice with related data using direct SQL to avoid ORM issues
-      const { db, sql } = await import('../../db');
+      const { db } = await import('../../db');
+      const { sql } = await import('drizzle-orm');
       
       // Get invoice data with contact information
       const invoiceResult = await db.execute(sql`
@@ -647,7 +648,8 @@ export class EmailService {
   async sendPaymentReminder(invoiceId: number, reminderType: 'gentle' | 'firm' | 'final'): Promise<boolean> {
     try {
       // Use direct SQL to avoid ORM issues
-      const { db, sql } = await import('../../db');
+      const { db } = await import('../../db');
+      const { sql } = await import('drizzle-orm');
       
       const invoiceResult = await db.execute(sql`
         SELECT 
