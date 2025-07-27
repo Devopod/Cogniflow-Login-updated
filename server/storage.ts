@@ -912,109 +912,30 @@ export class DatabaseStorage implements IStorage {
         return { success: false, error: 'Failed to fetch invoice' };
       }
 
-      // Check if invoice has a contact
-      if (!invoice.contactId) {
-        console.log('⚠️ Invoice has no contact, attempting to assign default contact...');
-        
-        // Try to assign a default contact
-        let contact = await this.getContactsByUser(userId).then(contacts => contacts[0]);
-        if (!contact) {
-          // Create a default contact
-          const user = await this.getUser(userId);
-          contact = await this.createContact({
-            userId,
-            firstName: 'Default',
-            lastName: 'Customer',
-            email: user?.email || 'customer@example.com',
-            phone: '+1234567890',
-            company: 'Default Company',
-            address: '123 Default St',
-            city: 'Default City',
-            state: 'DC',
-            postalCode: '12345',
-            country: 'USA',
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          });
-        }
-        
-        // Update invoice with contact
-        await this.updateInvoice(invoiceId, { contactId: contact.id });
-        invoice.contactId = contact.id;
-      }
+      console.log(`📧 Sending invoice to: ${emailOptions?.email || 'contact email'}`);
 
-      // Get the contact information
-      const contact = await this.getContact(invoice.contactId);
-      if (!contact) {
-        console.log('❌ Contact not found');
-        return { success: false, error: 'Customer information not found' };
-      }
-
-      // Use custom email if provided, otherwise use contact email
-      const targetEmail = emailOptions?.email || contact.email;
-      if (!targetEmail) {
-        console.log('❌ No email address available');
-        return { success: false, error: 'Email address not found. Please ensure the customer has a valid email address.' };
-      }
-
-      console.log(`📧 Sending invoice to: ${targetEmail}`);
-
-      // Prepare invoice email options
+      // Prepare invoice email options with custom email support  
       const invoiceEmailOptions = {
         customMessage: emailOptions?.message,
         includePDF: true,
+        customEmail: emailOptions?.email, // Pass custom email to the service
       };
 
-      // If custom email provided, we need to override the contact email temporarily
-      if (emailOptions?.email && emailOptions.email !== contact.email) {
-        // Create a temporary contact object with the custom email
-        const tempContact = { ...contact, email: emailOptions.email };
+      // Send the email using the enhanced email service
+      const result = await emailService.sendInvoiceEmail(invoiceId, invoiceEmailOptions);
+      
+      if (result.success) {
+        console.log('✅ Invoice email sent successfully via enhanced email service');
         
-        // We'll handle this by updating the contact temporarily
-        await db.execute(sql`
-          UPDATE contacts 
-          SET email = ${emailOptions.email}
-          WHERE id = ${contact.id}
-        `);
-        
-        try {
-          // Send the email
-          const result = await emailService.sendInvoiceEmail(invoiceId, invoiceEmailOptions);
-          
-          // Restore original email
-          await db.execute(sql`
-            UPDATE contacts 
-            SET email = ${contact.email}
-            WHERE id = ${contact.id}
-          `);
-          
-          return result;
-        } catch (error) {
-          // Restore original email even if error occurs
-          await db.execute(sql`
-            UPDATE contacts 
-            SET email = ${contact.email}
-            WHERE id = ${contact.id}
-          `);
-          throw error;
+        // Broadcast WebSocket event
+        if (wsService) {
+          wsService.broadcast('invoice_sent', { invoiceId });
         }
       } else {
-        // Normal flow - send to contact's email
-        const result = await emailService.sendInvoiceEmail(invoiceId, invoiceEmailOptions);
-        
-        if (result.success) {
-          console.log('✅ Invoice email sent successfully via enhanced email service');
-          
-          // Broadcast WebSocket event
-          if (wsService) {
-            wsService.broadcast('invoice_sent', { invoiceId });
-          }
-        } else {
-          console.log('❌ Invoice email failed:', result.error);
-        }
-        
-        return result;
+        console.log('❌ Invoice email failed:', result.error);
       }
+      
+      return result;
     } catch (error: any) {
       console.error('❌ SendInvoiceEmail error:', {
         message: error.message,

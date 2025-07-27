@@ -49,6 +49,7 @@ import adminRoutes from './src/routes/admin';
 import paymentRoutes from './src/routes/payments';
 import paymentReminderRoutes from './src/routes/payment-reminders';
 import paymentGatewayRoutes from './src/routes/payment-gateways';
+import emailTestRoutes from './src/routes/email-test';
 import { registerDynamicRoutes } from './routes-dynamic';
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -98,6 +99,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Register payment gateway routes
   app.use('/api/payment-gateways', paymentGatewayRoutes);
+  
+  // Register email test routes
+  app.use('/api/email', emailTestRoutes);
   
   // Register public routes
   app.use('/api/public', publicRoutes);
