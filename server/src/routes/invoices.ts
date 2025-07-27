@@ -63,84 +63,82 @@ router.get("/", authenticateUser, async (req, res) => {
       ]);
     }
 
-    // For production with real database, use safe column selection
-    try {
-      // Try the new approach with all columns first
-      const allInvoices = await db.query.invoices.findMany({
-        with: {
-          contact: true,
-          items: {
-            with: {
-              product: true,
-            },
-          },
-        },
-      });
-      return res.json(allInvoices);
-    } catch (columnError) {
-      // If that fails due to missing columns, use basic selection
-      console.log('Using fallback query due to missing columns');
-      
-      const result = await db.execute(sql`
-        SELECT 
-          i.id,
-          i.user_id,
-          i.contact_id,
-          i.invoice_number,
-          i.issue_date,
-          i.due_date,
-          i.subtotal,
-          i.tax_amount,
-          i.discount_amount,
-          i.total_amount,
-          i.amount_paid,
-          i.status,
-          i.notes,
-          i.terms,
-          i.currency,
-          i.created_at,
-          i.updated_at,
-          'Net 30' as payment_terms,
-          c.id as c_id,
-          c.first_name as contact_first_name,
-          c.last_name as contact_last_name,
-          c.email as contact_email,
-          c.company as contact_company
-        FROM invoices i
-        LEFT JOIN contacts c ON i.contact_id = c.id
-        ORDER BY i.created_at DESC
-      `);
+    // For production with real database, use enhanced query with complete customer data
+    console.log('🔍 Fetching invoices with customer details...');
+    
+    const result = await db.execute(sql`
+      SELECT 
+        i.id,
+        i.user_id,
+        i.contact_id,
+        i.invoice_number,
+        i.issue_date,
+        i.due_date,
+        i.subtotal,
+        i.tax_amount,
+        i.discount_amount,
+        i.total_amount,
+        i.amount_paid,
+        i.status,
+        i.notes,
+        i.terms,
+        i.currency,
+        i.created_at,
+        i.updated_at,
+        'Net 30' as payment_terms,
+        c.id as c_id,
+        c.first_name as contact_first_name,
+        c.last_name as contact_last_name,
+        c.email as contact_email,
+        c.phone as contact_phone,
+        c.company as contact_company,
+        c.address as contact_address,
+        c.city as contact_city,
+        c.state as contact_state,
+        c.postal_code as contact_postal_code,
+        c.country as contact_country
+      FROM invoices i
+      LEFT JOIN contacts c ON i.contact_id = c.id
+      WHERE i.user_id = ${req.user!.id}
+      ORDER BY i.created_at DESC
+    `);
 
-      const invoicesWithContacts = result.rows.map((row: any) => ({
-        id: row.id,
-        userId: row.user_id,
-        contactId: row.contact_id,
-        invoiceNumber: row.invoice_number,
-        issueDate: row.issue_date,
-        dueDate: row.due_date,
-        subtotal: row.subtotal,
-        taxAmount: row.tax_amount,
-        discountAmount: row.discount_amount,
-        totalAmount: row.total_amount,
-        amountPaid: row.amount_paid,
-        status: row.status,
-        notes: row.notes,
-        terms: row.terms,
-        currency: row.currency,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-        payment_terms: row.payment_terms,
-        contact: row.c_id ? {
-          id: row.c_id,
-          firstName: row.contact_first_name,
-          lastName: row.contact_last_name,
-          email: row.contact_email,
-          company: row.contact_company,
-        } : null,
-      }));
+    const invoicesWithContacts = result.rows.map((row: any) => ({
+      id: row.id,
+      userId: row.user_id,
+      contactId: row.contact_id,
+      invoiceNumber: row.invoice_number,
+      issueDate: row.issue_date,
+      dueDate: row.due_date,
+      subtotal: row.subtotal || 0,
+      taxAmount: row.tax_amount || 0,
+      discountAmount: row.discount_amount || 0,
+      totalAmount: row.total_amount || 0,
+      amountPaid: row.amount_paid || 0,
+      status: row.status || 'draft',
+      notes: row.notes,
+      terms: row.terms,
+      currency: row.currency || 'USD',
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      payment_terms: row.payment_terms,
+      contact: row.c_id ? {
+        id: row.c_id,
+        firstName: row.contact_first_name,
+        lastName: row.contact_last_name,
+        email: row.contact_email,
+        phone: row.contact_phone,
+        company: row.contact_company,
+        address: row.contact_address,
+        city: row.contact_city,
+        state: row.contact_state,
+        postalCode: row.contact_postal_code,
+        country: row.contact_country,
+      } : null,
+    }));
 
-      return res.json(invoicesWithContacts);
-    }
+    console.log(`✅ Found ${invoicesWithContacts.length} invoices with customer details`);
+    return res.json(invoicesWithContacts);
   } catch (error) {
     console.error("Error fetching invoices:", error);
     return res.status(500).json({ message: "Failed to fetch invoices" });
@@ -213,64 +211,95 @@ router.get("/:id", authenticateUser, async (req, res) => {
     console.log(`User ID: ${req.user.id}, looking for invoice ID: ${id}`);
 
     try {
-      const invoice = await db.select({
-        id: invoices.id,
-        userId: invoices.userId,
-        contactId: invoices.contactId,
-        invoiceNumber: invoices.invoiceNumber,
-        issueDate: invoices.issueDate,
-        dueDate: invoices.dueDate,
-        subtotal: invoices.subtotal,
-        taxAmount: invoices.taxAmount,
-        discountAmount: invoices.discountAmount,
-        totalAmount: invoices.totalAmount,
-        amountPaid: invoices.amountPaid,
-        status: invoices.status,
-        notes: invoices.notes,
-        terms: invoices.terms,
-        currency: invoices.currency,
-        createdAt: invoices.createdAt,
-        updatedAt: invoices.updatedAt,
-      }).from(invoices).where(eq(invoices.id, parseInt(id))).limit(1);
+      // Use the enhanced query with proper customer details
+      const invoiceResult = await db.execute(sql`
+        SELECT 
+          i.id, i.user_id as "userId", i.contact_id as "contactId", 
+          i.invoice_number as "invoiceNumber", i.issue_date as "issueDate", 
+          i.due_date as "dueDate", i.subtotal, i.tax_amount as "taxAmount", 
+          i.discount_amount as "discountAmount", i.total_amount as "totalAmount", 
+          i.amount_paid as "amountPaid", i.status, i.notes, i.terms, i.currency,
+          i.created_at as "createdAt", i.updated_at as "updatedAt",
+          c.id as contact_id, c.first_name as contact_first_name, 
+          c.last_name as contact_last_name, c.email as contact_email,
+          c.phone as contact_phone, c.company as contact_company,
+          c.address as contact_address, c.city as contact_city,
+          c.state as contact_state, c.postal_code as contact_postal_code,
+          c.country as contact_country
+        FROM invoices i
+        LEFT JOIN contacts c ON i.contact_id = c.id
+        WHERE i.id = ${parseInt(id)}
+      `);
 
-      if (invoice.length === 0) {
+      if (invoiceResult.rows.length === 0) {
         console.log(`Invoice with ID ${id} not found`);
         return res.status(404).json({ message: "Invoice not found" });
       }
 
-      const invoiceData = invoice[0];
-
-      // Get contact information
-      const contact = await db.query.contacts.findFirst({
-        where: eq(contacts.id, invoiceData.contactId),
-      });
+      const invoiceRow = invoiceResult.rows[0];
 
       // Get invoice items
-      const items = await db.query.invoiceItems.findMany({
-        where: eq(invoiceItems.invoiceId, parseInt(id)),
-        with: {
-          product: true,
-        },
-      });
+      const itemsResult = await db.execute(sql`
+        SELECT 
+          ii.id, ii.product_id as "productId", ii.description, 
+          ii.quantity, ii.unit_price as "unitPrice", ii.total_amount as "totalAmount",
+          ii.tax_rate as "taxRate", ii.discount_rate as "discountRate",
+          p.name as product_name, p.sku as product_sku
+        FROM invoice_items ii
+        LEFT JOIN products p ON ii.product_id = p.id
+        WHERE ii.invoice_id = ${parseInt(id)}
+      `);
 
-      // Ensure all required fields have proper values
+      // Build enhanced invoice object with complete customer data
       const enhancedInvoice = {
-        ...invoiceData,
-        invoiceNumber: invoiceData.invoiceNumber || 'N/A',
-        issueDate: invoiceData.issueDate || new Date().toISOString().split('T')[0],
-        dueDate: invoiceData.dueDate || new Date().toISOString().split('T')[0],
-        status: invoiceData.status || 'draft',
-        paymentTerms: 'Due on receipt', // Default value since column doesn't exist
-        contact: contact || {
-          firstName: 'N/A',
-          lastName: 'N/A',
-          email: 'N/A',
-          phone: 'N/A'
-        },
-        items: items || []
+        id: invoiceRow.id,
+        userId: invoiceRow.userId,
+        contactId: invoiceRow.contactId,
+        invoiceNumber: invoiceRow.invoiceNumber || 'N/A',
+        issueDate: invoiceRow.issueDate || new Date().toISOString().split('T')[0],
+        dueDate: invoiceRow.dueDate || new Date().toISOString().split('T')[0],
+        subtotal: invoiceRow.subtotal || 0,
+        taxAmount: invoiceRow.taxAmount || 0,
+        discountAmount: invoiceRow.discountAmount || 0,
+        totalAmount: invoiceRow.totalAmount || 0,
+        amountPaid: invoiceRow.amountPaid || 0,
+        status: invoiceRow.status || 'draft',
+        notes: invoiceRow.notes,
+        terms: invoiceRow.terms,
+        currency: invoiceRow.currency || 'USD',
+        createdAt: invoiceRow.createdAt,
+        updatedAt: invoiceRow.updatedAt,
+        paymentTerms: 'Due on receipt', // Default value
+        contact: invoiceRow.contact_id ? {
+          id: invoiceRow.contact_id,
+          firstName: invoiceRow.contact_first_name,
+          lastName: invoiceRow.contact_last_name,
+          email: invoiceRow.contact_email,
+          phone: invoiceRow.contact_phone,
+          company: invoiceRow.contact_company,
+          address: invoiceRow.contact_address,
+          city: invoiceRow.contact_city,
+          state: invoiceRow.contact_state,
+          postalCode: invoiceRow.contact_postal_code,
+          country: invoiceRow.contact_country,
+        } : null,
+        items: itemsResult.rows.map((item: any) => ({
+          id: item.id,
+          productId: item.productId,
+          description: item.description,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          totalAmount: item.totalAmount,
+          taxRate: item.taxRate || 0,
+          discountRate: item.discountRate || 0,
+          product: item.product_name ? {
+            name: item.product_name,
+            sku: item.product_sku,
+          } : null,
+        }))
       };
 
-      console.log(`Found invoice: ${invoiceData.id}, returning to client`);
+      console.log(`✅ Found invoice: ${enhancedInvoice.id} with customer: ${enhancedInvoice.contact?.firstName} ${enhancedInvoice.contact?.lastName}`);
       return res.json(enhancedInvoice);
     } catch (dbError) {
       console.error("Database error fetching invoice:", dbError);

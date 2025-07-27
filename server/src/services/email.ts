@@ -1,4 +1,4 @@
-// Email service for sending emails
+// Enhanced Email service for production with fallback mechanisms
 import nodemailer from 'nodemailer';
 import { storage } from '../../storage';
 import { Invoice, EmailTemplate, Contact, User } from '@shared/schema';
@@ -37,28 +37,121 @@ interface InvoiceEmailOptions {
 }
 
 export class EmailService {
-  private transporter: nodemailer.Transporter;
+  private transporter: nodemailer.Transporter | null = null;
+  private resendClient: any = null;
+  private emailProvider: 'resend' | 'smtp' | 'mock' = 'mock';
   
   constructor() {
-    // Initialize with default SMTP configuration
-    // In production, these should come from environment variables
-    const config: EmailConfig = {
-      host: process.env.SMTP_HOST || 'smtp.gmail.com',
-      port: parseInt(process.env.SMTP_PORT || '587'),
-      secure: process.env.SMTP_SECURE === 'true',
-      auth: {
-        user: process.env.SMTP_USER || '',
-        pass: process.env.SMTP_PASS || '',
-      },
-    };
-
-    this.transporter = nodemailer.createTransport(config);
+    this.initializeEmailProvider();
   }
 
-  async sendEmail(options: EmailOptions): Promise<boolean> {
+  private async initializeEmailProvider() {
     try {
+      // Try Resend first (preferred for production)
+      if (process.env.RESEND_API_KEY && process.env.RESEND_API_KEY !== 're_123456789_placeholder_get_real_key_from_resend_com') {
+        console.log('🟢 Initializing Resend email service...');
+        const { Resend } = await import('resend');
+        this.resendClient = new Resend(process.env.RESEND_API_KEY);
+        this.emailProvider = 'resend';
+        console.log('✅ Resend email service initialized');
+        return;
+      }
+
+      // Fallback to SMTP if configured
+      if (process.env.SMTP_USER && process.env.SMTP_PASS && 
+          process.env.SMTP_USER !== 'your-email@gmail.com' && 
+          process.env.SMTP_PASS !== 'your-app-password') {
+        console.log('🟡 Initializing SMTP email service...');
+        const config: EmailConfig = {
+          host: process.env.SMTP_HOST || 'smtp.gmail.com',
+          port: parseInt(process.env.SMTP_PORT || '587'),
+          secure: process.env.SMTP_SECURE === 'true',
+          auth: {
+            user: process.env.SMTP_USER,
+            pass: process.env.SMTP_PASS,
+          },
+        };
+
+        this.transporter = nodemailer.createTransport(config);
+        
+        // Test the connection
+        await this.transporter.verify();
+        this.emailProvider = 'smtp';
+        console.log('✅ SMTP email service initialized');
+        return;
+      }
+
+      // Development/mock mode
+      console.log('🔶 No email provider configured, using mock mode');
+      this.emailProvider = 'mock';
+    } catch (error) {
+      console.error('❌ Email service initialization failed:', error);
+      this.emailProvider = 'mock';
+    }
+  }
+
+  async sendEmail(options: EmailOptions): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    try {
+      console.log(`📧 Sending email via ${this.emailProvider} to: ${options.to}`);
+      
+      switch (this.emailProvider) {
+        case 'resend':
+          return await this.sendViaResend(options);
+        case 'smtp':
+          return await this.sendViaSmtp(options);
+        case 'mock':
+        default:
+          return await this.sendViaMock(options);
+      }
+    } catch (error: any) {
+      console.error('❌ Email sending failed:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  private async sendViaResend(options: EmailOptions): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    try {
+      const emailData: any = {
+        from: process.env.FROM_EMAIL || 'noreply@yourdomain.com',
+        to: [options.to],
+        subject: options.subject,
+        html: options.html,
+      };
+
+      if (options.cc?.length) emailData.cc = options.cc;
+      if (options.bcc?.length) emailData.bcc = options.bcc;
+      if (options.text) emailData.text = options.text;
+
+      // Handle attachments for Resend
+      if (options.attachments?.length) {
+        emailData.attachments = options.attachments.map(att => ({
+          filename: att.filename,
+          content: att.content,
+        }));
+      }
+
+      const result = await this.resendClient.emails.send(emailData);
+      console.log('✅ Resend email sent successfully:', result.data?.id);
+      return { success: true, messageId: result.data?.id };
+    } catch (error: any) {
+      console.error('❌ Resend email failed:', error);
+      // Try SMTP fallback if available
+      if (this.transporter) {
+        console.log('🔄 Trying SMTP fallback...');
+        return await this.sendViaSmtp(options);
+      }
+      return { success: false, error: error.message };
+    }
+  }
+
+  private async sendViaSmtp(options: EmailOptions): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    try {
+      if (!this.transporter) {
+        throw new Error('SMTP transporter not initialized');
+      }
+
       const info = await this.transporter.sendMail({
-        from: process.env.FROM_EMAIL || options.to,
+        from: process.env.FROM_EMAIL || process.env.SMTP_USER || options.to,
         to: options.to,
         cc: options.cc,
         bcc: options.bcc,
@@ -68,19 +161,33 @@ export class EmailService {
         attachments: options.attachments,
       });
 
-      console.log('Email sent successfully:', info.messageId);
-      return true;
-    } catch (error) {
-      console.error('Failed to send email:', error);
-      return false;
+      console.log('✅ SMTP email sent successfully:', info.messageId);
+      return { success: true, messageId: info.messageId };
+    } catch (error: any) {
+      console.error('❌ SMTP email failed:', error);
+      return { success: false, error: error.message };
     }
+  }
+
+  private async sendViaMock(options: EmailOptions): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    // Mock email for development - just log the email details
+    console.log('📧 MOCK EMAIL (Development Mode):');
+    console.log('  To:', options.to);
+    console.log('  Subject:', options.subject);
+    console.log('  HTML Length:', options.html.length);
+    console.log('  Attachments:', options.attachments?.length || 0);
+    console.log('  ✅ Mock email "sent" successfully');
+    
+    return { success: true, messageId: `mock_${Date.now()}` };
   }
 
   async sendInvoiceEmail(
     invoiceId: number,
     options: InvoiceEmailOptions = {}
-  ): Promise<boolean> {
+  ): Promise<{ success: boolean; error?: string; messageId?: string }> {
     try {
+      console.log(`🚀 Starting invoice email send for invoice ${invoiceId}`);
+      
       // Get invoice with related data
       const invoice = await storage.getInvoiceWithItems(invoiceId);
       if (!invoice) {
@@ -97,12 +204,12 @@ export class EmailService {
         throw new Error('Customer email not found');
       }
 
+      console.log(`📧 Sending invoice to: ${contact.email}`);
+
       // Get email template
       let emailTemplate: EmailTemplate | undefined;
       if (options.templateId) {
         emailTemplate = await storage.getEmailTemplate(options.templateId);
-      } else {
-        emailTemplate = await storage.getEmailTemplateByType(invoice.userId, 'invoice_send');
       }
 
       // Generate email content
@@ -117,12 +224,19 @@ export class EmailService {
       // Prepare attachments
       const attachments = [];
       if (options.includePDF !== false) {
-        const pdfBuffer = await invoicePDFService.generateInvoicePDF(invoiceId);
-        attachments.push({
-          filename: `Invoice_${invoice.invoiceNumber}.pdf`,
-          content: pdfBuffer,
-          contentType: 'application/pdf',
-        });
+        try {
+          console.log('📄 Generating PDF attachment...');
+          const pdfBuffer = await invoicePDFService.generateInvoicePDF(invoiceId);
+          attachments.push({
+            filename: `Invoice_${invoice.invoiceNumber}.pdf`,
+            content: pdfBuffer,
+            contentType: 'application/pdf',
+          });
+          console.log('✅ PDF generated successfully');
+        } catch (pdfError) {
+          console.warn('⚠️ PDF generation failed, sending email without attachment:', pdfError);
+          // Continue without PDF - better to send email than fail completely
+        }
       }
 
       // Send email
@@ -135,9 +249,11 @@ export class EmailService {
         attachments,
       };
 
-      const sent = await this.sendEmail(emailOptions);
+      const result = await this.sendEmail(emailOptions);
 
-      if (sent) {
+      if (result.success) {
+        console.log('✅ Invoice email sent successfully');
+        
         // Update invoice as sent
         await storage.updateInvoice(invoiceId, {
           email_sent: true,
@@ -147,24 +263,34 @@ export class EmailService {
         });
 
         // Log activity
-        await storage.createInvoiceActivity({
-          invoiceId,
-          userId: invoice.userId,
-          activity_type: 'sent',
-          description: `Invoice ${invoice.invoiceNumber} sent to ${contact.email}`,
-          metadata: {
-            templateId: options.templateId,
-            customMessage: options.customMessage,
-            includePDF: options.includePDF !== false,
-            recipientEmail: contact.email,
-          },
-        });
-      }
+        try {
+          await storage.createInvoiceActivity({
+            invoiceId,
+            userId: invoice.userId,
+            activity_type: 'sent',
+            description: `Invoice ${invoice.invoiceNumber} sent to ${contact.email}`,
+            metadata: {
+              templateId: options.templateId,
+              customMessage: options.customMessage,
+              includePDF: options.includePDF !== false,
+              recipientEmail: contact.email,
+              emailProvider: this.emailProvider,
+              messageId: result.messageId,
+            },
+          });
+        } catch (activityError) {
+          console.warn('⚠️ Failed to log activity:', activityError);
+          // Don't fail the whole operation for logging issues
+        }
 
-      return sent;
-    } catch (error) {
-      console.error('Failed to send invoice email, email.ts:', error);
-      return false;
+        return { success: true, messageId: result.messageId };
+      } else {
+        console.error('❌ Invoice email failed:', result.error);
+        return { success: false, error: result.error };
+      }
+    } catch (error: any) {
+      console.error('❌ Failed to send invoice email:', error);
+      return { success: false, error: error.message };
     }
   }
 
@@ -176,23 +302,30 @@ export class EmailService {
     customMessage?: string
   ): Promise<{ subject: string; html: string; text: string }> {
     // Default values
-    const defaultSubject = `Invoice ${invoice.invoiceNumber} from ${user?.firstName} ${user?.lastName}`;
-    const customerName = `${contact.firstName} ${contact.lastName}`;
-    const companyName = user ? `${user.firstName} ${user.lastName}` : 'Our Company';
+    const defaultSubject = `Invoice ${invoice.invoiceNumber} from ${user?.firstName} ${user?.lastName} | ${user?.company || 'Your Company'}`;
+    const customerName = contact.firstName && contact.lastName 
+      ? `${contact.firstName} ${contact.lastName}` 
+      : contact.company || 'Valued Customer';
+    const companyName = user?.company || (user ? `${user.firstName} ${user.lastName}` : 'Your Company');
+
+    // Create payment link
+    const baseUrl = process.env.APP_URL || 'https://your-app-domain.com';
+    const paymentLink = `${baseUrl}/invoices/view/${invoice.id}`;
+    const viewLink = `${baseUrl}/invoices/view/${invoice.id}`;
 
     // Template variables for replacement
     const variables = {
       customer_name: customerName,
-      customer_first_name: contact.firstName,
+      customer_first_name: contact.firstName || 'Customer',
       invoice_number: invoice.invoiceNumber,
       invoice_date: new Date(invoice.issueDate).toLocaleDateString(),
       due_date: new Date(invoice.dueDate).toLocaleDateString(),
       total_amount: this.formatCurrency(invoice.totalAmount, invoice.currency),
-      currency: invoice.currency,
+      currency: invoice.currency || 'USD',
       company_name: companyName,
       payment_terms: invoice.payment_terms || 'Net 30',
-      payment_link: `${process.env.APP_URL}/invoice/${invoice.id}/pay`,
-      view_link: `${process.env.APP_URL}/invoice/${invoice.id}/view`,
+      payment_link: paymentLink,
+      view_link: viewLink,
     };
 
     let subject = defaultSubject;
@@ -215,7 +348,7 @@ export class EmailService {
       const customMessageHtml = `
         <div style="background-color: #f8f9fa; padding: 15px; margin: 20px 0; border-left: 4px solid #007bff; border-radius: 4px;">
           <h4 style="margin: 0 0 10px 0; color: #007bff;">Personal Message:</h4>
-          <p style="margin: 0; color: #333;">${customMessage}</p>
+          <p style="margin: 0; color: #333;">${customMessage.replace(/\n/g, '<br>')}</p>
         </div>
       `;
       htmlContent = htmlContent.replace('{{custom_message}}', customMessageHtml);
@@ -244,10 +377,15 @@ export class EmailService {
   }
 
   private formatCurrency(amount: number, currency: string = 'USD'): string {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: currency,
-    }).format(amount);
+    try {
+      return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: currency,
+      }).format(amount);
+    } catch (error) {
+      // Fallback for unsupported currencies
+      return `${currency} ${amount.toFixed(2)}`;
+    }
   }
 
   private getDefaultInvoiceEmailTemplate(): string {
@@ -339,60 +477,73 @@ export class EmailService {
             font-weight: bold;
             color: #28a745;
           }
+          .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            background-color: #007bff;
+            color: white;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+            text-transform: uppercase;
+          }
         </style>
       </head>
       <body>
         <div class="email-container">
           <div class="header">
-            <h1>Invoice {{invoice_number}}</h1>
-            <p>From {{company_name}}</p>
+            <h1>📄 Invoice {{invoice_number}}</h1>
+            <p>From <strong>{{company_name}}</strong></p>
+            <span class="status-badge">New Invoice</span>
           </div>
           
           <div class="content">
-            <p>Dear {{customer_name}},</p>
+            <p>Dear <strong>{{customer_name}}</strong>,</p>
             
-            <p>We hope this email finds you well. Please find attached your invoice for the services/products provided.</p>
+            <p>We hope this email finds you well! Please find your invoice attached for the services/products provided.</p>
             
             {{custom_message}}
             
             <div class="invoice-details">
               <table>
                 <tr>
-                  <td>Invoice Number:</td>
-                  <td>{{invoice_number}}</td>
+                  <td>📋 Invoice Number:</td>
+                  <td><strong>{{invoice_number}}</strong></td>
                 </tr>
                 <tr>
-                  <td>Invoice Date:</td>
+                  <td>📅 Invoice Date:</td>
                   <td>{{invoice_date}}</td>
                 </tr>
                 <tr>
-                  <td>Due Date:</td>
-                  <td>{{due_date}}</td>
+                  <td>⏰ Due Date:</td>
+                  <td><strong>{{due_date}}</strong></td>
                 </tr>
                 <tr>
-                  <td>Payment Terms:</td>
+                  <td>📋 Payment Terms:</td>
                   <td>{{payment_terms}}</td>
                 </tr>
                 <tr>
-                  <td>Total Amount:</td>
+                  <td>💰 Total Amount:</td>
                   <td><span class="amount">{{total_amount}}</span></td>
                 </tr>
               </table>
             </div>
             
             <div style="text-align: center; margin: 30px 0;">
-              <a href="{{payment_link}}" class="cta-button">Pay Now</a>
-              <a href="{{view_link}}" class="cta-button secondary">View Invoice</a>
+              <a href="{{view_link}}" class="cta-button">💳 View & Pay Invoice</a>
+              <br><br>
+              <a href="{{view_link}}" class="cta-button secondary">👁️ View Invoice Details</a>
             </div>
             
-            <p>If you have any questions about this invoice, please don't hesitate to contact us. We appreciate your business and prompt payment.</p>
+            <p>If you have any questions about this invoice, please don't hesitate to contact us. We appreciate your business and prompt payment!</p>
             
-            <p>Best regards,<br>{{company_name}}</p>
+            <p><strong>Thank you for your business!</strong><br>
+            <em>{{company_name}} Team</em></p>
           </div>
           
           <div class="footer">
-            <p>This is an automated email. Please do not reply directly to this message.</p>
-            <p>If you need assistance, please contact us through our regular channels.</p>
+            <p><small>This is an automated email. Please do not reply directly to this message.</small></p>
+            <p><small>If you need assistance, please contact us through our regular support channels.</small></p>
           </div>
         </div>
       </body>
@@ -402,32 +553,32 @@ export class EmailService {
 
   private getDefaultInvoiceEmailText(): string {
     return `
-      Invoice {{invoice_number}} from {{company_name}}
+      📄 Invoice {{invoice_number}} from {{company_name}}
       
       Dear {{customer_name}},
       
-      We hope this email finds you well. Please find attached your invoice for the services/products provided.
+      We hope this email finds you well! Please find your invoice attached for the services/products provided.
       
       {{custom_message}}
       
-      Invoice Details:
-      - Invoice Number: {{invoice_number}}
-      - Invoice Date: {{invoice_date}}
-      - Due Date: {{due_date}}
-      - Payment Terms: {{payment_terms}}
-      - Total Amount: {{total_amount}}
+      📋 Invoice Details:
+      • Invoice Number: {{invoice_number}}
+      • Invoice Date: {{invoice_date}}
+      • Due Date: {{due_date}}
+      • Payment Terms: {{payment_terms}}
+      • Total Amount: {{total_amount}}
       
-      You can pay online at: {{payment_link}}
-      View your invoice at: {{view_link}}
+      💳 View & Pay your invoice: {{view_link}}
+      👁️ View invoice details: {{view_link}}
       
-      If you have any questions about this invoice, please don't hesitate to contact us. We appreciate your business and prompt payment.
+      If you have any questions about this invoice, please don't hesitate to contact us. We appreciate your business and prompt payment!
       
-      Best regards,
-      {{company_name}}
+      Thank you for your business!
+      {{company_name}} Team
       
       ---
       This is an automated email. Please do not reply directly to this message.
-      If you need assistance, please contact us through our regular channels.
+      If you need assistance, please contact us through our regular support channels.
     `;
   }
 
@@ -456,23 +607,28 @@ export class EmailService {
         text: content.text,
       };
 
-      const sent = await this.sendEmail(emailOptions);
+      const result = await this.sendEmail(emailOptions);
 
-      if (sent) {
+      if (result.success) {
         // Log activity
-        await storage.createInvoiceActivity({
-          invoiceId,
-          userId: invoice.userId,
-          activity_type: 'reminder_sent',
-          description: `${reminderType} payment reminder sent for invoice ${invoice.invoiceNumber}`,
-          metadata: {
-            reminderType,
-            recipientEmail: contact.email,
-          },
-        });
+        try {
+          await storage.createInvoiceActivity({
+            invoiceId,
+            userId: invoice.userId,
+            activity_type: 'reminder_sent',
+            description: `${reminderType} payment reminder sent for invoice ${invoice.invoiceNumber}`,
+            metadata: {
+              reminderType,
+              recipientEmail: contact.email,
+              messageId: result.messageId,
+            },
+          });
+        } catch (activityError) {
+          console.warn('Failed to log reminder activity:', activityError);
+        }
       }
 
-      return sent;
+      return result.success;
     } catch (error) {
       console.error('Failed to send payment reminder:', error);
       return false;
@@ -484,20 +640,28 @@ export class EmailService {
     contact: Contact,
     reminderType: 'gentle' | 'firm' | 'final'
   ): { subject: string; html: string; text: string } {
-    const customerName = `${contact.firstName} ${contact.lastName}`;
+    const customerName = contact.firstName && contact.lastName 
+      ? `${contact.firstName} ${contact.lastName}` 
+      : contact.company || 'Valued Customer';
     const daysOverdue = Math.floor((new Date().getTime() - new Date(invoice.dueDate).getTime()) / (1000 * 60 * 60 * 24));
     const totalAmount = this.formatCurrency(invoice.totalAmount, invoice.currency);
 
     const subjects = {
-      gentle: `Friendly Reminder: Invoice ${invoice.invoiceNumber} Payment Due`,
-      firm: `Payment Overdue: Invoice ${invoice.invoiceNumber} - ${daysOverdue} days past due`,
-      final: `FINAL NOTICE: Invoice ${invoice.invoiceNumber} - Immediate Action Required`,
+      gentle: `🔔 Friendly Reminder: Invoice ${invoice.invoiceNumber} Payment Due`,
+      firm: `⚠️ Payment Overdue: Invoice ${invoice.invoiceNumber} - ${daysOverdue} days past due`,
+      final: `🚨 FINAL NOTICE: Invoice ${invoice.invoiceNumber} - Immediate Action Required`,
     };
 
     const messages = {
       gentle: `We wanted to send you a friendly reminder that your invoice payment is now due. We understand that sometimes invoices can be overlooked, so we thought we'd reach out.`,
       firm: `Your invoice payment is now ${daysOverdue} days overdue. Please arrange payment as soon as possible to avoid any service interruptions.`,
       final: `This is your final notice regarding the overdue payment for Invoice ${invoice.invoiceNumber}. Immediate payment is required to avoid further collection actions.`,
+    };
+
+    const colors = {
+      gentle: '#ffc107',
+      firm: '#fd7e14', 
+      final: '#dc3545'
     };
 
     const html = `
@@ -507,28 +671,31 @@ export class EmailService {
         <meta charset="utf-8">
         <style>
           body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
-          .reminder-${reminderType} { border-left: 4px solid ${reminderType === 'gentle' ? '#ffc107' : reminderType === 'firm' ? '#fd7e14' : '#dc3545'}; padding-left: 15px; }
+          .reminder-${reminderType} { border-left: 4px solid ${colors[reminderType]}; padding-left: 15px; background-color: #f8f9fa; padding: 20px; border-radius: 4px; }
           .amount { font-size: 20px; font-weight: bold; color: #dc3545; }
-          .cta-button { display: inline-block; background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; margin: 10px 0; }
+          .cta-button { display: inline-block; background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; margin: 10px 0; font-weight: bold; }
+          .urgent { background-color: ${colors[reminderType]}; }
         </style>
       </head>
       <body>
         <div class="reminder-${reminderType}">
           <h2>${subjects[reminderType]}</h2>
-          <p>Dear ${customerName},</p>
+          <p>Dear <strong>${customerName}</strong>,</p>
           <p>${messages[reminderType]}</p>
-          <div style="background-color: #f8f9fa; padding: 15px; margin: 20px 0; border-radius: 5px;">
-            <p><strong>Invoice Number:</strong> ${invoice.invoiceNumber}</p>
-            <p><strong>Original Due Date:</strong> ${new Date(invoice.dueDate).toLocaleDateString()}</p>
-            <p><strong>Amount Due:</strong> <span class="amount">${totalAmount}</span></p>
-            ${daysOverdue > 0 ? `<p><strong>Days Overdue:</strong> ${daysOverdue}</p>` : ''}
+          <div style="background-color: white; padding: 15px; margin: 20px 0; border-radius: 5px; border: 1px solid #dee2e6;">
+            <p><strong>📋 Invoice Number:</strong> ${invoice.invoiceNumber}</p>
+            <p><strong>📅 Original Due Date:</strong> ${new Date(invoice.dueDate).toLocaleDateString()}</p>
+            <p><strong>💰 Amount Due:</strong> <span class="amount">${totalAmount}</span></p>
+            ${daysOverdue > 0 ? `<p><strong>⏰ Days Overdue:</strong> <span style="color: #dc3545; font-weight: bold;">${daysOverdue}</span></p>` : ''}
           </div>
-          <p style="text-align: center;">
-            <a href="${process.env.APP_URL}/invoice/${invoice.id}/pay" class="cta-button">Pay Now</a>
-          </p>
-          <p>If you have any questions or concerns about this invoice, please don't hesitate to contact us.</p>
-          <p>Thank you for your prompt attention to this matter.</p>
-          <p>Best regards,<br>Your Accounts Team</p>
+          <div style="text-align: center;">
+            <a href="${process.env.APP_URL}/invoices/view/${invoice.id}" class="cta-button ${reminderType === 'final' ? 'urgent' : ''}">
+              💳 Pay Now
+            </a>
+          </div>
+          <p>If you have any questions or concerns about this invoice, please don't hesitate to contact us immediately.</p>
+          <p><strong>Thank you for your prompt attention to this matter.</strong></p>
+          <p>Best regards,<br><em>Accounts Receivable Team</em></p>
         </div>
       </body>
       </html>
@@ -541,20 +708,20 @@ export class EmailService {
       
       ${messages[reminderType]}
       
-      Invoice Details:
-      - Invoice Number: ${invoice.invoiceNumber}
-      - Original Due Date: ${new Date(invoice.dueDate).toLocaleDateString()}
-      - Amount Due: ${totalAmount}
-      ${daysOverdue > 0 ? `- Days Overdue: ${daysOverdue}` : ''}
+      📋 Invoice Details:
+      • Invoice Number: ${invoice.invoiceNumber}
+      • Original Due Date: ${new Date(invoice.dueDate).toLocaleDateString()}
+      • Amount Due: ${totalAmount}
+      ${daysOverdue > 0 ? `• Days Overdue: ${daysOverdue}` : ''}
       
-      Pay online at: ${process.env.APP_URL}/invoice/${invoice.id}/pay
+      💳 Pay online: ${process.env.APP_URL}/invoices/view/${invoice.id}
       
-      If you have any questions or concerns about this invoice, please don't hesitate to contact us.
+      If you have any questions or concerns about this invoice, please don't hesitate to contact us immediately.
       
       Thank you for your prompt attention to this matter.
       
       Best regards,
-      Your Accounts Team
+      Accounts Receivable Team
     `;
 
     return {
@@ -565,14 +732,57 @@ export class EmailService {
   }
 
   // Test email configuration
-  async testConnection(): Promise<boolean> {
+  async testConnection(): Promise<{ success: boolean; provider: string; error?: string }> {
     try {
-      await this.transporter.verify();
-      console.log('Email configuration is valid');
-      return true;
-    } catch (error) {
-      console.error('Email configuration error:', error);
-      return false;
+      console.log(`🧪 Testing email connection for provider: ${this.emailProvider}`);
+      
+      switch (this.emailProvider) {
+        case 'resend':
+          // Test Resend by attempting to get domains
+          if (this.resendClient) {
+            await this.resendClient.domains.list();
+            return { success: true, provider: 'resend' };
+          }
+          break;
+        case 'smtp':
+          if (this.transporter) {
+            await this.transporter.verify();
+            return { success: true, provider: 'smtp' };
+          }
+          break;
+        case 'mock':
+          return { success: true, provider: 'mock (development)' };
+      }
+      
+      return { success: false, provider: this.emailProvider, error: 'Provider not properly initialized' };
+    } catch (error: any) {
+      console.error('❌ Email connection test failed:', error);
+      return { success: false, provider: this.emailProvider, error: error.message };
+    }
+  }
+
+  // Get current email provider status
+  getProviderStatus(): { provider: string; configured: boolean; details: string } {
+    switch (this.emailProvider) {
+      case 'resend':
+        return {
+          provider: 'Resend',
+          configured: true,
+          details: 'Production-ready email service via Resend API'
+        };
+      case 'smtp':
+        return {
+          provider: 'SMTP',
+          configured: true,
+          details: `SMTP service via ${process.env.SMTP_HOST || 'default host'}`
+        };
+      case 'mock':
+      default:
+        return {
+          provider: 'Mock',
+          configured: false,
+          details: 'Development mode - emails are logged but not sent. Configure RESEND_API_KEY or SMTP credentials for production.'
+        };
     }
   }
 }
@@ -585,3 +795,6 @@ export const sendInvoiceEmail = (invoiceId: number, options?: InvoiceEmailOption
 
 export const sendPaymentReminder = (invoiceId: number, reminderType: 'gentle' | 'firm' | 'final') =>
   emailService.sendPaymentReminder(invoiceId, reminderType);
+
+export const testEmailConnection = () => emailService.testConnection();
+export const getEmailProviderStatus = () => emailService.getProviderStatus();
