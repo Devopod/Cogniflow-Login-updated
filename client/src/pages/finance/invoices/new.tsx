@@ -29,6 +29,8 @@ import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Loader2 } from "lucide-react";
 
 import { 
   useCreateInvoice, 
@@ -39,7 +41,7 @@ import {
   useCreatePaymentLink,
   useInvoiceWorkflow
 } from "@/hooks/use-finance-data";
-import { useContacts } from "@/hooks/use-contacts";
+import { useContacts, useCreateContact } from "@/hooks/use-contacts";
 import { useWebSocket } from "@/hooks/use-websocket";
 import { useAIInvoiceAssistant } from "@/hooks/use-ai-invoice-assistant";
 
@@ -101,19 +103,35 @@ export default function NewInvoice() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [selectedCurrency, setSelectedCurrency] = useState(CURRENCIES[0]);
   const [lastSavedInvoiceId, setLastSavedInvoiceId] = useState<number | null>(null);
+  
+  // Add Customer Dialog States
+  const [isAddCustomerDialogOpen, setIsAddCustomerDialogOpen] = useState(false);
+  const [newCustomerData, setNewCustomerData] = useState({
+    firstName: "",
+    lastName: "",
+    email: "",
+    phone: "",
+    company: "",
+    address: "",
+    city: "",
+    state: "",
+    postalCode: "",
+    country: "",
+  });
 
   // Get invoice ID from URL if editing
   const invoiceId = location.includes("/edit/") ? parseInt(location.split("/edit/")[1]) : null;
   const isEditing = !!invoiceId;
 
   // Hooks
-  const { data: contacts } = useContacts();
+  const { data: contacts, refetch: refetchContacts } = useContacts();
   const { data: existingInvoice } = useInvoice(invoiceId || 0, { enabled: isEditing });
   const createInvoice = useCreateInvoice();
   const updateInvoice = useUpdateInvoice();
   const sendInvoice = useSendInvoice();
   const generatePDF = useGenerateInvoicePDF();
   const createPaymentLink = useCreatePaymentLink();
+  const createContact = useCreateContact();
   const { suggestDescription, suggestPrice } = useAIInvoiceAssistant();
 
   // Use the enhanced workflow hook for the current invoice if editing
@@ -386,6 +404,56 @@ export default function NewInvoice() {
     }
   };
 
+  // Handle adding new customer
+  const handleAddCustomer = async () => {
+    try {
+      if (!newCustomerData.firstName.trim() || !newCustomerData.email.trim()) {
+        // Show error - need at least name and email
+        return;
+      }
+
+      const newContact = await createContact.mutateAsync({
+        ...newCustomerData,
+        firstName: newCustomerData.firstName.trim(),
+        lastName: newCustomerData.lastName.trim(),
+        email: newCustomerData.email.trim(),
+        phone: newCustomerData.phone.trim(),
+        company: newCustomerData.company.trim(),
+        address: newCustomerData.address.trim(),
+        city: newCustomerData.city.trim(),
+        state: newCustomerData.state.trim(),
+        postalCode: newCustomerData.postalCode.trim(),
+        country: newCustomerData.country.trim() || "USA",
+      });
+
+      // Set the newly created contact as selected
+      form.setValue("contactId", newContact.id);
+      
+      // Clear the form
+      setNewCustomerData({
+        firstName: "",
+        lastName: "",
+        email: "",
+        phone: "",
+        company: "",
+        address: "",
+        city: "",
+        state: "",
+        postalCode: "",
+        country: "",
+      });
+      
+      // Close dialog
+      setIsAddCustomerDialogOpen(false);
+      
+      // Refresh contacts list
+      refetchContacts();
+      
+    } catch (error) {
+      console.error("Error creating customer:", error);
+    }
+  };
+
   return (
     <div className="container mx-auto py-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -417,13 +485,25 @@ export default function NewInvoice() {
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="contactId">Customer *</Label>
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="contactId">Customer *</Label>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setIsAddCustomerDialogOpen(true)}
+                        className="h-8 px-3"
+                      >
+                        <PlusIcon className="h-4 w-4 mr-1" />
+                        Add New
+                      </Button>
+                    </div>
                     <Select
                       value={form.watch("contactId")?.toString()}
                       onValueChange={(value) => form.setValue("contactId", parseInt(value))}
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="Select customer" />
+                        <SelectValue placeholder="Select customer or add new" />
                       </SelectTrigger>
                       <SelectContent>
                         {contacts?.map((contact) => (
@@ -434,6 +514,11 @@ export default function NewInvoice() {
                             } - {contact.email}
                           </SelectItem>
                         ))}
+                        {(!contacts || contacts.length === 0) && (
+                          <SelectItem disabled value="no-customers">
+                            No customers found - Add one using the button above
+                          </SelectItem>
+                        )}
                       </SelectContent>
                     </Select>
                     {form.formState.errors.contactId && (
@@ -1088,6 +1173,169 @@ export default function NewInvoice() {
           </div>
         </div>
       </form>
+
+      {/* Add Customer Dialog */}
+      <Dialog open={isAddCustomerDialogOpen} onOpenChange={setIsAddCustomerDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserIcon className="h-5 w-5" />
+              Add New Customer
+            </DialogTitle>
+            <DialogDescription>
+              Create a new customer that can be used for this invoice and future transactions.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="newFirstName">
+                  First Name <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id="newFirstName"
+                  value={newCustomerData.firstName}
+                  onChange={(e) => setNewCustomerData({...newCustomerData, firstName: e.target.value})}
+                  placeholder="John"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="newLastName">Last Name</Label>
+                <Input
+                  id="newLastName"
+                  value={newCustomerData.lastName}
+                  onChange={(e) => setNewCustomerData({...newCustomerData, lastName: e.target.value})}
+                  placeholder="Doe"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="newEmail">
+                  Email <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id="newEmail"
+                  type="email"
+                  value={newCustomerData.email}
+                  onChange={(e) => setNewCustomerData({...newCustomerData, email: e.target.value})}
+                  placeholder="john.doe@example.com"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="newPhone">Phone</Label>
+                <Input
+                  id="newPhone"
+                  value={newCustomerData.phone}
+                  onChange={(e) => setNewCustomerData({...newCustomerData, phone: e.target.value})}
+                  placeholder="+1 (555) 123-4567"
+                />
+              </div>
+              
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="newCompany">Company</Label>
+                <Input
+                  id="newCompany"
+                  value={newCustomerData.company}
+                  onChange={(e) => setNewCustomerData({...newCustomerData, company: e.target.value})}
+                  placeholder="Company Name"
+                />
+              </div>
+              
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="newAddress">Address</Label>
+                <Input
+                  id="newAddress"
+                  value={newCustomerData.address}
+                  onChange={(e) => setNewCustomerData({...newCustomerData, address: e.target.value})}
+                  placeholder="123 Main Street"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="newCity">City</Label>
+                <Input
+                  id="newCity"
+                  value={newCustomerData.city}
+                  onChange={(e) => setNewCustomerData({...newCustomerData, city: e.target.value})}
+                  placeholder="New York"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="newState">State</Label>
+                <Input
+                  id="newState"
+                  value={newCustomerData.state}
+                  onChange={(e) => setNewCustomerData({...newCustomerData, state: e.target.value})}
+                  placeholder="NY"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="newPostalCode">Postal Code</Label>
+                <Input
+                  id="newPostalCode"
+                  value={newCustomerData.postalCode}
+                  onChange={(e) => setNewCustomerData({...newCustomerData, postalCode: e.target.value})}
+                  placeholder="10001"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="newCountry">Country</Label>
+                <Input
+                  id="newCountry"
+                  value={newCustomerData.country}
+                  onChange={(e) => setNewCustomerData({...newCustomerData, country: e.target.value})}
+                  placeholder="USA"
+                />
+              </div>
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setIsAddCustomerDialogOpen(false);
+                setNewCustomerData({
+                  firstName: "",
+                  lastName: "",
+                  email: "",
+                  phone: "",
+                  company: "",
+                  address: "",
+                  city: "",
+                  state: "",
+                  postalCode: "",
+                  country: "",
+                });
+              }}
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleAddCustomer}
+              disabled={!newCustomerData.firstName.trim() || !newCustomerData.email.trim() || createContact.isPending}
+            >
+              {createContact.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                <>
+                  <PlusIcon className="h-4 w-4 mr-2" />
+                  Add Customer
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
