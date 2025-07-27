@@ -20,16 +20,26 @@ import {
   orders, type Order, type InsertOrder,
   orderItems, type OrderItem, type InsertOrderItem,
   quotations, type Quotation, type InsertQuotation,
-  quotationItems, type QuotationItem, type InsertQuotationItem
+  quotationItems, type QuotationItem, type InsertQuotationItem,
+  auditLogs
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, sql, and } from "drizzle-orm";
 import connectPg from "connect-pg-simple";
 import session from "express-session";
 import { pool } from "./db";
+import { Resend } from 'resend';
+import Stripe from 'stripe';
+import PDFDocument from 'pdfkit';
+import fs from 'fs';
+import path from 'path';
+import { wsService } from './src/services/websocket';
 
 // Create PostgreSQL-based session store
 const PostgresSessionStore = connectPg(session);
+
+const resend = new Resend(process.env.RESEND_API_KEY);
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2022-11-15' });
 
 // Define the interface for our storage system
 export interface IStorage {
@@ -747,17 +757,30 @@ export class DatabaseStorage implements IStorage {
   async generateInvoiceNumber(userId: number, prefix?: string): Promise<string> {
     const invoicePrefix = prefix || 'INV';
     const year = new Date().getFullYear();
+    const searchPattern = `${invoicePrefix}-${year}-%`;
     
-    // Get the last invoice for this user to determine the next number
-    const result = await db
-      .select({ count: sql<number>`count(*)` })
+    // Get all existing invoice numbers for this user and year
+    const existingInvoices = await db
+      .select({ invoiceNumber: invoices.invoiceNumber })
       .from(invoices)
       .where(and(
         eq(invoices.userId, userId),
-        sql`${invoices.invoiceNumber} LIKE ${invoicePrefix + '-' + year + '-%'}`
+        sql`${invoices.invoiceNumber} LIKE ${searchPattern}`
       ));
     
-    const nextNumber = ((result[0]?.count || 0) + 1).toString().padStart(4, '0');
+    // Extract numbers from invoice numbers and find the maximum
+    let maxNumber = 0;
+    for (const invoice of existingInvoices) {
+      const match = invoice.invoiceNumber.match(new RegExp(`${invoicePrefix}-${year}-(\\d+)`));
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (num > maxNumber) {
+          maxNumber = num;
+        }
+      }
+    }
+    
+    const nextNumber = (maxNumber + 1).toString().padStart(4, '0');
     return `${invoicePrefix}-${year}-${nextNumber}`;
   }
   
@@ -869,42 +892,199 @@ export class DatabaseStorage implements IStorage {
     return pdfUrl;
   }
   
-  async sendInvoiceEmail(invoiceId: number, templateId?: number): Promise<boolean> {
-    const [invoice] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
-    if (!invoice) {
-      throw new Error('Invoice not found');
+  async sendInvoiceEmail(invoiceId: number, userId: number, emailOptions?: { email?: string; subject?: string; message?: string }): Promise<{ success: boolean; error?: string }> {
+    try {
+      console.log(`Starting sendInvoiceEmail for invoice ${invoiceId}, user ${userId}`);
+      
+      // Fetch invoice with basic info using SQL to avoid missing column issues
+      const invoiceResult = await db.execute(sql`
+        SELECT 
+          i.id, i.user_id, i.contact_id, i.invoice_number, i.issue_date, i.due_date,
+          i.subtotal, i.tax_amount, i.discount_amount, i.total_amount, i.currency, i.status,
+          c.first_name, c.last_name, c.email as contact_email, c.company
+        FROM invoices i
+        LEFT JOIN contacts c ON i.contact_id = c.id
+        WHERE i.id = ${invoiceId} AND i.user_id = ${userId}
+      `);
+      
+      if (invoiceResult.rows.length === 0) {
+        console.log('Invoice not found in database');
+        return { success: false, error: 'Invoice not found' };
+      }
+      
+      const invoice = invoiceResult.rows[0];
+      console.log('Invoice found:', { id: invoice.id, email: invoice.contact_email });
+      console.log('Email options provided:', emailOptions);
+      
+      // Use custom email if provided, otherwise use contact email
+      const targetEmail = emailOptions?.email || invoice.contact_email;
+      if (!targetEmail) {
+        console.log('No email address available');
+        return { success: false, error: 'Email address not found. Please ensure the invoice has a customer with a valid email address.' };
+      }
+
+      // Get invoice items
+      console.log('Fetching invoice items...');
+      const itemsResult = await db.execute(sql`
+        SELECT 
+          ii.id, ii.product_id, ii.description, ii.quantity, ii.unit_price, ii.total_amount as total,
+          p.name as product_name, p.sku as product_sku
+        FROM invoice_items ii
+        LEFT JOIN products p ON ii.product_id = p.id
+        WHERE ii.invoice_id = ${invoiceId}
+      `);
+      console.log('Invoice items fetched:', itemsResult.rows.length, 'items');
+
+      // Create invoice object for PDF generation
+      const invoiceData = {
+        id: invoice.id,
+        invoiceNumber: invoice.invoice_number,
+        issueDate: invoice.issue_date,
+        dueDate: invoice.due_date,
+        subtotal: invoice.subtotal,
+        taxAmount: invoice.tax_amount,
+        discountAmount: invoice.discount_amount,
+        totalAmount: invoice.total_amount,
+        currency: invoice.currency || 'USD',
+        status: invoice.status,
+        items: itemsResult.rows || []
+      };
+
+      const contactData = {
+        firstName: invoice.first_name || '',
+        lastName: invoice.last_name || '',
+        email: invoice.contact_email,
+        company: invoice.company || ''
+      };
+
+      // Generate Stripe payment link
+      console.log('Generating Stripe payment link...');
+      let paymentLink = '#';
+      try {
+        const paymentLinkObj = await stripe.paymentLinks.create({
+          line_items: [{
+            price_data: {
+              currency: invoiceData.currency,
+              product_data: { name: `Invoice #${invoiceData.invoiceNumber}` },
+              unit_amount: Math.round(invoiceData.totalAmount * 100),
+            },
+            quantity: 1,
+          }],
+          metadata: { invoiceId: invoiceId.toString() },
+        });
+        paymentLink = paymentLinkObj.url;
+        console.log('Stripe payment link created successfully');
+      } catch (stripeError) {
+        console.warn('Failed to create Stripe payment link:', stripeError);
+        // Continue without payment link - email will still be sent
+      }
+
+      // Generate PDF
+      console.log('Generating PDF...');
+      let pdfBuffer;
+      try {
+        pdfBuffer = await generateInvoicePdfWithLogo(invoiceData, contactData, paymentLink);
+        console.log('PDF generated successfully, size:', pdfBuffer?.length, 'bytes');
+      } catch (pdfError) {
+        console.error('PDF generation failed:', pdfError);
+        return { success: false, error: 'Failed to generate PDF' };
+      }
+
+      // Compose email
+      const defaultSubject = `Invoice #${invoiceData.invoiceNumber} from Your Company`;
+      const clientName = `${contactData.firstName} ${contactData.lastName}`.trim() || 'Client';
+      const paymentSection = paymentLink !== '#' 
+        ? `<br><a href='${paymentLink}' style='background-color: #6772e5; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;'>Pay Now</a>`
+        : '';
+      const defaultHtml = `<p>Dear ${clientName},<br>Please find Invoice #${invoiceData.invoiceNumber} attached.<br>Amount: ${invoiceData.currency} ${invoiceData.totalAmount}. Due: ${invoiceData.dueDate}.${paymentSection}</p>`;
+      
+      // Use custom email content if provided
+      const emailSubject = emailOptions?.subject || defaultSubject;
+      const emailHtml = emailOptions?.message 
+        ? `<p>${emailOptions.message.replace(/\n/g, '<br>')}</p>${paymentSection}`
+        : defaultHtml;
+
+      // Send email via Resend
+      try {
+        console.log('Attempting to send email with Resend...');
+        console.log('From:', process.env.COMPANY_EMAIL);
+        console.log('To:', targetEmail);
+        console.log('Subject:', emailSubject);
+        console.log('PDF buffer size:', pdfBuffer?.length);
+        console.log('RESEND_API_KEY configured:', !!process.env.RESEND_API_KEY);
+        
+        // Use your verified Resend domain for sender
+        const fromEmail = 'noreply@invoices.devopod.com'; // Your verified domain
+        
+        const emailData = {
+          from: fromEmail,
+          to: targetEmail,
+          subject: emailSubject,
+          html: emailHtml,
+          attachments: [{
+            filename: `invoice_${invoiceData.invoiceNumber}.pdf`,
+            content: pdfBuffer.toString('base64'),
+          }],
+        };
+        
+        console.log('Email data prepared:', { 
+          from: emailData.from, 
+          to: emailData.to, 
+          subject: emailData.subject,
+          hasAttachment: !!emailData.attachments?.length
+        });
+        
+        const result = await resend.emails.send(emailData);
+        console.log('Email sent successfully:', result);
+      } catch (emailError: any) {
+        console.error('Email sending failed with detailed error:', {
+          message: emailError.message,
+          code: emailError.code,
+          statusCode: emailError.statusCode,
+          name: emailError.name,
+          stack: emailError.stack,
+          details: emailError.response?.data || emailError.response || emailError
+        });
+        return { success: false, error: `Failed to send email: ${emailError.message || 'Unknown error'}` };
+      }
+
+      // Update invoice status using basic columns
+      console.log('Updating invoice status to sent...');
+      await db.execute(sql`
+        UPDATE invoices 
+        SET status = 'sent', updated_at = ${new Date()}
+        WHERE id = ${invoiceId}
+      `);
+      console.log('Invoice status updated successfully');
+
+      // Log to audit_logs
+      try {
+        await db.insert(auditLogs).values({
+          userId,
+          action: 'send_invoice_email',
+          details: `Invoice #${invoiceData.invoiceNumber} sent to ${contactData.email}`,
+          createdAt: new Date(),
+        });
+      } catch (auditError) {
+        console.warn('Failed to log audit entry:', auditError);
+        // Don't fail the entire operation for audit logging issues
+      }
+
+      // Broadcast WebSocket event
+      console.log('Broadcasting WebSocket event...');
+      wsService?.broadcast('invoice_sent', { invoiceId });
+
+      console.log('SendInvoiceEmail completed successfully!');
+      return { success: true };
+    } catch (error: any) {
+      console.error('SendInvoiceEmail - Outer catch error:', {
+        message: error.message,
+        name: error.name,
+        stack: error.stack,
+        details: error
+      });
+      return { success: false, error: error.message || 'Failed to send invoice email, storage.ts' };
     }
- 
-    // Get email template if specified
-    let template: EmailTemplate | undefined;
-    if (templateId) {
-      template = await this.getEmailTemplate(templateId);
-    } else {
-      // Get default invoice send template
-      template = await this.getEmailTemplateByType(invoice.userId, 'invoice_send');
-    }
- 
-    // Mark invoice as sent
-    await db
-      .update(invoices)
-      .set({ 
-        email_sent: true,
-        email_sent_date: new Date().toISOString(),
-        status: 'sent',
-        updatedAt: new Date().toISOString()
-      })
-      .where(eq(invoices.id, invoiceId));
- 
-    // Log the activity
-    await this.createInvoiceActivity({
-      invoiceId: invoiceId,
-      userId: invoice.userId,
-      activity_type: 'sent',
-      description: `Invoice ${invoice.invoiceNumber} sent via email`,
-      metadata: { templateId: templateId || null }
-    });
- 
-    return true;
   }
   
   // Order management (Sales)
@@ -1451,4 +1631,63 @@ export class DatabaseStorage implements IStorage {
   }
 }
 
+async function generateInvoicePdfWithLogo(invoice: any, contact: any, paymentLink: string): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ size: 'A4', margin: 50 });
+      const buffers: Buffer[] = [];
+      doc.on('data', buffers.push.bind(buffers));
+      doc.on('end', () => resolve(Buffer.concat(buffers)));
+      doc.on('error', reject);
+
+      // Header
+      doc.fontSize(24).text('INVOICE', 50, 50, { align: 'center' });
+      doc.moveDown(2);
+
+      // Invoice details
+      doc.fontSize(12);
+      doc.text(`Invoice Number: ${invoice.invoiceNumber || 'N/A'}`, 50, 120);
+      doc.text(`Issue Date: ${invoice.issueDate || 'N/A'}`, 50, 140);
+      doc.text(`Due Date: ${invoice.dueDate || 'N/A'}`, 50, 160);
+      
+      // Bill to
+      const contactName = contact.name || `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || 'Client';
+      doc.text(`Bill To: ${contactName}`, 50, 200);
+      doc.text(`Email: ${contact.email || 'N/A'}`, 50, 220);
+      
+      // Amount
+      doc.fontSize(14).text(`Total Amount: ${invoice.currency || 'USD'} ${invoice.totalAmount || '0'}`, 50, 260);
+      
+      // Items
+      if (invoice.items && invoice.items.length > 0) {
+        doc.moveDown(2);
+        doc.fontSize(12).text('Items:', 50, 300);
+        let yPos = 320;
+        invoice.items.forEach((item: any, idx: number) => {
+          const description = item.description || item.product_name || 'Item';
+          const quantity = item.quantity || '1';
+          const unitPrice = item.unit_price || item.unitPrice || '0';
+          doc.text(`${idx + 1}. ${description} - Qty: ${quantity} @ ${unitPrice}`, 50, yPos);
+          yPos += 20;
+        });
+      }
+      
+      // Payment link
+      if (paymentLink && paymentLink !== '#') {
+        doc.moveDown(2);
+        doc.text(`Payment Link: ${paymentLink}`, 50, 450);
+      }
+      
+      doc.end();
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
 export const storage = new DatabaseStorage();
+
+// Standalone function for sending invoice emails
+export async function sendInvoiceEmail(invoiceId: number, userId: number, emailOptions?: { email?: string; subject?: string; message?: string }): Promise<{ success: boolean; error?: string }> {
+  return storage.sendInvoiceEmail(invoiceId, userId, emailOptions);
+}

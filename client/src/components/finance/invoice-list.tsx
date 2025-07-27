@@ -168,7 +168,7 @@ export function InvoiceList() {
   const totalPaid = filteredInvoices.reduce((sum, invoice) => sum + (invoice.amountPaid || 0), 0);
   const totalOutstanding = totalAmount - totalPaid;
   const overdueInvoices = filteredInvoices.filter(
-    invoice => invoice.status !== "paid" && new Date(invoice.dueDate) < new Date()
+    invoice => invoice.status?.toLowerCase() !== "paid" && invoice.status?.toLowerCase() !== "draft" && new Date(invoice.dueDate) < new Date()
   ).length;
   
   if (isLoading) {

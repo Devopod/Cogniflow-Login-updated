@@ -484,10 +484,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Use direct SQL queries to avoid schema issues
       const invoiceId = parseInt(req.params.id);
       
-      // Get the invoice
+      // Get the invoice with contact information
       const invoiceResult = await pool.query(`
-        SELECT * FROM invoices 
-        WHERE id = $1 AND user_id = $2
+        SELECT i.*, c.first_name, c.last_name, c.email, c.phone, c.company, c.address, c.city, c.state, c.postal_code, c.country
+        FROM invoices i
+        LEFT JOIN contacts c ON i.contact_id = c.id
+        WHERE i.id = $1 AND i.user_id = $2
       `, [invoiceId, req.user!.id]);
       
       if (invoiceResult.rows.length === 0) {
@@ -502,11 +504,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
         WHERE invoice_id = $1
       `, [invoiceId]);
       
-      // Combine invoice with its items
+      // Combine invoice with its items and contact data
       const invoiceWithItems = {
         ...invoice,
+        contact: invoice.contact_id ? {
+          id: invoice.contact_id,
+          firstName: invoice.first_name,
+          lastName: invoice.last_name,
+          email: invoice.email,
+          phone: invoice.phone,
+          company: invoice.company,
+          address: invoice.address,
+          city: invoice.city,
+          state: invoice.state,
+          postalCode: invoice.postal_code,
+          country: invoice.country
+        } : null,
         items: itemsResult.rows || []
       };
+      
+      // Debug log to see what contact data we have
+      console.log('Invoice contact data:', {
+        contactId: invoice.contact_id,
+        hasContact: !!invoice.contact_id,
+        contactData: invoice.contact_id ? {
+          firstName: invoice.first_name,
+          lastName: invoice.last_name,
+          email: invoice.email,
+          company: invoice.company
+        } : null
+      });
       
       res.json(invoiceWithItems);
     } catch (error) {

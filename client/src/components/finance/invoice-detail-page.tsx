@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
-import { useUpdateInvoice, useInvoice } from "@/hooks/use-finance-data";
+import { useUpdateInvoice, useInvoice, useSendInvoice } from "@/hooks/use-finance-data";
 import { useContacts } from "@/hooks/use-contacts";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -14,13 +14,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, ArrowLeft, Printer, Send, FileDown, Edit, CreditCard, AlertTriangle, CheckCircle2, Clock, Copy, RefreshCw, ExternalLink } from "lucide-react";
+import { Loader2, ArrowLeft, Printer, Send, FileDown, Edit, CreditCard, AlertTriangle, CheckCircle2, Clock, Copy, RefreshCw, ExternalLink, UserIcon } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { v4 as uuidv4 } from 'uuid';
 import { Invoice, InvoiceWithItems, Payment } from "@shared/schema";
 import { useCreatePayment } from "@/hooks/use-payments";
 import { format } from "date-fns";
 import { useRealTimeInvoice } from "@/hooks/use-real-time-invoice";
+import { useWebSocket } from '@/hooks/use-websocket';
 
 export function InvoiceDetailPage({ invoiceId }: { invoiceId: number | null }) {
   const [, setLocation] = useLocation();
@@ -74,7 +75,7 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: number | null }) {
   const totalPaid = realtimeTotalPaid || 0;
   const balanceDue = realtimeBalanceDue || (invoice ? invoice.totalAmount - totalPaid : 0);
   const isPaid = realtimeIsPaid || balanceDue <= 0;
-  const isOverdue = realtimeIsOverdue || (invoice ? new Date(invoice.dueDate) < new Date() && !isPaid : false);
+  const isOverdue = realtimeIsOverdue || (invoice ? new Date(invoice.dueDate) < new Date() && !isPaid && invoice.status?.toLowerCase() !== 'draft' : false);
   
   // Set a timeout to stop showing loading state after 5 seconds
   const [loadingTimedOut, setLoadingTimedOut] = useState(false);
@@ -110,6 +111,14 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: number | null }) {
   // Mutations
   const updateInvoice = useUpdateInvoice();
   const createPayment = useCreatePayment();
+  const sendInvoice = useSendInvoice();
+  // Listen for invoice_sent WebSocket event
+  useWebSocket('invoice_sent', (event) => {
+    if (event.invoiceId === invoiceId) {
+      refetch();
+      toast({ title: 'Invoice Sent', description: 'The invoice was sent to the client.' });
+    }
+  });
   
   // Initialize edit form when invoice data is loaded
   useEffect(() => {
@@ -136,6 +145,7 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: number | null }) {
   const paymentStatus = !invoice ? 'unknown' : 
                         isPaid ? 'paid' : 
                         totalPaid > 0 ? 'partial' : 
+                        invoice.status?.toLowerCase() === 'draft' ? 'draft' :
                         isOverdue ? 'overdue' : 'pending';
   
   // Handle payment submission
@@ -206,30 +216,37 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: number | null }) {
   
   // Handle sending email
   const handleSendEmail = async () => {
+    if (!emailTo.trim()) {
+      toast({
+        title: "Email Required",
+        description: "Please enter an email address.",
+        variant: "destructive"
+      });
+      return;
+    }
+    
     setIsSendingEmail(true);
     try {
-      // In a real implementation, this would call an API to send the email
-      // For now, we'll just simulate it
+      // Call the backend API to send the invoice email
+      await sendInvoice.mutateAsync({ 
+        id: invoice!.id,
+        email: emailTo,
+        subject: emailSubject,
+        message: emailBody
+      });
+      
       toast({
         title: "Email Sent",
         description: `Invoice has been emailed to ${emailTo}.`,
       });
       
-      // Update invoice to record that it was sent
-      await updateInvoice.mutateAsync({
-        id: invoice!.id,
-        notes: invoice!.notes ? 
-          `${invoice!.notes}\n[${new Date().toISOString()}] Invoice emailed to ${emailTo}` : 
-          `[${new Date().toISOString()}] Invoice emailed to ${emailTo}`
-      });
-      
       setIsEmailDialogOpen(false);
       refetch();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error sending email:", error);
       toast({
         title: "Email Failed",
-        description: "There was an error sending the email.",
+        description: error?.message || "There was an error sending the email.",
         variant: "destructive"
       });
     } finally {
@@ -324,10 +341,18 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: number | null }) {
   
   // Get customer name
   const getCustomerName = () => {
-    if (!invoice || !invoice.contactId) return "Unknown Customer";
+    if (!invoice || !invoice.contactId) return "No Customer Assigned";
     
+    // If invoice has direct contact data from backend
+    if (invoice.contact) {
+      return invoice.contact.firstName && invoice.contact.lastName 
+        ? `${invoice.contact.firstName} ${invoice.contact.lastName}` 
+        : invoice.contact.company || "Customer";
+    }
+    
+    // Fallback to contacts array
     const contact = contacts.find(c => c.id === invoice.contactId);
-    if (!contact) return "Unknown Customer";
+    if (!contact) return "Customer Not Found";
     
     return contact.firstName && contact.lastName 
       ? `${contact.firstName} ${contact.lastName}` 
@@ -344,24 +369,35 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: number | null }) {
       );
     }
     
+    // Show loading state while contacts are being fetched
+    if (contacts.length === 0 && !invoice.contact) {
+      return (
+        <div className="space-y-1">
+          <p className="text-muted-foreground">Loading customer details...</p>
+        </div>
+      );
+    }
+    
     // If invoice has contact data directly (from backend enhancement)
     if (invoice.contact) {
       const contact = invoice.contact;
       return (
         <div className="space-y-1">
-          <p className="font-medium">{contact.firstName && contact.lastName 
-            ? `${contact.firstName} ${contact.lastName}` 
-            : contact.company || 'N/A'}</p>
-          {contact.company && contact.firstName && <p>{contact.company}</p>}
-          {contact.email && <p>{contact.email}</p>}
-          {contact.phone && <p>{contact.phone}</p>}
-          {contact.address && <p>{contact.address}</p>}
+          <p className="font-medium text-green-700">
+            ✅ {contact.firstName && contact.lastName 
+              ? `${contact.firstName} ${contact.lastName}` 
+              : contact.company || 'Customer'}
+          </p>
+          {contact.company && contact.firstName && <p className="text-sm text-gray-600">{contact.company}</p>}
+          {contact.email && <p className="text-sm">{contact.email}</p>}
+          {contact.phone && <p className="text-sm">{contact.phone}</p>}
+          {contact.address && <p className="text-sm">{contact.address}</p>}
           {(contact.city || contact.state || contact.postalCode) && (
-            <p>
+            <p className="text-sm">
               {contact.city}{contact.city && contact.state ? ", " : ""}{contact.state} {contact.postalCode}
             </p>
           )}
-          {contact.country && <p>{contact.country}</p>}
+          {contact.country && <p className="text-sm">{contact.country}</p>}
         </div>
       );
     }
@@ -394,8 +430,33 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: number | null }) {
     return (
       <div className="space-y-1">
         <p className="text-muted-foreground">
-          {invoice.contactId ? `Contact ID: ${invoice.contactId} (Not found)` : 'No contact assigned'}
+          {invoice.contactId ? `Contact ID: ${invoice.contactId} (Not found)` : 'No customer assigned'}
         </p>
+        <p className="text-sm text-amber-600">
+          ⚠️ This invoice needs a customer to send emails
+        </p>
+        <Button 
+          variant="outline" 
+          size="sm"
+          onClick={async () => {
+            try {
+              const response = await fetch(`/api/invoices/${invoice.id}/fix-contact`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+              });
+              if (response.ok) {
+                toast({ title: 'Customer Assigned', description: 'A default customer has been assigned to this invoice.' });
+                refetch(); // Refresh the invoice data
+              } else {
+                toast({ title: 'Failed', description: 'Could not assign customer.', variant: 'destructive' });
+              }
+            } catch (error) {
+              toast({ title: 'Error', description: 'Failed to assign customer.', variant: 'destructive' });
+            }
+          }}
+        >
+          Assign Default Customer
+        </Button>
       </div>
     );
   };
@@ -569,10 +630,31 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: number | null }) {
                 <Printer className="h-4 w-4 mr-2" />
                 Print
               </Button>
-              <Button variant="outline" onClick={() => setIsEmailDialogOpen(true)}>
-                <Send className="h-4 w-4 mr-2" />
-                Email
-              </Button>
+              {((invoice?.status?.toLowerCase() === 'draft' || invoice?.status?.toLowerCase() === 'unsent') && !isEditMode) && (
+                <Button
+                  variant="outline"
+                  onClick={async () => {
+                    try {
+                      await sendInvoice.mutateAsync({ id: invoice.id });
+                      toast({ 
+                        title: 'Email Sent', 
+                        description: 'Invoice has been emailed to the client.' 
+                      });
+                    } catch (err: any) {
+                      const errorMessage = err?.response?.data?.message || err?.message || 'There was an error sending the email.';
+                      toast({ 
+                        title: 'Email Failed', 
+                        description: errorMessage, 
+                        variant: 'destructive' 
+                      });
+                    }
+                  }}
+                  disabled={sendInvoice.isLoading}
+                >
+                  {sendInvoice.isLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
+                  Send Email
+                </Button>
+              )}
               {invoice?.payment_portal_token && (
                 <Button
                   variant="outline"

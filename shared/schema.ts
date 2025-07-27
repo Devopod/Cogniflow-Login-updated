@@ -431,6 +431,9 @@ export const invoices = pgTable("invoices", {
   exchange_rate: real("exchange_rate").default(1.0), // Exchange rate when invoice was created
   base_currency: varchar("base_currency", { length: 3 }).default('USD'), // Company's base currency
   
+  // Stripe payment link
+  payment_link: varchar("payment_link", { length: 1000 }), // Stripe payment link for this invoice
+  
   // Workflow and automation
   auto_reminder_enabled: boolean("auto_reminder_enabled").default(true),
   late_fee_enabled: boolean("late_fee_enabled").default(false),
@@ -1779,3 +1782,12 @@ export type InsertEmailTemplate = z.infer<typeof insertEmailTemplateSchema>;
 export type InsertInvoiceActivity = z.infer<typeof insertInvoiceActivitySchema>;
 export type InsertPaymentLink = z.infer<typeof insertPaymentLinkSchema>;
 export type InsertCurrencyRate = z.infer<typeof insertCurrencyRateSchema>;
+
+// Audit logs table for tracking user actions (email, payment, etc.)
+export const auditLogs = pgTable("audit_logs", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  action: varchar("action", { length: 100 }).notNull(),
+  details: text("details"),
+  createdAt: timestamp("created_at").defaultNow(),
+});

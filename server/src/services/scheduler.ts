@@ -309,7 +309,7 @@ if (shouldRegisterTasks()) {
               console.log(`Sent payment reminder for invoice #${invoice.invoiceNumber} to ${contact.email}`);
             }
           } catch (error) {
-            console.error(`Failed to send invoice email:`, error);
+            console.error(`Failed to send invoice email, schedule.ts:`, error);
           }
         }
       } catch (error) {

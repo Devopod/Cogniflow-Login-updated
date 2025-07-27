@@ -12,6 +12,7 @@ import crypto from 'crypto';
 import { aiInvoiceAssistant } from "../services/ai-invoice-assistant";
 import { invoicePDFService } from "../services/pdf";
 import { paymentService } from "../services/payment";
+import { sendInvoiceEmail } from '../../storage';
 
 // Get the WebSocket service instance.
 let wsService: WSService;
@@ -331,20 +332,50 @@ router.get("/:id", authenticateUser, async (req, res) => {
 router.post("/", authenticateUser, async (req, res) => {
   try {
     const {
-      contact_id,
-      invoice_number,
-      issue_date,
-      due_date,
+      contactId,
+      invoiceDate,
+      dueDate,
       status,
       notes,
-      terms,
+      terms,  
       currency,
       subtotal,
-      tax_amount,
-      discount_amount,
-      total_amount,
+      taxAmount,
+      discountAmount,
+      totalAmount,
       items
     } = req.body;
+
+    // Validate contactId
+    if (!contactId || contactId <= 0 || contactId === null) {
+      return res.status(400).json({ 
+        message: "Valid customer selection is required",
+        field: "contactId" 
+      });
+    }
+
+    // Verify the contact exists and belongs to the user
+    const contactExists = await db.query.contacts.findFirst({
+      where: and(
+        eq(contacts.id, contactId),
+        eq(contacts.userId, req.user!.id)
+      ),
+    });
+
+    if (!contactExists) {
+      return res.status(400).json({ 
+        message: "Selected customer not found or access denied",
+        field: "contactId" 
+      });
+    }
+
+    // Verify the contact has an email address
+    if (!contactExists.email) {
+      return res.status(400).json({ 
+        message: "Selected customer must have a valid email address",
+        field: "contactId" 
+      });
+    }
 
     // Helper to generate a unique invoice number
     function generateInvoiceNumber() {
@@ -354,25 +385,104 @@ router.post("/", authenticateUser, async (req, res) => {
       return `${prefix}-${year}-${randomNum}`;
     }
 
-    // Try to insert invoice, retry once if duplicate invoice number
-    let finalInvoiceNumber = invoice_number || generateInvoiceNumber();
+    // Helper function to safely parse dates
+    function parseDate(dateValue: any): Date {
+      if (!dateValue) return new Date();
+      
+      // If it's already a Date object, return it
+      if (dateValue instanceof Date) return dateValue;
+      
+      // If it's a string, try to parse it
+      if (typeof dateValue === 'string') {
+        // Remove any invalid characters and normalize the date string
+        const cleanDate = dateValue.trim();
+        if (cleanDate === '' || cleanDate === 'Invalid Date') {
+          return new Date();
+        }
+        
+        const parsed = new Date(cleanDate);
+        if (isNaN(parsed.getTime())) {
+          // If parsing fails, return current date
+          console.warn(`Invalid date value: ${dateValue}, using current date instead`);
+          return new Date();
+        }
+        return parsed;
+      }
+      
+      // Default to current date for any other type
+      return new Date();
+    }
+
+    // Generate invoice number using storage function
+    const finalInvoiceNumber = await storage.generateInvoiceNumber(req.user!.id);
     let newInvoice;
     let triedOnce = false;
+    
+    // Ensure we have at least one contact for this user
+    const existingContacts = await db.query.contacts.findMany({
+      where: eq(contacts.userId, req.user!.id),
+    });
+    
+    if (existingContacts.length === 0) {
+      console.log('No contacts found for user, creating a default contact...');
+      const [defaultContact] = await db.insert(contacts).values({
+        userId: req.user!.id,
+        firstName: 'Default',
+        lastName: 'Customer',
+        email: req.user!.email || 'customer@example.com',
+        phone: '+1234567890',
+        company: 'Default Company',
+        address: '123 Default St, Default City, DC 12345',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      }).returning();
+      
+      console.log('Created default contact:', defaultContact);
+      // Use the default contact if no specific contact was selected
+      if (!contactId || contactId <= 0) {
+        contactId = defaultContact.id;
+      }
+    }
+    
+    // Parse and validate dates
+    const parsedIssueDate = parseDate(invoiceDate);
+    const parsedDueDate = parseDate(dueDate);
+    
+    // Calculate total amount if not provided or invalid
+    const calculatedSubtotal = subtotal || 0;
+    const calculatedTaxAmount = taxAmount || 0;
+    const calculatedDiscountAmount = discountAmount || 0;
+    const calculatedTotalAmount = totalAmount || (calculatedSubtotal + calculatedTaxAmount - calculatedDiscountAmount);
+    
+    console.log('Creating invoice with dates:', {
+      original_invoiceDate: invoiceDate,
+      original_dueDate: dueDate,
+      parsed_issue_date: parsedIssueDate,
+      parsed_due_date: parsedDueDate
+    });
+    
+    console.log('Invoice amounts:', {
+      subtotal: calculatedSubtotal,
+      tax_amount: calculatedTaxAmount,
+      discount_amount: calculatedDiscountAmount,
+      total_amount: calculatedTotalAmount
+    });
+    
     while (true) {
       try {
         // Insert the invoice using only basic columns that exist in database
         [newInvoice] = await db
-          .insert(invoices)
+          .insert(invoices) 
           .values({
             userId: req.user!.id,
-            contactId: contact_id,
-            invoiceNumber: finalInvoiceNumber,
-            issueDate: new Date(issue_date),
-            dueDate: new Date(due_date),
-            subtotal: subtotal,
-            taxAmount: tax_amount,
-            discountAmount: discount_amount || 0,
-            totalAmount: total_amount,
+            contactId: contactId,
+            invoiceNumber: finalInvoiceNumber, 
+            issueDate: parsedIssueDate,
+            dueDate: parsedDueDate,
+            subtotal: calculatedSubtotal,
+            taxAmount: calculatedTaxAmount,
+            discountAmount: calculatedDiscountAmount,
+            totalAmount: calculatedTotalAmount,
             amountPaid: 0,
             status: status || 'draft',
             notes,
@@ -409,19 +519,38 @@ router.post("/", authenticateUser, async (req, res) => {
 
     // Insert invoice items if provided
     if (items && items.length > 0) {
+      console.log('Inserting invoice items for invoice ID:', newInvoice.id);
+      console.log('Items data:', items);
       await db.insert(invoiceItems).values(
-        items.map((item) => ({
-          invoice_id: newInvoice.id,
-          product_id: item.product_id,
-          description: item.description,
-          quantity: item.quantity,
-          unit_price: item.unit_price,
-          discount: item.discount || 0,
-          tax_rate: item.tax_rate || 0,
-          total:
-            item.quantity * item.unit_price - (item.discount || 0) +
-            ((item.quantity * item.unit_price - (item.discount || 0)) * (item.tax_rate || 0) / 100),
-        }))
+        items.map((item) => {
+          const quantity = parseFloat(item.quantity) || 0;
+          const unitPrice = parseFloat(item.unit_price) || 0;
+          const discount = parseFloat(item.discount) || 0;
+          const taxRate = parseFloat(item.tax_rate) || 0;
+          const subtotal = quantity * unitPrice;
+          const totalAmount = subtotal - discount + (subtotal - discount) * (taxRate / 100);
+          
+          console.log('Processing item:', {
+            quantity,
+            unitPrice,
+            discount,
+            taxRate,
+            subtotal,
+            totalAmount
+          });
+          
+          return {
+            invoiceId: newInvoice.id,
+            productId: item.product_id,
+            description: item.description,
+            quantity: quantity,
+            unitPrice: unitPrice,
+            discountRate: discount,
+            taxRate: taxRate,
+            subtotal: subtotal,
+            totalAmount: totalAmount,
+          };
+        })
       );
     }
 
@@ -458,20 +587,20 @@ router.put("/:id", authenticateUser, async (req, res) => {
   try {
     const { id } = req.params;
     const {
-      contact_id,
-      invoice_number,
-      issue_date,
-      due_date,
+      contactId,
+      invoiceNumber,
+      invoiceDate,
+      dueDate,
       status,
       notes,
       terms,
       subtotal,
-      tax_amount,
-      discount_amount,
-      total_amount,
-      amount_paid,
+      taxAmount,
+      discountAmount,
+      totalAmount,
+      amountPaid,
       currency,
-      payment_method,
+      paymentMethod,
       items
     } = req.body;
 
@@ -657,7 +786,7 @@ router.post("/:id/payments", authenticateUser, async (req, res) => {
 
     // Check if invoice exists and belongs to user
     const invoice = await db.query.invoices.findFirst({
-      where: eq(invoices.id, parseInt(id)),
+      where: (invoices, { eq }) => eq(invoices.id, parseInt(id)),
     });
 
     if (!invoice) {
@@ -772,63 +901,197 @@ router.post("/:id/payments", authenticateUser, async (req, res) => {
   }
 });
 
-// Send invoice by email
-router.post("/:id/send", authenticateUser, async (req, res) => {
+// Fix invoice contact (for existing invoices without contacts)
+router.post("/:id/fix-contact", authenticateUser, async (req, res) => {
   try {
     const { id } = req.params;
-    const { email, subject, message, includeAttachment = true } = req.body;
+    const invoiceId = parseInt(id);
+    const userId = req.user!.id;
 
-    // Check if invoice exists and belongs to user
+    if (isNaN(invoiceId)) {
+      return res.status(400).json({ message: "Invalid invoice ID" });
+    }
+
+    // Get the invoice
     const invoice = await db.query.invoices.findFirst({
-      where: eq(invoices.id, parseInt(id)),
-      with: {
-        contact: true,
-        items: {
-          with: {
-            product: true,
-          },
-        },
-      },
+      where: eq(invoices.id, invoiceId),
     });
 
     if (!invoice) {
       return res.status(404).json({ message: "Invoice not found" });
     }
 
-    if (invoice.userId !== req.user!.id && req.user!.role !== 'admin') {
+    if (invoice.userId !== userId) {
+      return res.status(403).json({ message: "You don't have permission to modify this invoice" });
+    }
+
+    // If invoice already has a contact, return success
+    if (invoice.contactId) {
+      return res.json({ message: "Invoice already has a contact", contactId: invoice.contactId });
+    }
+
+    // Get or create a contact for this user
+    let contact = await db.query.contacts.findFirst({
+      where: eq(contacts.userId, userId),
+    });
+
+    if (!contact) {
+      console.log('Creating default contact for user...');
+      const [newContact] = await db.insert(contacts).values({
+        userId: userId,
+        firstName: 'Default',
+        lastName: 'Customer',
+        email: req.user!.email || 'customer@example.com',
+        phone: '+1234567890',
+        company: 'Default Company',
+        address: '123 Default St, Default City, DC 12345',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      }).returning();
+      contact = newContact;
+    }
+
+    // Update the invoice with the contact
+    const [updatedInvoice] = await db
+      .update(invoices)
+      .set({
+        contactId: contact.id,
+        updatedAt: new Date()
+      })
+      .where(eq(invoices.id, invoiceId))
+      .returning();
+
+    return res.json({ 
+      message: "Invoice contact fixed successfully", 
+      contactId: contact.id,
+      contact: contact
+    });
+
+  } catch (error: any) {
+    console.error("Error fixing invoice contact:", error);
+    return res.status(500).json({ message: "Failed to fix invoice contact" });
+  }
+});
+
+// Send invoice by email
+router.post("/:id/send", authenticateUser, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const invoiceId = parseInt(id);
+    const userId = req.user!.id;
+    const { email, subject, message } = req.body;
+
+    console.log(`🚀 POST /api/invoices/${id}/send - Starting...`);
+    console.log(`User ID: ${userId}, Invoice ID: ${invoiceId}`);
+    console.log(`Email params:`, { email, subject, message });
+
+    if (isNaN(invoiceId)) {
+      console.log('❌ Invalid invoice ID');
+      return res.status(400).json({ message: "Invalid invoice ID" });
+    }
+
+    // Check if invoice exists and has a contact
+    const invoice = await db.query.invoices.findFirst({
+      where: eq(invoices.id, invoiceId),
+      with: {
+        contact: true
+      }
+    });
+
+    if (!invoice) {
+      console.log('❌ Invoice not found');
+      return res.status(404).json({ message: "Invoice not found" });
+    }
+
+    if (invoice.userId !== userId) {
+      console.log('❌ User not authorized');
       return res.status(403).json({ message: "You don't have permission to send this invoice" });
     }
 
-    // In a real implementation, you would generate a PDF and send it
-    // For now, we'll just simulate sending the email
+    if (!invoice.contactId || !invoice.contact) {
+      console.log('❌ Invoice has no contact, attempting to fix...');
+      
+      // Try to fix the contact automatically
+      try {
+        // Get or create a contact for this user
+        let contact = await db.query.contacts.findFirst({
+          where: eq(contacts.userId, userId),
+        });
 
-    // Update invoice notes to record that it was sent
-    const [updatedInvoice] = await db.update(invoices)
-      .set({
-        notes: invoice.notes ?
-          `${invoice.notes}\n[${new Date().toISOString()}] Invoice emailed to ${email}` :
-          `[${new Date().toISOString()}] Invoice emailed to ${email}`,
-        updated_at: new Date(),
-      })
-      .where(eq(invoices.id, parseInt(id)))
-      .returning();
+        if (!contact) {
+          console.log('Creating default contact for user...');
+          const [newContact] = await db.insert(contacts).values({
+            userId: userId,
+            firstName: 'Default',
+            lastName: 'Customer',
+            email: req.user!.email || 'customer@example.com',
+            phone: '+1234567890',
+            company: 'Default Company',
+            address: '123 Default St, Default City, DC 12345',
+            createdAt: new Date(),
+            updatedAt: new Date()
+          }).returning();
+          contact = newContact;
+        }
 
-    // Notify connected clients about the invoice update
-    if (wsService) {
-      wsService.broadcastToResource('invoices', id, 'invoice_emailed', {
-        invoiceId: parseInt(id),
-        to: email,
-        timestamp: new Date().toISOString()
-      });
+        // Update the invoice with the contact
+        await db
+          .update(invoices)
+          .set({
+            contactId: contact.id,
+            updatedAt: new Date()
+          })
+          .where(eq(invoices.id, invoiceId));
+
+        console.log('✅ Invoice contact fixed automatically');
+        
+        // Update the invoice object for the rest of the function
+        invoice.contactId = contact.id;
+        invoice.contact = contact;
+      } catch (fixError) {
+        console.error('Failed to fix invoice contact:', fixError);
+        return res.status(400).json({ message: "Invoice must have a customer with a valid email address to send emails" });
+      }
     }
 
-    return res.json({
-      message: "Invoice sent successfully",
-      invoice: updatedInvoice
+    if (!invoice.contact.email) {
+      console.log('❌ Contact has no email');
+      return res.status(400).json({ message: "Customer must have a valid email address to send invoice emails" });
+    }
+
+    console.log('📧 Calling sendInvoiceEmail...');
+    // Use the working sendInvoiceEmail function from storage
+    const result = await sendInvoiceEmail(invoiceId, userId, { email, subject, message });
+    console.log('📧 sendInvoiceEmail result:', result);
+    
+    if (result.success) {
+      console.log('✅ Email sent successfully, notifying WebSocket clients...');
+      // Notify connected clients about the invoice update
+      if (wsService) {
+        wsService.broadcastToResource('invoices', id, 'invoice_sent', {
+          invoiceId: invoiceId,
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      return res.json({
+        message: "Invoice sent successfully",
+        success: true
+      });
+    } else {
+      console.log('❌ Email sending failed:', result.error);
+      return res.status(500).json({ 
+        message: "Failed to send invoice, invoice.ts",
+        error: result.error 
+      });
+    }
+  } catch (error: any) {
+    console.error("❌ Route error sending invoice:", {
+      message: error.message,
+      stack: error.stack,
+      details: error
     });
-  } catch (error) {
-    console.error("Error sending invoice:", error);
-    return res.status(500).json({ message: "Failed to send invoice" });
+    return res.status(500).json({ message: "Failed to send invoice, invoice.ts" });
   }
 });
 
@@ -840,7 +1103,7 @@ router.post("/:id/public-link", authenticateUser, async (req, res) => {
 
     // Check if invoice exists and belongs to user
     const invoice = await db.query.invoices.findFirst({
-      where: eq(invoices.id, parseInt(id)),
+      where: (invoices, { eq }) => eq(invoices.id, parseInt(id)),
     });
 
     if (!invoice) {
@@ -939,7 +1202,7 @@ router.post("/:id/actions", authenticateUser, async (req, res) => {
 
     // Check if invoice exists and belongs to user
     const invoice = await db.query.invoices.findFirst({
-      where: eq(invoices.id, parseInt(id)),
+      where: (invoices, { eq }) => eq(invoices.id, parseInt(id)),
       with: {
         contact: true,
       },
@@ -1393,48 +1656,38 @@ router.post("/:id/ai/categorize-expenses", authenticateUser, async (req, res) =>
   });
   
   // Send invoice via email
-  router.post('/:id/send', isAuthenticated, async (req, res) => {
+  router.post('/api/invoices/:id/send', isAuthenticated, async (req, res) => {
+    const invoiceId = parseInt(req.params.id, 10);
+    const userId = req.user?.id;
+    const { email, subject, message } = req.body;
+    
+    console.log(`🚀 [ROUTE 2] POST /api/invoices/${req.params.id}/send - Starting...`);
+    console.log(`User ID: ${userId}, Invoice ID: ${invoiceId}`);
+    console.log(`Email params:`, { email, subject, message });
+    
+    if (!userId || isNaN(invoiceId)) {
+      console.log('❌ [ROUTE 2] Invalid user or invoice ID');
+      return res.status(400).json({ error: 'Invalid user or invoice ID' });
+    }
     try {
-      const invoiceId = parseInt(req.params.id);
-      const { templateId, customMessage, ccEmails, includePDF = true } = req.body;
+      console.log('📧 [ROUTE 2] Calling sendInvoiceEmail...');
+      const result = await sendInvoiceEmail(invoiceId, userId, { email, subject, message });
+      console.log('📧 [ROUTE 2] sendInvoiceEmail result:', result);
       
-      // Verify invoice belongs to user
-      const invoice = await storage.getInvoice(invoiceId);
-      if (!invoice || invoice.userId !== req.user!.id) {
-        return res.status(404).json({ message: 'Invoice not found' });
-      }
-      
-      // Send email
-      const sent = await emailService.sendInvoiceEmail(invoiceId, {
-        templateId,
-        customMessage,
-        ccEmails,
-        includePDF,
-      });
-      
-      if (sent) {
-        // Broadcast email sent via WebSocket
-        if (wsService) {
-          wsService.broadcastToResource('invoices', invoiceId, 'invoice_sent', {
-            invoiceId,
-            sentAt: new Date().toISOString(),
-          });
-        }
-        
-        res.json({ 
-          success: true, 
-          message: 'Invoice sent successfully',
-          sentAt: new Date().toISOString(),
-        });
+      if (result.success) {
+        console.log('✅ [ROUTE 2] Email sent successfully');
+        return res.json({ success: true });
       } else {
-        res.status(500).json({ 
-          success: false, 
-          message: 'Failed to send invoice' 
-        });
+        console.log('❌ [ROUTE 2] Email sending failed:', result.error);
+        return res.status(500).json({ error: result.error || 'Failed to send invoice email, invoice.ts' });
       }
-    } catch (error) {
-      console.error('Error sending invoice:', error);
-      res.status(500).json({ message: 'Failed to send invoice' });
+    } catch (err: any) {
+      console.error("❌ [ROUTE 2] Route error sending invoice:", {
+        message: err.message,
+        stack: err.stack,
+        details: err
+      });
+      return res.status(500).json({ error: err.message || 'Internal server error' });
     }
   });
   

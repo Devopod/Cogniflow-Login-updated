@@ -163,7 +163,7 @@ export class EmailService {
 
       return sent;
     } catch (error) {
-      console.error('Failed to send invoice email:', error);
+      console.error('Failed to send invoice email, email.ts:', error);
       return false;
     }
   }

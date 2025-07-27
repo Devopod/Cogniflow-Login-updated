@@ -45,7 +45,7 @@ import { useAIInvoiceAssistant } from "@/hooks/use-ai-invoice-assistant";
 
 // Invoice form schema
 const invoiceSchema = z.object({
-  contactId: z.number().min(1, "Customer is required"),
+  contactId: z.number().min(1, "Please select a customer"),
   invoiceDate: z.string().min(1, "Invoice date is required"),
   dueDate: z.string().min(1, "Due date is required"),
   paymentTerms: z.string().default("Due on Receipt"),
@@ -128,7 +128,7 @@ export default function NewInvoice() {
       contactId: 0,
       invoiceDate: format(new Date(), "yyyy-MM-dd"),
       dueDate: format(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), "yyyy-MM-dd"),
-      paymentTerms: "Due on Receipt",
+      paymentTerms: "Net 30",
       currency: "USD",
       exchangeRate: 1,
       taxInclusive: false,
@@ -268,8 +268,25 @@ export default function NewInvoice() {
       }
 
       navigate(`/finance/invoices/${result.id}`);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error saving invoice:", error);
+      
+      // Handle specific validation errors
+      if (error?.response?.status === 400) {
+        const errorData = error.response.data;
+        if (errorData.field === 'contact_id') {
+          form.setError('contactId', {
+            type: 'manual',
+            message: errorData.message || 'Please select a valid customer'
+          });
+        } else {
+          // Generic validation error
+          console.error('Validation error:', errorData.message);
+        }
+      } else {
+        // Network or other errors
+        console.error('Failed to save invoice. Please try again.');
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -411,7 +428,10 @@ export default function NewInvoice() {
                       <SelectContent>
                         {contacts?.map((contact) => (
                           <SelectItem key={contact.id} value={contact.id.toString()}>
-                            {contact.name} - {contact.email}
+                            {contact.firstName && contact.lastName 
+                              ? `${contact.firstName} ${contact.lastName}`
+                              : contact.company || 'Unnamed Contact'
+                            } - {contact.email}
                           </SelectItem>
                         ))}
                       </SelectContent>

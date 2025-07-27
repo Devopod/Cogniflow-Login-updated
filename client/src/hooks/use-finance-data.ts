@@ -98,27 +98,9 @@ export function useInvoiceActivities(invoiceId: number | string | null) {
 // Hook to send invoice via email
 export function useSendInvoice() {
   const queryClient = useQueryClient();
-  
   return useMutation({
-    mutationFn: async ({ 
-      id, 
-      templateId, 
-      customMessage, 
-      ccEmails, 
-      includePDF = true 
-    }: { 
-      id: number; 
-      templateId?: number; 
-      customMessage?: string; 
-      ccEmails?: string[]; 
-      includePDF?: boolean;
-    }) => {
-      const response = await apiRequest("POST", `/api/invoices/${id}/send`, {
-        templateId,
-        customMessage,
-        ccEmails,
-        includePDF,
-      });
+    mutationFn: async ({ id }: { id: number }) => {
+      const response = await apiRequest("POST", `/api/invoices/${id}/send`);
       return response.json();
     },
     onSuccess: (_, variables) => {
