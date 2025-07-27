@@ -894,196 +894,128 @@ export class DatabaseStorage implements IStorage {
   
   async sendInvoiceEmail(invoiceId: number, userId: number, emailOptions?: { email?: string; subject?: string; message?: string }): Promise<{ success: boolean; error?: string }> {
     try {
-      console.log(`Starting sendInvoiceEmail for invoice ${invoiceId}, user ${userId}`);
+      console.log(`🚀 Starting sendInvoiceEmail for invoice ${invoiceId}, user ${userId}`);
       
-      // Fetch invoice with basic info using SQL to avoid missing column issues
-      const invoiceResult = await db.execute(sql`
-        SELECT 
-          i.id, i.user_id, i.contact_id, i.invoice_number, i.issue_date, i.due_date,
-          i.subtotal, i.tax_amount, i.discount_amount, i.total_amount, i.currency, i.status,
-          c.first_name, c.last_name, c.email as contact_email, c.company
-        FROM invoices i
-        LEFT JOIN contacts c ON i.contact_id = c.id
-        WHERE i.id = ${invoiceId} AND i.user_id = ${userId}
-      `);
+      // Import the enhanced email service
+      const { emailService } = await import('./src/services/email');
       
-      if (invoiceResult.rows.length === 0) {
-        console.log('Invoice not found in database');
-        return { success: false, error: 'Invoice not found' };
+      // Check if the invoice exists and belongs to the user
+      const invoice = await this.getInvoiceWithItems(invoiceId);
+      if (!invoice || invoice.userId !== userId) {
+        console.log('❌ Invoice not found or access denied');
+        return { success: false, error: 'Invoice not found or access denied' };
       }
-      
-      const invoice = invoiceResult.rows[0];
-      console.log('Invoice found:', { id: invoice.id, email: invoice.contact_email });
-      console.log('Email options provided:', emailOptions);
-      
+
+      // Check if invoice has a contact
+      if (!invoice.contactId) {
+        console.log('⚠️ Invoice has no contact, attempting to assign default contact...');
+        
+        // Try to assign a default contact
+        let contact = await this.getContactsByUser(userId).then(contacts => contacts[0]);
+        if (!contact) {
+          // Create a default contact
+          const user = await this.getUser(userId);
+          contact = await this.createContact({
+            userId,
+            firstName: 'Default',
+            lastName: 'Customer',
+            email: user?.email || 'customer@example.com',
+            phone: '+1234567890',
+            company: 'Default Company',
+            address: '123 Default St',
+            city: 'Default City',
+            state: 'DC',
+            postalCode: '12345',
+            country: 'USA',
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          });
+        }
+        
+        // Update invoice with contact
+        await this.updateInvoice(invoiceId, { contactId: contact.id });
+        invoice.contactId = contact.id;
+      }
+
+      // Get the contact information
+      const contact = await this.getContact(invoice.contactId);
+      if (!contact) {
+        console.log('❌ Contact not found');
+        return { success: false, error: 'Customer information not found' };
+      }
+
       // Use custom email if provided, otherwise use contact email
-      const targetEmail = emailOptions?.email || invoice.contact_email;
+      const targetEmail = emailOptions?.email || contact.email;
       if (!targetEmail) {
-        console.log('No email address available');
-        return { success: false, error: 'Email address not found. Please ensure the invoice has a customer with a valid email address.' };
+        console.log('❌ No email address available');
+        return { success: false, error: 'Email address not found. Please ensure the customer has a valid email address.' };
       }
 
-      // Get invoice items
-      console.log('Fetching invoice items...');
-      const itemsResult = await db.execute(sql`
-        SELECT 
-          ii.id, ii.product_id, ii.description, ii.quantity, ii.unit_price, ii.total_amount as total,
-          p.name as product_name, p.sku as product_sku
-        FROM invoice_items ii
-        LEFT JOIN products p ON ii.product_id = p.id
-        WHERE ii.invoice_id = ${invoiceId}
-      `);
-      console.log('Invoice items fetched:', itemsResult.rows.length, 'items');
+      console.log(`📧 Sending invoice to: ${targetEmail}`);
 
-      // Create invoice object for PDF generation
-      const invoiceData = {
-        id: invoice.id,
-        invoiceNumber: invoice.invoice_number,
-        issueDate: invoice.issue_date,
-        dueDate: invoice.due_date,
-        subtotal: invoice.subtotal,
-        taxAmount: invoice.tax_amount,
-        discountAmount: invoice.discount_amount,
-        totalAmount: invoice.total_amount,
-        currency: invoice.currency || 'USD',
-        status: invoice.status,
-        items: itemsResult.rows || []
+      // Prepare invoice email options
+      const invoiceEmailOptions = {
+        customMessage: emailOptions?.message,
+        includePDF: true,
       };
 
-      const contactData = {
-        firstName: invoice.first_name || '',
-        lastName: invoice.last_name || '',
-        email: invoice.contact_email,
-        company: invoice.company || ''
-      };
-
-      // Generate Stripe payment link
-      console.log('Generating Stripe payment link...');
-      let paymentLink = '#';
-      try {
-        const paymentLinkObj = await stripe.paymentLinks.create({
-          line_items: [{
-            price_data: {
-              currency: invoiceData.currency,
-              product_data: { name: `Invoice #${invoiceData.invoiceNumber}` },
-              unit_amount: Math.round(invoiceData.totalAmount * 100),
-            },
-            quantity: 1,
-          }],
-          metadata: { invoiceId: invoiceId.toString() },
-        });
-        paymentLink = paymentLinkObj.url;
-        console.log('Stripe payment link created successfully');
-      } catch (stripeError) {
-        console.warn('Failed to create Stripe payment link:', stripeError);
-        // Continue without payment link - email will still be sent
-      }
-
-      // Generate PDF
-      console.log('Generating PDF...');
-      let pdfBuffer;
-      try {
-        pdfBuffer = await generateInvoicePdfWithLogo(invoiceData, contactData, paymentLink);
-        console.log('PDF generated successfully, size:', pdfBuffer?.length, 'bytes');
-      } catch (pdfError) {
-        console.error('PDF generation failed:', pdfError);
-        return { success: false, error: 'Failed to generate PDF' };
-      }
-
-      // Compose email
-      const defaultSubject = `Invoice #${invoiceData.invoiceNumber} from Your Company`;
-      const clientName = `${contactData.firstName} ${contactData.lastName}`.trim() || 'Client';
-      const paymentSection = paymentLink !== '#' 
-        ? `<br><a href='${paymentLink}' style='background-color: #6772e5; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;'>Pay Now</a>`
-        : '';
-      const defaultHtml = `<p>Dear ${clientName},<br>Please find Invoice #${invoiceData.invoiceNumber} attached.<br>Amount: ${invoiceData.currency} ${invoiceData.totalAmount}. Due: ${invoiceData.dueDate}.${paymentSection}</p>`;
-      
-      // Use custom email content if provided
-      const emailSubject = emailOptions?.subject || defaultSubject;
-      const emailHtml = emailOptions?.message 
-        ? `<p>${emailOptions.message.replace(/\n/g, '<br>')}</p>${paymentSection}`
-        : defaultHtml;
-
-      // Send email via Resend
-      try {
-        console.log('Attempting to send email with Resend...');
-        console.log('From:', process.env.COMPANY_EMAIL);
-        console.log('To:', targetEmail);
-        console.log('Subject:', emailSubject);
-        console.log('PDF buffer size:', pdfBuffer?.length);
-        console.log('RESEND_API_KEY configured:', !!process.env.RESEND_API_KEY);
+      // If custom email provided, we need to override the contact email temporarily
+      if (emailOptions?.email && emailOptions.email !== contact.email) {
+        // Create a temporary contact object with the custom email
+        const tempContact = { ...contact, email: emailOptions.email };
         
-        // Use your verified Resend domain for sender
-        const fromEmail = 'noreply@invoices.devopod.com'; // Your verified domain
+        // We'll handle this by updating the contact temporarily
+        await db.execute(sql`
+          UPDATE contacts 
+          SET email = ${emailOptions.email}
+          WHERE id = ${contact.id}
+        `);
         
-        const emailData = {
-          from: fromEmail,
-          to: targetEmail,
-          subject: emailSubject,
-          html: emailHtml,
-          attachments: [{
-            filename: `invoice_${invoiceData.invoiceNumber}.pdf`,
-            content: pdfBuffer.toString('base64'),
-          }],
-        };
+        try {
+          // Send the email
+          const result = await emailService.sendInvoiceEmail(invoiceId, invoiceEmailOptions);
+          
+          // Restore original email
+          await db.execute(sql`
+            UPDATE contacts 
+            SET email = ${contact.email}
+            WHERE id = ${contact.id}
+          `);
+          
+          return result;
+        } catch (error) {
+          // Restore original email even if error occurs
+          await db.execute(sql`
+            UPDATE contacts 
+            SET email = ${contact.email}
+            WHERE id = ${contact.id}
+          `);
+          throw error;
+        }
+      } else {
+        // Normal flow - send to contact's email
+        const result = await emailService.sendInvoiceEmail(invoiceId, invoiceEmailOptions);
         
-        console.log('Email data prepared:', { 
-          from: emailData.from, 
-          to: emailData.to, 
-          subject: emailData.subject,
-          hasAttachment: !!emailData.attachments?.length
-        });
+        if (result.success) {
+          console.log('✅ Invoice email sent successfully via enhanced email service');
+          
+          // Broadcast WebSocket event
+          if (wsService) {
+            wsService.broadcast('invoice_sent', { invoiceId });
+          }
+        } else {
+          console.log('❌ Invoice email failed:', result.error);
+        }
         
-        const result = await resend.emails.send(emailData);
-        console.log('Email sent successfully:', result);
-      } catch (emailError: any) {
-        console.error('Email sending failed with detailed error:', {
-          message: emailError.message,
-          code: emailError.code,
-          statusCode: emailError.statusCode,
-          name: emailError.name,
-          stack: emailError.stack,
-          details: emailError.response?.data || emailError.response || emailError
-        });
-        return { success: false, error: `Failed to send email: ${emailError.message || 'Unknown error'}` };
+        return result;
       }
-
-      // Update invoice status using basic columns
-      console.log('Updating invoice status to sent...');
-      await db.execute(sql`
-        UPDATE invoices 
-        SET status = 'sent', updated_at = ${new Date()}
-        WHERE id = ${invoiceId}
-      `);
-      console.log('Invoice status updated successfully');
-
-      // Log to audit_logs
-      try {
-        await db.insert(auditLogs).values({
-          userId,
-          action: 'send_invoice_email',
-          details: `Invoice #${invoiceData.invoiceNumber} sent to ${contactData.email}`,
-          createdAt: new Date(),
-        });
-      } catch (auditError) {
-        console.warn('Failed to log audit entry:', auditError);
-        // Don't fail the entire operation for audit logging issues
-      }
-
-      // Broadcast WebSocket event
-      console.log('Broadcasting WebSocket event...');
-      wsService?.broadcast('invoice_sent', { invoiceId });
-
-      console.log('SendInvoiceEmail completed successfully!');
-      return { success: true };
     } catch (error: any) {
-      console.error('SendInvoiceEmail - Outer catch error:', {
+      console.error('❌ SendInvoiceEmail error:', {
         message: error.message,
         name: error.name,
-        stack: error.stack,
-        details: error
+        stack: error.stack
       });
-      return { success: false, error: error.message || 'Failed to send invoice email, storage.ts' };
+      return { success: false, error: error.message || 'Failed to send invoice email' };
     }
   }
   
