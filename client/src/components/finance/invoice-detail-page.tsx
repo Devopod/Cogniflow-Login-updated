@@ -225,28 +225,54 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: number | null }) {
       return;
     }
     
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(emailTo.trim())) {
+      toast({
+        title: "Invalid Email",
+        description: "Please enter a valid email address.",
+        variant: "destructive"
+      });
+      return;
+    }
+    
     setIsSendingEmail(true);
     try {
-      // Call the backend API to send the invoice email
-      await sendInvoice.mutateAsync({ 
-        id: invoice!.id,
-        email: emailTo,
-        subject: emailSubject,
-        message: emailBody
+      // Call the backend API to send the invoice email with custom email
+      const response = await fetch(`/api/invoices/${invoice!.id}/send`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: emailTo.trim(),
+          subject: emailSubject || `Invoice ${invoice!.invoiceNumber}`,
+          message: emailBody || `Please find attached your invoice ${invoice!.invoiceNumber}. You can view and pay online using the link in the email.`
+        }),
       });
       
-      toast({
-        title: "Email Sent",
-        description: `Invoice has been emailed to ${emailTo}.`,
-      });
+      const result = await response.json();
       
-      setIsEmailDialogOpen(false);
-      refetch();
+      if (response.ok && result.success !== false) {
+        toast({
+          title: "Email Sent Successfully! 📧",
+          description: `Invoice ${invoice!.invoiceNumber} has been sent to ${emailTo} with payment link.`,
+        });
+        
+        setIsEmailDialogOpen(false);
+        // Clear the form
+        setEmailTo("");
+        setEmailSubject("");
+        setEmailBody("");
+        refetch();
+      } else {
+        throw new Error(result.message || result.error || 'Failed to send email');
+      }
     } catch (error: any) {
       console.error("Error sending email:", error);
       toast({
-        title: "Email Failed",
-        description: error?.message || "There was an error sending the email.",
+        title: "Email Failed ❌",
+        description: error?.message || "There was an error sending the email. Please try again.",
         variant: "destructive"
       });
     } finally {
@@ -630,25 +656,10 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: number | null }) {
                 <Printer className="h-4 w-4 mr-2" />
                 Print
               </Button>
-              {((invoice?.status?.toLowerCase() === 'draft' || invoice?.status?.toLowerCase() === 'unsent') && !isEditMode) && (
+              {!isEditMode && (
                 <Button
                   variant="outline"
-                  onClick={async () => {
-                    try {
-                      await sendInvoice.mutateAsync({ id: invoice.id });
-                      toast({ 
-                        title: 'Email Sent', 
-                        description: 'Invoice has been emailed to the client.' 
-                      });
-                    } catch (err: any) {
-                      const errorMessage = err?.response?.data?.message || err?.message || 'There was an error sending the email.';
-                      toast({ 
-                        title: 'Email Failed', 
-                        description: errorMessage, 
-                        variant: 'destructive' 
-                      });
-                    }
-                  }}
+                  onClick={() => setIsEmailDialogOpen(true)}
                   disabled={sendInvoice.isLoading}
                 >
                   {sendInvoice.isLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
@@ -1086,51 +1097,85 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: number | null }) {
       
       {/* Email Dialog */}
       <Dialog open={isEmailDialogOpen} onOpenChange={setIsEmailDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Email Invoice</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <Send className="h-5 w-5" />
+              Send Invoice via Email
+            </DialogTitle>
             <DialogDescription>
-              Send this invoice to the customer via email.
+              Send Invoice {invoice?.invoiceNumber} to your customer with payment link included.
             </DialogDescription>
           </DialogHeader>
           
           <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="emailTo" className="text-right">
-                To
+            <div className="space-y-2">
+              <Label htmlFor="emailTo">
+                Customer Email Address <span className="text-red-500">*</span>
               </Label>
               <Input
                 id="emailTo"
                 type="email"
-                className="col-span-3"
+                placeholder="customer@example.com"
                 value={emailTo}
                 onChange={(e) => setEmailTo(e.target.value)}
+                className="w-full"
               />
+              <p className="text-sm text-muted-foreground">
+                Invoice and payment link will be sent to this email address
+              </p>
             </div>
             
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="emailSubject" className="text-right">
-                Subject
-              </Label>
+            <div className="space-y-2">
+              <Label htmlFor="emailSubject">Subject (Optional)</Label>
               <Input
                 id="emailSubject"
-                className="col-span-3"
+                placeholder={`Invoice ${invoice?.invoiceNumber} from Your Company`}
                 value={emailSubject}
                 onChange={(e) => setEmailSubject(e.target.value)}
+                className="w-full"
               />
             </div>
             
-            <div className="grid grid-cols-4 items-start gap-4">
-              <Label htmlFor="emailBody" className="text-right pt-2">
-                Message
-              </Label>
+            <div className="space-y-2">
+              <Label htmlFor="emailBody">Personal Message (Optional)</Label>
               <Textarea
                 id="emailBody"
-                className="col-span-3"
-                rows={8}
+                placeholder="Add a personal message to include with the invoice..."
+                rows={4}
                 value={emailBody}
                 onChange={(e) => setEmailBody(e.target.value)}
+                className="w-full"
               />
+              <p className="text-sm text-muted-foreground">
+                A professional invoice template will be used automatically
+              </p>
+            </div>
+
+            {/* Quick Actions */}
+            <div className="bg-blue-50 dark:bg-blue-950 p-3 rounded-lg">
+              <h4 className="text-sm font-medium mb-2">Quick Fill:</h4>
+              <div className="flex flex-wrap gap-2">
+                {invoice?.contact?.email && (
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => setEmailTo(invoice.contact.email)}
+                  >
+                    Use: {invoice.contact.email}
+                  </Button>
+                )}
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => {
+                    setEmailSubject(`Invoice ${invoice?.invoiceNumber} - Payment Due`);
+                    setEmailBody("Dear Customer,\n\nI hope this email finds you well. Please find your invoice attached. You can view and pay online using the secure payment link included in this email.\n\nThank you for your business!\n\nBest regards");
+                  }}
+                >
+                  Use Template
+                </Button>
+              </div>
             </div>
           </div>
           
@@ -1138,9 +1183,22 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: number | null }) {
             <Button variant="outline" onClick={() => setIsEmailDialogOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleSendEmail} disabled={isSendingEmail}>
-              {isSendingEmail ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
-              Send Email
+            <Button 
+              onClick={handleSendEmail} 
+              disabled={isSendingEmail || !emailTo.trim()}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              {isSendingEmail ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Sending...
+                </>
+              ) : (
+                <>
+                  <Send className="h-4 w-4 mr-2" />
+                  Send Invoice
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

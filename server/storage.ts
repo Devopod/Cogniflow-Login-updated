@@ -900,10 +900,16 @@ export class DatabaseStorage implements IStorage {
       const { emailService } = await import('./src/services/email');
       
       // Check if the invoice exists and belongs to the user
-      const invoice = await this.getInvoiceWithItems(invoiceId);
-      if (!invoice || invoice.userId !== userId) {
-        console.log('❌ Invoice not found or access denied');
-        return { success: false, error: 'Invoice not found or access denied' };
+      let invoice;
+      try {
+        invoice = await this.getInvoice(invoiceId);
+        if (!invoice || invoice.userId !== userId) {
+          console.log('❌ Invoice not found or access denied');
+          return { success: false, error: 'Invoice not found or access denied' };
+        }
+      } catch (error) {
+        console.error('Error fetching invoice:', error);
+        return { success: false, error: 'Failed to fetch invoice' };
       }
 
       // Check if invoice has a contact
