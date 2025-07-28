@@ -202,11 +202,24 @@ export class DatabaseStorage implements IStorage {
   sessionStore: session.Store;
   
   constructor() {
-    this.sessionStore = new PostgresSessionStore({ 
-      pool, 
-      createTableIfMissing: true,
-      tableName: 'sessions'
-    });
+    try {
+      // Try to use PostgreSQL session store
+      this.sessionStore = new PostgresSessionStore({ 
+        pool, 
+        createTableIfMissing: true,
+        tableName: 'sessions',
+        conObject: {
+          connectionString: process.env.DATABASE_URL,
+          ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+        }
+      });
+      console.log('✅ PostgreSQL session store initialized');
+    } catch (error) {
+      console.warn('⚠️ PostgreSQL session store failed, falling back to memory store');
+      console.warn('Session data will be lost on server restart');
+      // Fallback to memory store for development
+      this.sessionStore = new session.MemoryStore();
+    }
   }
 
   // User management
