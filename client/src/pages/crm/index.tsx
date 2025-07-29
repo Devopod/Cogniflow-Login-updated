@@ -172,6 +172,9 @@ export default function CrmManagement() {
   const isLoading = false;
   const error = null;
 
+  // Generate report mutation
+  const generateReport = useGenerateReport();
+
   // Handle report generation
   const handleGenerateReport = async (type: string, format: string) => {
     try {
