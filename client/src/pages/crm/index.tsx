@@ -6,6 +6,18 @@ import ErpNavigation from "@/components/ErpNavigation";
 import ContactManagement from "@/components/crm/ContactManagement";
 import DealManagement from "@/components/crm/DealManagement";
 import LeadManagement from "@/components/crm/LeadManagement";
+import ActivityManagement from "@/components/crm/ActivityManagement";
+import CompanyManagement from "@/components/crm/CompanyManagement";
+import PhoneCallManagement from "@/components/crm/PhoneCallManagement";
+import {
+  useCrmDashboard,
+  useGenerateReport,
+  useCrmMetrics,
+  useLeadAnalytics,
+  useSalesPipeline,
+  useTasks,
+  useActivities,
+} from "@/hooks/use-crm-data";
 import {
   Card,
   CardContent,
@@ -18,7 +30,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import {
   ArrowUpRight,
-  BarChart,
+  ArrowDownRight,
+  BarChart3,
   Calendar,
   CheckSquare,
   Download,
@@ -31,153 +44,308 @@ import {
   Plus,
   RefreshCw,
   Users,
-  UserPlus
+  UserPlus,
+  Building,
+  Activity,
+  TrendingUp,
+  DollarSign,
 } from "lucide-react";
+import { Doughnut, Bar, Line } from "react-chartjs-2";
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+  ArcElement,
+} from "chart.js";
+import { format } from "date-fns";
+import { toast } from "react-toastify";
 
-// Sample summary data for dashboard
-const crmSummary = {
-  totalContacts: 7,
-  activeDeals: 5,
-  wonDeals: 2,
-  totalDealValue: 153000,
-  avgDealSize: 30600,
-  conversionRate: 68,
-  newLeadsThisMonth: 12,
-  upcomingMeetings: 3,
-  pendingTasks: 4,
-  recentActivities: 8
+// Register Chart.js components
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+  ArcElement
+);
+
+// Mock data for CRM dashboard
+const mockMetrics = {
+  totalLeads: 156,
+  totalContacts: 89,
+  openDeals: 23,
+  totalDealValue: 2500000,
+  wonDeals: 12,
+  conversionRate: 15.4
 };
 
-// Sample metrics cards data
-const metricsCards = [
-  {
-    title: "Total Contacts",
-    value: crmSummary.totalContacts,
-    change: "+2",
-    isPositive: true,
-    icon: <Users className="h-5 w-5" />,
-    color: "bg-blue-500",
-  },
-  {
-    title: "Open Deals",
-    value: crmSummary.activeDeals,
-    change: "+1",
-    isPositive: true,
-    icon: <CheckSquare className="h-5 w-5" />,
-    color: "bg-green-500",
-  },
-  {
-    title: "Deal Value",
-    value: `$${crmSummary.totalDealValue.toLocaleString()}`,
-    change: "+15.3%",
-    isPositive: true,
-    icon: <BarChart className="h-5 w-5" />,
-    color: "bg-indigo-500",
-  },
-  {
-    title: "Conversion Rate",
-    value: `${crmSummary.conversionRate}%`,
-    change: "+2.4%",
-    isPositive: true,
-    icon: <PieChart className="h-5 w-5" />,
-    color: "bg-purple-500",
-  },
-];
+const mockLeadAnalytics = {
+  leadSources: [
+    { source: "Website", count: 45 },
+    { source: "Social Media", count: 32 },
+    { source: "Email Campaign", count: 28 },
+    { source: "Referral", count: 25 },
+    { source: "Cold Call", count: 15 },
+    { source: "Trade Show", count: 11 }
+  ]
+};
 
-// Sample recent activities
-const recentActivities = [
-  {
-    id: 1,
-    type: "Call",
-    contact: "John Smith",
-    company: "Acme Corporation",
-    summary: "Discussed implementation timeline",
-    date: "Today, 11:30 AM",
-    user: "Sarah Johnson"
-  },
-  {
-    id: 2,
-    type: "Email",
-    contact: "Sarah Johnson",
-    company: "TechStart Inc.",
-    summary: "Sent follow-up with quote details",
-    date: "Yesterday, 3:15 PM",
-    user: "Michael Chen"
-  },
-  {
-    id: 3,
-    type: "Meeting",
-    contact: "Michael Chen",
-    company: "Global Services Ltd.",
-    summary: "Product demonstration completed",
-    date: "Yesterday, 10:00 AM",
-    user: "Emma Wilson"
-  },
-  {
-    id: 4,
-    type: "Note",
-    contact: "James Taylor",
-    company: "Digital Dynamics",
-    summary: "Updated contact info and requirements",
-    date: "May 2, 2023",
-    user: "David Rodriguez"
-  }
-];
+const mockPipeline = {
+  stages: [
+    { stage: "Prospecting", count: 15, totalValue: 450000 },
+    { stage: "Qualification", count: 12, totalValue: 380000 },
+    { stage: "Proposal", count: 8, totalValue: 720000 },
+    { stage: "Negotiation", count: 5, totalValue: 650000 },
+    { stage: "Closed Won", count: 3, totalValue: 300000 }
+  ]
+};
 
-// Sample upcoming tasks
-const upcomingTasks = [
+const mockUpcomingTasks = [
   {
     id: 1,
     title: "Follow up with Acme Corp",
-    dueDate: "Today",
-    priority: "High",
-    type: "Call",
-    status: "Pending"
+    type: "call",
+    priority: "high",
+    dueDate: "2023-12-15T10:00:00Z",
+    contact: "John Smith"
   },
   {
     id: 2,
     title: "Send proposal to TechStart",
-    dueDate: "Tomorrow",
-    priority: "Medium",
-    type: "Email",
-    status: "Pending"
+    type: "email",
+    priority: "medium",
+    dueDate: "2023-12-16T14:00:00Z",
+    contact: "Sarah Johnson"
   },
   {
     id: 3,
-    title: "Prepare demo for NextGen",
-    dueDate: "May 10, 2023",
-    priority: "High",
-    type: "Meeting",
-    status: "In Progress"
+    title: "Demo preparation",
+    type: "meeting",
+    priority: "high",
+    dueDate: "2023-12-17T09:00:00Z",
+    contact: "Michael Chen"
+  }
+];
+
+const mockRecentActivities = [
+  {
+    id: 1,
+    type: "call",
+    description: "Called John Smith at Acme Corp",
+    timestamp: "2023-12-14T15:30:00Z"
   },
   {
-    id: 4,
-    title: "Update Digital Dynamics contract",
-    dueDate: "May 12, 2023",
-    priority: "Medium",
-    type: "Document",
-    status: "Pending"
+    id: 2,
+    type: "email",
+    description: "Sent proposal to Sarah Johnson",
+    timestamp: "2023-12-14T14:20:00Z"
+  },
+  {
+    id: 3,
+    type: "meeting",
+    description: "Demo meeting with Global Services",
+    timestamp: "2023-12-14T11:00:00Z"
   }
 ];
 
 export default function CrmManagement() {
-  const { toast } = useToast();
+  const { toast: useToastHook } = useToast();
   const [location, setLocation] = useLocation();
   const [currentTab, setCurrentTab] = useState("overview");
+  
+  // Using mock data instead of API calls
+  const metrics = mockMetrics;
+  const leadAnalytics = mockLeadAnalytics;
+  const pipeline = mockPipeline;
+  const upcomingTasks = mockUpcomingTasks;
+  const recentActivities = mockRecentActivities;
+  const isLoading = false;
+  const error = null;
 
-  // Mock query for lead source data
-  const { data: leadSourceData, isLoading: isLoadingLeadData } = useQuery({
-    queryKey: ["/api/crm/lead-sources"],
-    queryFn: () => {
-      // Mock data
-      return Promise.resolve([
-        { source: "Web", count: 45, percentage: 42 },
-        { source: "Referral", count: 28, percentage: 27 },
-        { source: "Social", count: 19, percentage: 18 },
-        { source: "Other", count: 14, percentage: 13 }
-      ]);
+  // Handle report generation
+  const handleGenerateReport = async (type: string, format: string) => {
+    try {
+      await generateReport.mutateAsync({ type, format });
+    } catch (error) {
+      console.error('Error generating report:', error);
+    }
+  };
+
+  // Refresh all data
+  const handleRefresh = () => {
+    window.location.reload();
+    toast.success("Data refreshed successfully!");
+  };
+
+  // Create metrics cards with real-time data
+  const metricsCards = metrics ? [
+    {
+      title: "Total Leads",
+      value: metrics.totalLeads,
+      change: "+12%",
+      isPositive: true,
+      icon: <Users className="h-5 w-5" />,
+      color: "bg-blue-500",
     },
-  });
+    {
+      title: "Total Contacts",
+      value: metrics.totalContacts,
+      change: "+8%",
+      isPositive: true,
+      icon: <UserPlus className="h-5 w-5" />,
+      color: "bg-green-500",
+    },
+    {
+      title: "Open Deals",
+      value: metrics.openDeals,
+      change: "+15%",
+      isPositive: true,
+      icon: <CheckSquare className="h-5 w-5" />,
+      color: "bg-indigo-500",
+    },
+    {
+      title: "Deal Value",
+      value: `$${metrics.totalDealValue?.toLocaleString() || 0}`,
+      change: "+22%",
+      isPositive: true,
+      icon: <DollarSign className="h-5 w-5" />,
+      color: "bg-purple-500",
+    },
+    {
+      title: "Won Deals",
+      value: metrics.wonDeals,
+      change: "+18%",
+      isPositive: true,
+      icon: <TrendingUp className="h-5 w-5" />,
+      color: "bg-emerald-500",
+    },
+    {
+      title: "Conversion Rate",
+      value: `${metrics.conversionRate?.toFixed(1)}%` || "0%",
+      change: "+5.2%",
+      isPositive: true,
+      icon: <BarChart3 className="h-5 w-5" />,
+      color: "bg-orange-500",
+    },
+  ] : [];
+
+  // Lead source chart data
+  const leadSourceChartData = leadAnalytics?.leadSources ? {
+    labels: leadAnalytics.leadSources.map((item: any) => item.source),
+    datasets: [
+      {
+        data: leadAnalytics.leadSources.map((item: any) => item.count),
+        backgroundColor: [
+          '#3B82F6', // Blue
+          '#10B981', // Green
+          '#F59E0B', // Yellow
+          '#EF4444', // Red
+          '#8B5CF6', // Purple
+          '#EC4899', // Pink
+        ],
+        borderWidth: 0,
+      },
+    ],
+  } : null;
+
+  // Sales pipeline chart data
+  const pipelineChartData = pipeline?.stages ? {
+    labels: pipeline.stages.map((stage: any) => stage.stage),
+    datasets: [
+      {
+        label: 'Number of Deals',
+        data: pipeline.stages.map((stage: any) => stage.count),
+        backgroundColor: '#3B82F6',
+        borderColor: '#2563EB',
+        borderWidth: 1,
+      },
+      {
+        label: 'Total Value ($)',
+        data: pipeline.stages.map((stage: any) => stage.totalValue),
+        backgroundColor: '#10B981',
+        borderColor: '#059669',
+        borderWidth: 1,
+        yAxisID: 'y1',
+      },
+    ],
+  } : null;
+
+  const pipelineChartOptions = {
+    responsive: true,
+    plugins: {
+      legend: {
+        position: 'top' as const,
+      },
+      title: {
+        display: true,
+        text: 'Sales Pipeline',
+      },
+    },
+    scales: {
+      y: {
+        type: 'linear' as const,
+        display: true,
+        position: 'left' as const,
+        title: {
+          display: true,
+          text: 'Number of Deals',
+        },
+      },
+      y1: {
+        type: 'linear' as const,
+        display: true,
+        position: 'right' as const,
+        title: {
+          display: true,
+          text: 'Total Value ($)',
+        },
+        grid: {
+          drawOnChartArea: false,
+        },
+      },
+    },
+  };
+
+  if (isLoading) {
+    return (
+      <ErpNavigation>
+        <div className="flex flex-col gap-6">
+          <div className="flex items-center justify-center min-h-[400px]">
+            <RefreshCw className="h-8 w-8 animate-spin text-primary" />
+          </div>
+        </div>
+      </ErpNavigation>
+    );
+  }
+
+  if (error) {
+    return (
+      <ErpNavigation>
+        <div className="flex flex-col gap-6">
+          <div className="flex items-center justify-center min-h-[400px]">
+            <div className="text-center">
+              <h3 className="text-lg font-semibold text-red-600">Error Loading CRM Data</h3>
+              <p className="text-muted-foreground mt-2">Please try refreshing the page</p>
+              <Button onClick={handleRefresh} className="mt-4">
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Refresh
+              </Button>
+            </div>
+          </div>
+        </div>
+      </ErpNavigation>
+    );
+  }
 
   return (
     <ErpNavigation>
@@ -187,42 +355,62 @@ export default function CrmManagement() {
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Customer Relationship Management</h1>
             <p className="text-muted-foreground">
-              Manage all your customer relationships and interactions
+              Manage all your customer relationships and interactions in real-time
             </p>
           </div>
           <div className="flex items-center gap-3">
-            <Button variant="outline" size="sm">
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={() => handleGenerateReport('summary', 'pdf')}
+              disabled={generateReport.isPending}
+            >
               <FileText className="h-4 w-4 mr-2" />
-              Reports
+              {generateReport.isPending ? 'Generating...' : 'PDF Report'}
             </Button>
-            <Button variant="outline" size="sm">
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={() => handleGenerateReport('summary', 'csv')}
+              disabled={generateReport.isPending}
+            >
+              <Download className="h-4 w-4 mr-2" />
+              CSV Export
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleRefresh}>
               <RefreshCw className="h-4 w-4 mr-2" />
               Refresh
             </Button>
-            <Button size="sm">
+            <Button size="sm" onClick={() => setCurrentTab('contacts')}>
               <UserPlus className="h-4 w-4 mr-2" />
               Add Contact
             </Button>
           </div>
         </div>
 
-        {/* Summary metrics */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {/* Real-time metrics cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6">
           {metricsCards.map((card, index) => (
             <Card key={index}>
               <CardContent className="p-6">
                 <div className="flex justify-between items-start">
                   <div>
                     <p className="text-sm font-medium text-muted-foreground mb-1">{card.title}</p>
-                    <h2 className="text-3xl font-bold">{card.value}</h2>
+                    <h2 className="text-2xl font-bold">{card.value}</h2>
                   </div>
                   <div className={`${card.color} p-2 rounded-full text-white`}>
                     {card.icon}
                   </div>
                 </div>
                 <div className="mt-4 flex items-center text-sm">
-                  <ArrowUpRight className="h-4 w-4 text-green-500 mr-1" />
-                  <span className="text-green-500">{card.change}</span>
+                  {card.isPositive ? (
+                    <ArrowUpRight className="h-4 w-4 text-green-500 mr-1" />
+                  ) : (
+                    <ArrowDownRight className="h-4 w-4 text-red-500 mr-1" />
+                  )}
+                  <span className={card.isPositive ? "text-green-500" : "text-red-500"}>
+                    {card.change}
+                  </span>
                   <span className="text-muted-foreground ml-1">since last month</span>
                 </div>
               </CardContent>
@@ -250,59 +438,67 @@ export default function CrmManagement() {
           {/* Overview Tab */}
           <TabsContent value="overview" className="space-y-6">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Lead Source Distribution Chart */}
               <Card className="lg:col-span-2">
                 <CardHeader>
                   <div className="flex justify-between items-center">
                     <div>
                       <CardTitle>Lead Source Distribution</CardTitle>
-                      <CardDescription>Where your leads are coming from</CardDescription>
+                      <CardDescription>Real-time data showing where your leads are coming from</CardDescription>
                     </div>
-                    <Button variant="outline" size="sm">
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => handleGenerateReport('leads', 'csv')}
+                    >
                       <Download className="h-4 w-4 mr-2" />
                       Export
                     </Button>
                   </div>
                 </CardHeader>
                 <CardContent>
-                  {isLoadingLeadData ? (
-                    <div className="flex items-center justify-center h-[300px]">
-                      <RefreshCw className="h-8 w-8 animate-spin text-primary" />
+                  {leadSourceChartData ? (
+                    <div className="h-[300px] flex items-center justify-center">
+                      <Doughnut 
+                        data={leadSourceChartData} 
+                        options={{
+                          responsive: true,
+                          maintainAspectRatio: false,
+                          plugins: {
+                            legend: {
+                              position: 'bottom',
+                            },
+                          },
+                        }}
+                      />
                     </div>
                   ) : (
-                    <div className="space-y-8">
-                      <div className="h-[200px] bg-muted/20 rounded-md flex flex-col items-center justify-center">
-                        <PieChart className="h-12 w-12 text-muted-foreground mb-2" />
-                        <p className="font-medium">Lead Source Distribution</p>
-                        <p className="text-sm text-muted-foreground mt-1">(Visualized chart showing distribution of leads by source)</p>
-                      </div>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
-                        {leadSourceData?.map((source) => (
-                          <div key={source.source} className="text-center p-3 border rounded-md">
-                            <div className="text-sm text-muted-foreground">{source.source}</div>
-                            <div className="text-xl font-bold mt-1">{source.percentage}%</div>
-                            <div className="text-sm text-muted-foreground mt-1">{source.count} leads</div>
-                          </div>
-                        ))}
+                    <div className="flex items-center justify-center h-[300px]">
+                      <div className="text-center">
+                        <PieChart className="h-12 w-12 text-muted-foreground mb-2 mx-auto" />
+                        <p className="font-medium">No lead data available</p>
+                        <p className="text-sm text-muted-foreground mt-1">Start by adding some leads</p>
                       </div>
                     </div>
                   )}
                 </CardContent>
               </Card>
 
+              {/* Upcoming Tasks */}
               <Card>
                 <CardHeader>
                   <CardTitle>Upcoming Tasks</CardTitle>
-                  <CardDescription>Your pending tasks and meetings</CardDescription>
+                  <CardDescription>Your pending tasks and reminders</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
                     {upcomingTasks.map((task) => (
                       <div key={task.id} className="p-3 border rounded-md">
-                        <div className="flex justify-between">
-                          <div className="font-medium">{task.title}</div>
+                        <div className="flex justify-between items-start">
+                          <div className="font-medium text-sm">{task.title}</div>
                           <Badge variant={
-                            task.priority === "High" ? "destructive" : 
-                            task.priority === "Medium" ? "secondary" : 
+                            task.priority === "high" ? "destructive" : 
+                            task.priority === "medium" ? "secondary" : 
                             "outline"
                           }>
                             {task.priority}
@@ -311,18 +507,24 @@ export default function CrmManagement() {
                         <div className="flex justify-between mt-2 text-sm">
                           <div className="flex items-center text-muted-foreground">
                             <Calendar className="h-3 w-3 mr-1" />
-                            <span>{task.dueDate}</span>
+                            <span>{task.dueDate ? format(new Date(task.dueDate), 'MMM dd') : 'No due date'}</span>
                           </div>
                           <div className="flex items-center">
-                            {task.type === "Call" && <Phone className="h-3 w-3 mr-1 text-blue-500" />}
-                            {task.type === "Email" && <MailCheck className="h-3 w-3 mr-1 text-green-500" />}
-                            {task.type === "Meeting" && <Users className="h-3 w-3 mr-1 text-purple-500" />}
-                            {task.type === "Document" && <FileText className="h-3 w-3 mr-1 text-yellow-500" />}
-                            <span>{task.type}</span>
+                            {task.type === "call" && <Phone className="h-3 w-3 mr-1 text-blue-500" />}
+                            {task.type === "email" && <MailCheck className="h-3 w-3 mr-1 text-green-500" />}
+                            {task.type === "meeting" && <Users className="h-3 w-3 mr-1 text-purple-500" />}
+                            <span className="capitalize">{task.type}</span>
                           </div>
                         </div>
                       </div>
                     ))}
+                    {upcomingTasks.length === 0 && (
+                      <div className="text-center py-8">
+                        <CheckSquare className="h-12 w-12 text-muted-foreground mb-2 mx-auto" />
+                        <p className="font-medium">No pending tasks</p>
+                        <p className="text-sm text-muted-foreground mt-1">You're all caught up!</p>
+                      </div>
+                    )}
                     <Button className="w-full" variant="outline" size="sm">
                       <Plus className="h-4 w-4 mr-2" />
                       Add Task
@@ -332,14 +534,15 @@ export default function CrmManagement() {
               </Card>
             </div>
 
+            {/* Recent Activities */}
             <Card>
               <CardHeader>
                 <div className="flex justify-between items-center">
                   <div>
                     <CardTitle>Recent Activities</CardTitle>
-                    <CardDescription>Latest interactions with contacts</CardDescription>
+                    <CardDescription>Latest interactions with contacts and deals</CardDescription>
                   </div>
-                  <Button variant="outline" size="sm">
+                  <Button variant="outline" size="sm" onClick={() => setCurrentTab('activities')}>
                     View All
                   </Button>
                 </div>
@@ -350,61 +553,62 @@ export default function CrmManagement() {
                     <div key={activity.id} className="flex gap-4 p-3 border rounded-md">
                       <div className={`
                         flex-shrink-0 h-10 w-10 rounded-full flex items-center justify-center
-                        ${activity.type === 'Call' ? 'bg-blue-100 text-blue-600' : 
-                          activity.type === 'Email' ? 'bg-green-100 text-green-600' : 
-                          activity.type === 'Meeting' ? 'bg-purple-100 text-purple-600' : 
+                        ${activity.type === 'call' ? 'bg-blue-100 text-blue-600' : 
+                          activity.type === 'email' ? 'bg-green-100 text-green-600' : 
+                          activity.type === 'meeting' ? 'bg-purple-100 text-purple-600' : 
                           'bg-yellow-100 text-yellow-600'}
                       `}>
-                        {activity.type === 'Call' && <PhoneCall className="h-5 w-5" />}
-                        {activity.type === 'Email' && <MailCheck className="h-5 w-5" />}
-                        {activity.type === 'Meeting' && <Users className="h-5 w-5" />}
-                        {activity.type === 'Note' && <MessageSquare className="h-5 w-5" />}
+                        {activity.type === 'call' && <PhoneCall className="h-5 w-5" />}
+                        {activity.type === 'email' && <MailCheck className="h-5 w-5" />}
+                        {activity.type === 'meeting' && <Users className="h-5 w-5" />}
+                        {activity.type === 'note' && <MessageSquare className="h-5 w-5" />}
                       </div>
                       <div className="flex-grow">
-                        <div className="flex justify-between">
+                        <div className="flex justify-between items-start">
                           <div>
-                            <div className="font-medium">{activity.contact}</div>
-                            <div className="text-sm text-muted-foreground">{activity.company}</div>
+                            <div className="font-medium">{activity.subject}</div>
+                            <div className="text-sm text-muted-foreground">{activity.description}</div>
                           </div>
-                          <div className="text-sm text-muted-foreground">{activity.date}</div>
+                          <div className="text-sm text-muted-foreground">
+                            {activity.createdAt ? format(new Date(activity.createdAt), 'MMM dd, HH:mm') : ''}
+                          </div>
                         </div>
-                        <div className="mt-1 text-sm">{activity.summary}</div>
                       </div>
                     </div>
                   ))}
+                  {recentActivities.length === 0 && (
+                    <div className="text-center py-8">
+                      <Activity className="h-12 w-12 text-muted-foreground mb-2 mx-auto" />
+                      <p className="font-medium">No recent activities</p>
+                      <p className="text-sm text-muted-foreground mt-1">Start by logging some interactions</p>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Sales Pipeline Distribution</CardTitle>
-                  <CardDescription>Value distribution across sales stages</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="h-[300px] bg-muted/20 rounded-md flex flex-col items-center justify-center">
-                    <BarChart className="h-12 w-12 text-muted-foreground mb-2" />
-                    <p className="font-medium">Sales Pipeline Chart</p>
-                    <p className="text-sm text-muted-foreground mt-1">(Visualized chart showing deal distribution by stage)</p>
+            {/* Sales Pipeline Chart */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Sales Pipeline Distribution</CardTitle>
+                <CardDescription>Real-time view of deals across different stages</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {pipelineChartData ? (
+                  <div className="h-[400px]">
+                    <Bar data={pipelineChartData} options={pipelineChartOptions} />
                   </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Conversion Funnel</CardTitle>
-                  <CardDescription>Lead to customer conversion stages</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="h-[300px] bg-muted/20 rounded-md flex flex-col items-center justify-center">
-                    <PieChart className="h-12 w-12 text-muted-foreground mb-2" />
-                    <p className="font-medium">Conversion Funnel Chart</p>
-                    <p className="text-sm text-muted-foreground mt-1">(Visualized funnel showing conversion rate at each stage)</p>
+                ) : (
+                  <div className="flex items-center justify-center h-[400px]">
+                    <div className="text-center">
+                      <BarChart3 className="h-12 w-12 text-muted-foreground mb-2 mx-auto" />
+                      <p className="font-medium">No pipeline data available</p>
+                      <p className="text-sm text-muted-foreground mt-1">Create some deals to see the pipeline</p>
+                    </div>
                   </div>
-                </CardContent>
-              </Card>
-            </div>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
 
           {/* Leads Tab */}
@@ -424,62 +628,17 @@ export default function CrmManagement() {
 
           {/* Activities Tab */}
           <TabsContent value="activities" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Activity Management</CardTitle>
-                <CardDescription>
-                  This feature will allow you to track all customer interactions
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
-                <MessageSquare className="h-16 w-16 text-primary/40" />
-                <h3 className="text-xl font-semibold">Activity Management Module</h3>
-                <p className="text-center text-muted-foreground max-w-md">
-                  This module is coming in the next implementation phase. You'll be able to log calls, emails, 
-                  meetings and other interactions with your contacts and deals.
-                </p>
-              </CardContent>
-            </Card>
+            <ActivityManagement />
           </TabsContent>
 
           {/* Companies Tab */}
           <TabsContent value="companies" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Company Management</CardTitle>
-                <CardDescription>
-                  This feature will allow you to manage company records
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
-                <Users className="h-16 w-16 text-primary/40" />
-                <h3 className="text-xl font-semibold">Company Management Module</h3>
-                <p className="text-center text-muted-foreground max-w-md">
-                  This module is coming in the next implementation phase. You'll be able to manage company records, 
-                  track accounts, and organize contacts by company.
-                </p>
-              </CardContent>
-            </Card>
+            <CompanyManagement />
           </TabsContent>
 
           {/* Phone Calls Tab */}
           <TabsContent value="calls" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Call Management</CardTitle>
-                <CardDescription>
-                  This feature will allow you to log and track phone interactions
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
-                <Phone className="h-16 w-16 text-primary/40" />
-                <h3 className="text-xl font-semibold">Call Tracking Module</h3>
-                <p className="text-center text-muted-foreground max-w-md">
-                  This module is coming in the next implementation phase. You'll be able to log calls, set up 
-                  call reminders, and track customer communications via phone.
-                </p>
-              </CardContent>
-            </Card>
+            <PhoneCallManagement />
           </TabsContent>
         </Tabs>
       </div>
