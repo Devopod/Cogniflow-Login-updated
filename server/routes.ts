@@ -48,6 +48,7 @@ import webhookRoutes from './src/routes/webhooks';
 import adminRoutes from './src/routes/admin';
 import paymentRoutes from './src/routes/payments';
 import paymentReminderRoutes from './src/routes/payment-reminders';
+import crmRoutes from './src/routes/crm';
 import paymentGatewayRoutes from './src/routes/payment-gateways';
 import emailTestRoutes from './src/routes/email-test';
 import { registerDynamicRoutes } from './routes-dynamic';
@@ -111,6 +112,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Register admin routes
   app.use('/api/admin', adminRoutes);
+
+  // Register CRM routes
+  app.use('/api/crm', crmRoutes);
 
   // API routes with authentication
   

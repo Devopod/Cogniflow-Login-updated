@@ -1487,6 +1487,104 @@ export const paymentLinksRelations = relations(paymentLinks, ({ one }) => ({
   }),
 }));
 
+// CRM Relations
+export const leadsRelations = relations(leads, ({ one, many }) => ({
+  user: one(users, {
+    fields: [leads.userId],
+    references: [users.id],
+  }),
+  assignedUser: one(users, {
+    fields: [leads.assignedTo],
+    references: [users.id],
+  }),
+  activities: many(activities),
+  tasks: many(tasks),
+  phoneCalls: many(phoneCallsTable),
+}));
+
+export const dealStagesRelations = relations(dealStages, ({ one, many }) => ({
+  user: one(users, {
+    fields: [dealStages.userId],
+    references: [users.id],
+  }),
+  deals: many(dealsUpdated),
+}));
+
+export const activitiesRelations = relations(activities, ({ one }) => ({
+  user: one(users, {
+    fields: [activities.userId],
+    references: [users.id],
+  }),
+  contact: one(contacts, {
+    fields: [activities.contactId],
+    references: [contacts.id],
+  }),
+  lead: one(leads, {
+    fields: [activities.leadId],
+    references: [leads.id],
+  }),
+  deal: one(deals, {
+    fields: [activities.dealId],
+    references: [deals.id],
+  }),
+}));
+
+export const tasksRelations = relations(tasks, ({ one }) => ({
+  user: one(users, {
+    fields: [tasks.userId],
+    references: [users.id],
+  }),
+  assignedUser: one(users, {
+    fields: [tasks.assignedTo],
+    references: [users.id],
+  }),
+  contact: one(contacts, {
+    fields: [tasks.contactId],
+    references: [contacts.id],
+  }),
+  lead: one(leads, {
+    fields: [tasks.leadId],
+    references: [leads.id],
+  }),
+  deal: one(deals, {
+    fields: [tasks.dealId],
+    references: [deals.id],
+  }),
+}));
+
+export const crmCompaniesRelations = relations(crmCompanies, ({ one, many }) => ({
+  user: one(users, {
+    fields: [crmCompanies.userId],
+    references: [users.id],
+  }),
+}));
+
+export const phoneCallsRelations = relations(phoneCallsTable, ({ one }) => ({
+  user: one(users, {
+    fields: [phoneCallsTable.userId],
+    references: [users.id],
+  }),
+  contact: one(contacts, {
+    fields: [phoneCallsTable.contactId],
+    references: [contacts.id],
+  }),
+  lead: one(leads, {
+    fields: [phoneCallsTable.leadId],
+    references: [leads.id],
+  }),
+  deal: one(deals, {
+    fields: [phoneCallsTable.dealId],
+    references: [deals.id],
+  }),
+}));
+
+export const auditLogsRelations = relations(auditLogs, ({ one }) => ({
+  user: one(users, {
+    fields: [auditLogs.userId],
+    references: [users.id],
+  }),
+}));
+
 // Input Schemas
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
@@ -1783,11 +1881,217 @@ export type InsertInvoiceActivity = z.infer<typeof insertInvoiceActivitySchema>;
 export type InsertPaymentLink = z.infer<typeof insertPaymentLinkSchema>;
 export type InsertCurrencyRate = z.infer<typeof insertCurrencyRateSchema>;
 
+// CRM Schema Types
+export const insertLeadSchema = createInsertSchema(leads).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertDealStageSchema = createInsertSchema(dealStages).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertActivitySchema = createInsertSchema(activities).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertTaskSchema = createInsertSchema(tasks).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertCrmCompanySchema = createInsertSchema(crmCompanies).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertPhoneCallSchema = createInsertSchema(phoneCallsTable).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({
+  id: true,
+  createdAt: true,
+});
+
+// CRM Types
+export type Lead = typeof leads.$inferSelect;
+export type DealStage = typeof dealStages.$inferSelect;
+export type Activity = typeof activities.$inferSelect;
+export type Task = typeof tasks.$inferSelect;
+export type CrmCompany = typeof crmCompanies.$inferSelect;
+export type PhoneCall = typeof phoneCallsTable.$inferSelect;
+export type AuditLog = typeof auditLogs.$inferSelect;
+
+export type InsertLead = z.infer<typeof insertLeadSchema>;
+export type InsertDealStage = z.infer<typeof insertDealStageSchema>;
+export type InsertActivity = z.infer<typeof insertActivitySchema>;
+export type InsertTask = z.infer<typeof insertTaskSchema>;
+export type InsertCrmCompany = z.infer<typeof insertCrmCompanySchema>;
+export type InsertPhoneCall = z.infer<typeof insertPhoneCallSchema>;
+export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
+
 // Audit logs table for tracking user actions (email, payment, etc.)
+// CRM Module - Extended
+export const leads = pgTable("leads", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  firstName: varchar("first_name", { length: 100 }).notNull(),
+  lastName: varchar("last_name", { length: 100 }).notNull(),
+  company: varchar("company", { length: 100 }),
+  email: varchar("email", { length: 255 }),
+  phone: varchar("phone", { length: 20 }),
+  source: varchar("source", { length: 100 }),
+  status: varchar("status", { length: 50 }).default('new'), // new, contacted, qualified, unqualified
+  notes: text("notes"),
+  estimatedValue: real("estimated_value"),
+  priority: varchar("priority", { length: 50 }).default('medium'), // low, medium, high
+  assignedTo: integer("assigned_to").references(() => users.id),
+  lastContactDate: timestamp("last_contact_date"),
+  nextFollowUpDate: timestamp("next_follow_up_date"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const dealStages = pgTable("deal_stages", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  name: varchar("name", { length: 100 }).notNull(),
+  order: integer("order").notNull(),
+  color: varchar("color", { length: 20 }).default('#3B82F6'),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Update deals table to include more CRM fields
+export const dealsUpdated = pgTable("deals", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  contactId: integer("contact_id").references(() => contacts.id),
+  leadId: integer("lead_id").references(() => leads.id),
+  title: varchar("title", { length: 100 }).notNull(),
+  description: text("description"),
+  value: real("value"),
+  currency: varchar("currency", { length: 3 }).default('USD'),
+  stage: varchar("stage", { length: 50 }).notNull(),
+  stageId: integer("stage_id").references(() => dealStages.id),
+  probability: integer("probability").default(0), // 0-100
+  expectedCloseDate: date("expected_close_date"),
+  actualCloseDate: date("actual_close_date"),
+  status: varchar("status", { length: 50 }).default('open'), // open, won, lost
+  source: varchar("source", { length: 100 }),
+  priority: varchar("priority", { length: 50 }).default('medium'),
+  ownerId: integer("owner_id").references(() => users.id),
+  notes: text("notes"),
+  lostReason: text("lost_reason"),
+  products: jsonb("products"), // Array of product references
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const activities = pgTable("activities", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  contactId: integer("contact_id").references(() => contacts.id),
+  leadId: integer("lead_id").references(() => leads.id),
+  dealId: integer("deal_id").references(() => deals.id),
+  type: varchar("type", { length: 50 }).notNull(), // call, email, meeting, note, task
+  subject: varchar("subject", { length: 200 }).notNull(),
+  description: text("description"),
+  status: varchar("status", { length: 50 }).default('completed'), // completed, pending, cancelled
+  duration: integer("duration"), // in minutes
+  dueDate: timestamp("due_date"),
+  completedAt: timestamp("completed_at"),
+  outcome: varchar("outcome", { length: 100 }), // successful, unsuccessful, rescheduled
+  notes: text("notes"),
+  attendees: jsonb("attendees"), // Array of user IDs or email addresses
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const tasks = pgTable("tasks", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  assignedTo: integer("assigned_to").references(() => users.id),
+  contactId: integer("contact_id").references(() => contacts.id),
+  leadId: integer("lead_id").references(() => leads.id),
+  dealId: integer("deal_id").references(() => deals.id),
+  title: varchar("title", { length: 200 }).notNull(),
+  description: text("description"),
+  type: varchar("type", { length: 50 }).notNull(), // call, email, meeting, follow_up, demo
+  priority: varchar("priority", { length: 50 }).default('medium'), // low, medium, high, urgent
+  status: varchar("status", { length: 50 }).default('pending'), // pending, in_progress, completed, cancelled
+  dueDate: timestamp("due_date"),
+  completedAt: timestamp("completed_at"),
+  reminderDate: timestamp("reminder_date"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const crmCompanies = pgTable("crm_companies", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  name: varchar("name", { length: 100 }).notNull(),
+  industry: varchar("industry", { length: 100 }),
+  website: varchar("website", { length: 255 }),
+  phone: varchar("phone", { length: 20 }),
+  email: varchar("email", { length: 255 }),
+  address: text("address"),
+  city: varchar("city", { length: 100 }),
+  state: varchar("state", { length: 100 }),
+  country: varchar("country", { length: 100 }),
+  postalCode: varchar("postal_code", { length: 20 }),
+  employees: integer("employees"),
+  revenue: real("revenue"),
+  notes: text("notes"),
+  tags: jsonb("tags"), // Array of tags
+  customFields: jsonb("custom_fields"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const phoneCallsTable = pgTable("phone_calls", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  contactId: integer("contact_id").references(() => contacts.id),
+  leadId: integer("lead_id").references(() => leads.id),
+  dealId: integer("deal_id").references(() => deals.id),
+  phoneNumber: varchar("phone_number", { length: 20 }).notNull(),
+  direction: varchar("direction", { length: 20 }).notNull(), // inbound, outbound
+  status: varchar("status", { length: 50 }).notNull(), // completed, missed, busy, no_answer
+  duration: integer("duration"), // in seconds
+  recordingUrl: varchar("recording_url", { length: 500 }),
+  notes: text("notes"),
+  outcome: varchar("outcome", { length: 100 }),
+  followUpRequired: boolean("follow_up_required").default(false),
+  scheduledAt: timestamp("scheduled_at"),
+  startedAt: timestamp("started_at"),
+  endedAt: timestamp("ended_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 export const auditLogs = pgTable("audit_logs", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull().references(() => users.id),
   action: varchar("action", { length: 100 }).notNull(),
+  resourceType: varchar("resource_type", { length: 50 }).notNull(), // lead, contact, deal, activity, etc.
+  resourceId: integer("resource_id"),
+  oldValues: jsonb("old_values"),
+  newValues: jsonb("new_values"),
   details: text("details"),
+  ipAddress: varchar("ip_address", { length: 45 }),
+  userAgent: text("user_agent"),
   createdAt: timestamp("created_at").defaultNow(),
 });
