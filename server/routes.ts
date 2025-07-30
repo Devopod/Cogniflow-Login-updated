@@ -50,6 +50,10 @@ import paymentRoutes from './src/routes/payments';
 import paymentReminderRoutes from './src/routes/payment-reminders';
 import paymentGatewayRoutes from './src/routes/payment-gateways';
 import emailTestRoutes from './src/routes/email-test';
+import crmRoutes from './src/routes/crm';
+import inventoryRoutes from './src/routes/inventory';
+import hrmsRoutes from './src/routes/hrms';
+import purchaseRoutes from './src/routes/purchase';
 import { registerDynamicRoutes } from './routes-dynamic';
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -111,6 +115,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Register admin routes
   app.use('/api/admin', adminRoutes);
+  
+  // Register CRM routes
+  app.use('/api/crm', crmRoutes);
+  
+  // Register Inventory routes
+  app.use('/api/inventory', inventoryRoutes);
+  
+  // Register HRMS routes
+  app.use('/api/hrms', hrmsRoutes);
+  
+  // Register Purchase routes
+  app.use('/api/purchase', purchaseRoutes);
 
   // API routes with authentication
   
