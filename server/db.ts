@@ -16,6 +16,10 @@ dotenv.config({ path: resolve(__dirname, '../.env') });
 // Configure neon to use websockets
 neonConfig.webSocketConstructor = ws;
 
+// Initialize database and pool variables
+let db: any;
+let pool: any;
+
 // For development, use SQLite if no DATABASE_URL is provided
 if (process.env.NODE_ENV === 'development' && !process.env.DATABASE_URL) {
   console.log('Using development SQLite database');
@@ -23,10 +27,10 @@ if (process.env.NODE_ENV === 'development' && !process.env.DATABASE_URL) {
   const Database = (await import('better-sqlite3')).default;
   
   const sqlite = new Database('cogniflow-dev.db');
-  export const db = drizzle(sqlite, { schema });
+  db = drizzle(sqlite, { schema });
   
   // Mock pool for compatibility
-  export const pool = {
+  pool = {
     query: (sql: string, params?: any[]) => {
       return { rows: [] };
     }
@@ -38,6 +42,8 @@ if (process.env.NODE_ENV === 'development' && !process.env.DATABASE_URL) {
     );
   }
   
-  export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-  export const db = drizzle(pool, { schema });
+  pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  db = drizzle(pool, { schema });
 }
+
+export { db, pool };
