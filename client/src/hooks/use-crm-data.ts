@@ -1,906 +1,967 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { toast } from "react-toastify";
-import {
-  Lead,
-  Contact,
-  Deal,
-  Activity,
-  Task,
-  CrmCompany,
-  PhoneCall,
-  DealStage,
-  InsertLead,
-  InsertActivity,
-  InsertTask,
-  InsertCrmCompany,
-  InsertPhoneCall,
-  InsertDealStage,
-} from "@shared/schema";
-import { apiRequest } from "@/lib/queryClient";
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useWebSocket } from './use-websocket';
+import { useEffect } from 'react';
+import { toast } from 'react-toastify';
 
-// ==================== LEADS HOOKS ====================
-
-export function useLeads(filters?: {
-  page?: number;
-  limit?: number;
-  search?: string;
-  status?: string;
+// Types
+export interface Lead {
+  id: number;
+  userId: number;
+  firstName: string;
+  lastName: string;
+  company?: string;
+  email?: string;
+  phone?: string;
   source?: string;
-  priority?: string;
-}) {
-  return useQuery({
-    queryKey: ["/api/crm/leads", filters],
-    queryFn: async () => {
-      const params = new URLSearchParams();
-      if (filters) {
-        Object.entries(filters).forEach(([key, value]) => {
-          if (value !== undefined && value !== null && value !== "") {
-            params.append(key, String(value));
-          }
-        });
-      }
-      
-      const url = `/api/crm/leads${params.toString() ? "?" + params.toString() : ""}`;
-      const response = await apiRequest("GET", url);
-      return response.json();
-    },
-  });
+  status: 'new' | 'contacted' | 'qualified' | 'unqualified' | 'converted';
+  notes?: string;
+  estimatedValue?: number;
+  priority: 'low' | 'medium' | 'high';
+  assignedTo?: number;
+  lastContactDate?: Date;
+  nextFollowUpDate?: Date;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
-export function useLead(id: number | null) {
-  return useQuery({
-    queryKey: ["/api/crm/leads", id],
-    queryFn: async () => {
-      if (!id) return null;
-      const response = await apiRequest("GET", `/api/crm/leads/${id}`);
-      return response.json();
-    },
-    enabled: !!id,
-  });
+export interface Contact {
+  id: number;
+  userId: number;
+  firstName: string;
+  lastName: string;
+  email?: string;
+  phone?: string;
+  company?: string;
+  position?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  postalCode?: string;
+  notes?: string;
+  source?: string;
+  status: 'active' | 'inactive';
+  type: 'lead' | 'customer' | 'partner';
+  createdAt: Date;
+  updatedAt: Date;
 }
 
-export function useCreateLead() {
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: async (leadData: InsertLead) => {
-      const response = await apiRequest("POST", "/api/crm/leads", leadData);
-      return response.json();
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/crm/leads"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/crm/metrics"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/crm/lead-analytics"] });
-      toast.success("Lead created successfully!");
-    },
-    onError: (error: any) => {
-      console.error("Error creating lead:", error);
-      toast.error("Failed to create lead");
-    },
-  });
+export interface Deal {
+  id: number;
+  userId: number;
+  contactId?: number;
+  title: string;
+  description?: string;
+  value?: number;
+  currency: string;
+  stage: string;
+  probability?: number;
+  expectedCloseDate?: Date;
+  actualCloseDate?: Date;
+  status: 'open' | 'won' | 'lost';
+  source?: string;
+  priority: 'low' | 'medium' | 'high';
+  ownerId?: number;
+  notes?: string;
+  lostReason?: string;
+  products?: any[];
+  createdAt: Date;
+  updatedAt: Date;
 }
 
-export function useUpdateLead() {
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: async ({ id, ...data }: { id: number } & Partial<InsertLead>) => {
-      const response = await apiRequest("PUT", `/api/crm/leads/${id}`, data);
-      return response.json();
-    },
-    onSuccess: (data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/crm/leads"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/crm/leads", variables.id] });
-      queryClient.invalidateQueries({ queryKey: ["/api/crm/metrics"] });
-      toast.success("Lead updated successfully!");
-    },
-    onError: (error: any) => {
-      console.error("Error updating lead:", error);
-      toast.error("Failed to update lead");
-    },
-  });
-}
-
-export function useDeleteLead() {
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: async (id: number) => {
-      const response = await apiRequest("DELETE", `/api/crm/leads/${id}`);
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/crm/leads"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/crm/metrics"] });
-      toast.success("Lead deleted successfully!");
-    },
-    onError: (error: any) => {
-      console.error("Error deleting lead:", error);
-      toast.error("Failed to delete lead");
-    },
-  });
-}
-
-export function useConvertLead() {
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: async (leadId: number) => {
-      const response = await apiRequest("POST", `/api/crm/leads/${leadId}/convert`);
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/crm/leads"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/crm/metrics"] });
-      toast.success("Lead converted to contact successfully!");
-    },
-    onError: (error: any) => {
-      console.error("Error converting lead:", error);
-      toast.error("Failed to convert lead");
-    },
-  });
-}
-
-export function useImportLeads() {
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: async (file: File) => {
-      const formData = new FormData();
-      formData.append("file", file);
-      
-      const response = await fetch("/api/crm/leads/import", {
-        method: "POST",
-        body: formData,
-        credentials: "include",
-      });
-      
-      if (!response.ok) {
-        throw new Error("Import failed");
-      }
-      
-      return response.json();
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/crm/leads"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/crm/metrics"] });
-      toast.success(`Import completed: ${data.success} leads imported successfully`);
-      if (data.errors.length > 0) {
-        toast.warning(`${data.errors.length} rows had errors`);
-      }
-    },
-    onError: (error: any) => {
-      console.error("Error importing leads:", error);
-      toast.error("Failed to import leads");
-    },
-  });
-}
-
-export function useSendLeadEmail() {
-  return useMutation({
-    mutationFn: async ({
-      leadId,
-      subject,
-      message,
-    }: {
-      leadId: number;
-      subject: string;
-      message: string;
-    }) => {
-      const response = await apiRequest("POST", `/api/crm/leads/${leadId}/email`, {
-        subject,
-        message,
-      });
-      return response.json();
-    },
-    onSuccess: () => {
-      toast.success("Email sent successfully!");
-    },
-    onError: (error: any) => {
-      console.error("Error sending email:", error);
-      toast.error("Failed to send email");
-    },
-  });
-}
-
-// ==================== ACTIVITIES HOOKS ====================
-
-export function useActivities(filters?: {
+export interface Activity {
+  id: number;
+  userId: number;
   contactId?: number;
   leadId?: number;
   dealId?: number;
-}) {
+  type: 'call' | 'email' | 'meeting' | 'note' | 'task';
+  subject: string;
+  description?: string;
+  status: 'completed' | 'pending' | 'cancelled';
+  duration?: number;
+  dueDate?: Date;
+  completedAt?: Date;
+  outcome?: string;
+  notes?: string;
+  attendees?: any[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface Task {
+  id: number;
+  userId: number;
+  assignedTo?: number;
+  contactId?: number;
+  leadId?: number;
+  dealId?: number;
+  title: string;
+  description?: string;
+  type: 'call' | 'email' | 'meeting' | 'follow_up' | 'demo';
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  status: 'pending' | 'in_progress' | 'completed' | 'cancelled';
+  dueDate?: Date;
+  completedAt?: Date;
+  reminderDate?: Date;
+  notes?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CrmCompany {
+  id: number;
+  userId: number;
+  name: string;
+  industry?: string;
+  website?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  postalCode?: string;
+  employees?: number;
+  revenue?: number;
+  notes?: string;
+  tags?: string[];
+  customFields?: any;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface PhoneCall {
+  id: number;
+  userId: number;
+  contactId?: number;
+  leadId?: number;
+  dealId?: number;
+  phoneNumber: string;
+  direction: 'inbound' | 'outbound';
+  status: 'completed' | 'missed' | 'busy' | 'no_answer';
+  duration?: number;
+  recordingUrl?: string;
+  notes?: string;
+  outcome?: string;
+  followUpRequired: boolean;
+  scheduledAt?: Date;
+  startedAt?: Date;
+  endedAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CrmMetrics {
+  totalLeads: number;
+  totalContacts: number;
+  openDeals: number;
+  totalDealValue: number;
+  wonDeals: number;
+  wonDealValue: number;
+  pendingTasks: number;
+  recentActivities: number;
+  conversionRate: number;
+}
+
+// API functions
+const crmApi = {
+  // Leads
+  getLeads: async (params?: any) => {
+    const query = new URLSearchParams(params).toString();
+    const response = await fetch(`/api/crm/leads?${query}`);
+    if (!response.ok) throw new Error('Failed to fetch leads');
+    return response.json();
+  },
+  
+  createLead: async (data: Partial<Lead>) => {
+    const response = await fetch('/api/crm/leads', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) throw new Error('Failed to create lead');
+    return response.json();
+  },
+  
+  updateLead: async ({ id, data }: { id: number; data: Partial<Lead> }) => {
+    const response = await fetch(`/api/crm/leads/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) throw new Error('Failed to update lead');
+    return response.json();
+  },
+  
+  deleteLead: async (id: number) => {
+    const response = await fetch(`/api/crm/leads/${id}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) throw new Error('Failed to delete lead');
+    return response.json();
+  },
+  
+  convertLead: async (id: number) => {
+    const response = await fetch(`/api/crm/leads/${id}/convert`, {
+      method: 'POST',
+    });
+    if (!response.ok) throw new Error('Failed to convert lead');
+    return response.json();
+  },
+  
+  sendLeadEmail: async ({ id, data }: { id: number; data: any }) => {
+    const response = await fetch(`/api/crm/leads/${id}/email`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) throw new Error('Failed to send email');
+    return response.json();
+  },
+  
+  importLeads: async (csvData: string) => {
+    const response = await fetch('/api/crm/leads/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ csvData }),
+    });
+    if (!response.ok) throw new Error('Failed to import leads');
+    return response.json();
+  },
+  
+  exportLeads: async () => {
+    const response = await fetch('/api/crm/leads/export');
+    if (!response.ok) throw new Error('Failed to export leads');
+    return response.blob();
+  },
+  
+  // Contacts
+  getContacts: async (params?: any) => {
+    const query = new URLSearchParams(params).toString();
+    const response = await fetch(`/api/crm/contacts?${query}`);
+    if (!response.ok) throw new Error('Failed to fetch contacts');
+    return response.json();
+  },
+  
+  createContact: async (data: Partial<Contact>) => {
+    const response = await fetch('/api/crm/contacts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) throw new Error('Failed to create contact');
+    return response.json();
+  },
+  
+  updateContact: async ({ id, data }: { id: number; data: Partial<Contact> }) => {
+    const response = await fetch(`/api/crm/contacts/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) throw new Error('Failed to update contact');
+    return response.json();
+  },
+  
+  deleteContact: async (id: number) => {
+    const response = await fetch(`/api/crm/contacts/${id}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) throw new Error('Failed to delete contact');
+    return response.json();
+  },
+  
+  getContactTimeline: async (id: number) => {
+    const response = await fetch(`/api/crm/contacts/${id}/timeline`);
+    if (!response.ok) throw new Error('Failed to fetch contact timeline');
+    return response.json();
+  },
+  
+  // Deals
+  getDeals: async (params?: any) => {
+    const query = new URLSearchParams(params).toString();
+    const response = await fetch(`/api/crm/deals?${query}`);
+    if (!response.ok) throw new Error('Failed to fetch deals');
+    return response.json();
+  },
+  
+  createDeal: async (data: Partial<Deal>) => {
+    const response = await fetch('/api/crm/deals', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) throw new Error('Failed to create deal');
+    return response.json();
+  },
+  
+  updateDeal: async ({ id, data }: { id: number; data: Partial<Deal> }) => {
+    const response = await fetch(`/api/crm/deals/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) throw new Error('Failed to update deal');
+    return response.json();
+  },
+  
+  updateDealStage: async ({ id, stage, probability }: { id: number; stage: string; probability?: number }) => {
+    const response = await fetch(`/api/crm/deals/${id}/stage`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stage, probability }),
+    });
+    if (!response.ok) throw new Error('Failed to update deal stage');
+    return response.json();
+  },
+  
+  deleteDeal: async (id: number) => {
+    const response = await fetch(`/api/crm/deals/${id}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) throw new Error('Failed to delete deal');
+    return response.json();
+  },
+  
+  convertDealToInvoice: async ({ id, invoiceData }: { id: number; invoiceData?: any }) => {
+    const response = await fetch(`/api/crm/deals/${id}/convert-to-invoice`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ invoiceData }),
+    });
+    if (!response.ok) throw new Error('Failed to convert deal to invoice');
+    return response.json();
+  },
+  
+  // Activities
+  getActivities: async (params?: any) => {
+    const query = new URLSearchParams(params).toString();
+    const response = await fetch(`/api/crm/activities?${query}`);
+    if (!response.ok) throw new Error('Failed to fetch activities');
+    return response.json();
+  },
+  
+  createActivity: async (data: Partial<Activity>) => {
+    const response = await fetch('/api/crm/activities', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) throw new Error('Failed to create activity');
+    return response.json();
+  },
+  
+  // Tasks
+  getTasks: async (params?: any) => {
+    const query = new URLSearchParams(params).toString();
+    const response = await fetch(`/api/crm/tasks?${query}`);
+    if (!response.ok) throw new Error('Failed to fetch tasks');
+    return response.json();
+  },
+  
+  createTask: async (data: Partial<Task>) => {
+    const response = await fetch('/api/crm/tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) throw new Error('Failed to create task');
+    return response.json();
+  },
+  
+  completeTask: async (id: number) => {
+    const response = await fetch(`/api/crm/tasks/${id}/complete`, {
+      method: 'PUT',
+    });
+    if (!response.ok) throw new Error('Failed to complete task');
+    return response.json();
+  },
+  
+  // Companies
+  getCompanies: async (params?: any) => {
+    const query = new URLSearchParams(params).toString();
+    const response = await fetch(`/api/crm/companies?${query}`);
+    if (!response.ok) throw new Error('Failed to fetch companies');
+    return response.json();
+  },
+  
+  createCompany: async (data: Partial<CrmCompany>) => {
+    const response = await fetch('/api/crm/companies', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) throw new Error('Failed to create company');
+    return response.json();
+  },
+  
+  // Phone Calls
+  getPhoneCalls: async (params?: any) => {
+    const query = new URLSearchParams(params).toString();
+    const response = await fetch(`/api/crm/phone-calls?${query}`);
+    if (!response.ok) throw new Error('Failed to fetch phone calls');
+    return response.json();
+  },
+  
+  createPhoneCall: async (data: Partial<PhoneCall>) => {
+    const response = await fetch('/api/crm/phone-calls', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) throw new Error('Failed to create phone call');
+    return response.json();
+  },
+  
+  // Metrics and Analytics
+  getMetrics: async () => {
+    const response = await fetch('/api/crm/metrics');
+    if (!response.ok) throw new Error('Failed to fetch metrics');
+    return response.json();
+  },
+  
+  getLeadAnalytics: async () => {
+    const response = await fetch('/api/crm/lead-analytics');
+    if (!response.ok) throw new Error('Failed to fetch lead analytics');
+    return response.json();
+  },
+  
+  getContactAnalytics: async () => {
+    const response = await fetch('/api/crm/contact-analytics');
+    if (!response.ok) throw new Error('Failed to fetch contact analytics');
+    return response.json();
+  },
+  
+  getPipeline: async () => {
+    const response = await fetch('/api/crm/pipeline');
+    if (!response.ok) throw new Error('Failed to fetch pipeline');
+    return response.json();
+  },
+  
+  getConversionFunnel: async () => {
+    const response = await fetch('/api/crm/conversion-funnel');
+    if (!response.ok) throw new Error('Failed to fetch conversion funnel');
+    return response.json();
+  },
+};
+
+// React Query hooks
+export const useLeads = (params?: any) => {
   return useQuery({
-    queryKey: ["/api/crm/activities", filters],
-    queryFn: async () => {
-      const params = new URLSearchParams();
-      if (filters) {
-        Object.entries(filters).forEach(([key, value]) => {
-          if (value !== undefined && value !== null) {
-            params.append(key, String(value));
-          }
-        });
+    queryKey: ['leads', params],
+    queryFn: () => crmApi.getLeads(params),
+  });
+};
+
+export const useCreateLead = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: crmApi.createLead,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['leads'] });
+      queryClient.invalidateQueries({ queryKey: ['crm-metrics'] });
+      toast.success('Lead created successfully');
+    },
+    onError: () => {
+      toast.error('Failed to create lead');
+    },
+  });
+};
+
+export const useUpdateLead = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: crmApi.updateLead,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['leads'] });
+      toast.success('Lead updated successfully');
+    },
+    onError: () => {
+      toast.error('Failed to update lead');
+    },
+  });
+};
+
+export const useDeleteLead = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: crmApi.deleteLead,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['leads'] });
+      queryClient.invalidateQueries({ queryKey: ['crm-metrics'] });
+      toast.success('Lead deleted successfully');
+    },
+    onError: () => {
+      toast.error('Failed to delete lead');
+    },
+  });
+};
+
+export const useConvertLead = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: crmApi.convertLead,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['leads'] });
+      queryClient.invalidateQueries({ queryKey: ['contacts'] });
+      queryClient.invalidateQueries({ queryKey: ['crm-metrics'] });
+      toast.success('Lead converted to contact successfully');
+    },
+    onError: () => {
+      toast.error('Failed to convert lead');
+    },
+  });
+};
+
+export const useContacts = (params?: any) => {
+  return useQuery({
+    queryKey: ['contacts', params],
+    queryFn: () => crmApi.getContacts(params),
+  });
+};
+
+export const useCreateContact = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: crmApi.createContact,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['contacts'] });
+      queryClient.invalidateQueries({ queryKey: ['crm-metrics'] });
+      toast.success('Contact created successfully');
+    },
+    onError: () => {
+      toast.error('Failed to create contact');
+    },
+  });
+};
+
+export const useUpdateContact = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: crmApi.updateContact,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['contacts'] });
+      toast.success('Contact updated successfully');
+    },
+    onError: () => {
+      toast.error('Failed to update contact');
+    },
+  });
+};
+
+export const useDeleteContact = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: crmApi.deleteContact,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['contacts'] });
+      queryClient.invalidateQueries({ queryKey: ['crm-metrics'] });
+      toast.success('Contact deleted successfully');
+    },
+    onError: () => {
+      toast.error('Failed to delete contact');
+    },
+  });
+};
+
+export const useContactTimeline = (id: number) => {
+  return useQuery({
+    queryKey: ['contact-timeline', id],
+    queryFn: () => crmApi.getContactTimeline(id),
+    enabled: !!id,
+  });
+};
+
+export const useDeals = (params?: any) => {
+  return useQuery({
+    queryKey: ['deals', params],
+    queryFn: () => crmApi.getDeals(params),
+  });
+};
+
+export const useCreateDeal = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: crmApi.createDeal,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['deals'] });
+      queryClient.invalidateQueries({ queryKey: ['crm-metrics'] });
+      queryClient.invalidateQueries({ queryKey: ['pipeline'] });
+      toast.success('Deal created successfully');
+    },
+    onError: () => {
+      toast.error('Failed to create deal');
+    },
+  });
+};
+
+export const useUpdateDeal = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: crmApi.updateDeal,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['deals'] });
+      queryClient.invalidateQueries({ queryKey: ['pipeline'] });
+      toast.success('Deal updated successfully');
+    },
+    onError: () => {
+      toast.error('Failed to update deal');
+    },
+  });
+};
+
+export const useUpdateDealStage = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: crmApi.updateDealStage,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['deals'] });
+      queryClient.invalidateQueries({ queryKey: ['pipeline'] });
+      toast.success('Deal stage updated successfully');
+    },
+    onError: () => {
+      toast.error('Failed to update deal stage');
+    },
+  });
+};
+
+export const useDeleteDeal = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: crmApi.deleteDeal,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['deals'] });
+      queryClient.invalidateQueries({ queryKey: ['crm-metrics'] });
+      queryClient.invalidateQueries({ queryKey: ['pipeline'] });
+      toast.success('Deal deleted successfully');
+    },
+    onError: () => {
+      toast.error('Failed to delete deal');
+    },
+  });
+};
+
+export const useConvertDealToInvoice = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: crmApi.convertDealToInvoice,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['deals'] });
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      toast.success('Deal converted to invoice successfully');
+    },
+    onError: () => {
+      toast.error('Failed to convert deal to invoice');
+    },
+  });
+};
+
+export const useActivities = (params?: any) => {
+  return useQuery({
+    queryKey: ['activities', params],
+    queryFn: () => crmApi.getActivities(params),
+  });
+};
+
+export const useCreateActivity = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: crmApi.createActivity,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['activities'] });
+      queryClient.invalidateQueries({ queryKey: ['contact-timeline'] });
+      toast.success('Activity created successfully');
+    },
+    onError: () => {
+      toast.error('Failed to create activity');
+    },
+  });
+};
+
+export const useTasks = (params?: any) => {
+  return useQuery({
+    queryKey: ['tasks', params],
+    queryFn: () => crmApi.getTasks(params),
+  });
+};
+
+export const useCreateTask = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: crmApi.createTask,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['crm-metrics'] });
+      toast.success('Task created successfully');
+    },
+    onError: () => {
+      toast.error('Failed to create task');
+    },
+  });
+};
+
+export const useCompleteTask = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: crmApi.completeTask,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['crm-metrics'] });
+      toast.success('Task completed successfully');
+    },
+    onError: () => {
+      toast.error('Failed to complete task');
+    },
+  });
+};
+
+export const useCompanies = (params?: any) => {
+  return useQuery({
+    queryKey: ['companies', params],
+    queryFn: () => crmApi.getCompanies(params),
+  });
+};
+
+export const useCreateCompany = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: crmApi.createCompany,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
+      toast.success('Company created successfully');
+    },
+    onError: () => {
+      toast.error('Failed to create company');
+    },
+  });
+};
+
+export const usePhoneCalls = (params?: any) => {
+  return useQuery({
+    queryKey: ['phone-calls', params],
+    queryFn: () => crmApi.getPhoneCalls(params),
+  });
+};
+
+export const useCreatePhoneCall = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: crmApi.createPhoneCall,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['phone-calls'] });
+      queryClient.invalidateQueries({ queryKey: ['contact-timeline'] });
+      toast.success('Phone call logged successfully');
+    },
+    onError: () => {
+      toast.error('Failed to log phone call');
+    },
+  });
+};
+
+export const useCrmMetrics = () => {
+  return useQuery({
+    queryKey: ['crm-metrics'],
+    queryFn: crmApi.getMetrics,
+    refetchInterval: 30000, // Refetch every 30 seconds
+  });
+};
+
+export const useLeadAnalytics = () => {
+  return useQuery({
+    queryKey: ['lead-analytics'],
+    queryFn: crmApi.getLeadAnalytics,
+  });
+};
+
+export const useContactAnalytics = () => {
+  return useQuery({
+    queryKey: ['contact-analytics'],
+    queryFn: crmApi.getContactAnalytics,
+  });
+};
+
+export const usePipeline = () => {
+  return useQuery({
+    queryKey: ['pipeline'],
+    queryFn: crmApi.getPipeline,
+  });
+};
+
+export const useConversionFunnel = () => {
+  return useQuery({
+    queryKey: ['conversion-funnel'],
+    queryFn: crmApi.getConversionFunnel,
+  });
+};
+
+// WebSocket integration for real-time updates
+export const useCrmRealTime = () => {
+  const queryClient = useQueryClient();
+  const { lastMessage } = useWebSocket();
+
+  useEffect(() => {
+    if (lastMessage) {
+      const data = JSON.parse(lastMessage);
+      
+      switch (data.type) {
+        case 'lead_created':
+        case 'lead_updated':
+        case 'lead_deleted':
+        case 'lead_converted':
+          queryClient.invalidateQueries({ queryKey: ['leads'] });
+          queryClient.invalidateQueries({ queryKey: ['crm-metrics'] });
+          break;
+          
+        case 'contact_created':
+        case 'contact_updated':
+        case 'contact_deleted':
+          queryClient.invalidateQueries({ queryKey: ['contacts'] });
+          queryClient.invalidateQueries({ queryKey: ['crm-metrics'] });
+          break;
+          
+        case 'deal_created':
+        case 'deal_updated':
+        case 'deal_deleted':
+        case 'deal_stage_updated':
+          queryClient.invalidateQueries({ queryKey: ['deals'] });
+          queryClient.invalidateQueries({ queryKey: ['pipeline'] });
+          queryClient.invalidateQueries({ queryKey: ['crm-metrics'] });
+          break;
+          
+        case 'activity_created':
+        case 'activity_updated':
+        case 'activity_deleted':
+          queryClient.invalidateQueries({ queryKey: ['activities'] });
+          queryClient.invalidateQueries({ queryKey: ['contact-timeline'] });
+          break;
+          
+        case 'task_created':
+        case 'task_updated':
+        case 'task_completed':
+        case 'task_reminder':
+          queryClient.invalidateQueries({ queryKey: ['tasks'] });
+          queryClient.invalidateQueries({ queryKey: ['crm-metrics'] });
+          break;
+          
+        case 'company_created':
+        case 'company_updated':
+        case 'company_deleted':
+          queryClient.invalidateQueries({ queryKey: ['companies'] });
+          break;
+          
+        case 'phone_call_created':
+        case 'phone_call_updated':
+        case 'phone_call_deleted':
+          queryClient.invalidateQueries({ queryKey: ['phone-calls'] });
+          queryClient.invalidateQueries({ queryKey: ['contact-timeline'] });
+          break;
+          
+        case 'metrics_updated':
+          queryClient.invalidateQueries({ queryKey: ['crm-metrics'] });
+          break;
       }
-      
-      const url = `/api/crm/activities${params.toString() ? "?" + params.toString() : ""}`;
-      const response = await apiRequest("GET", url);
-      return response.json();
-    },
-  });
-}
+    }
+  }, [lastMessage, queryClient]);
+};
 
-export function useRecentActivities(limit?: number) {
-  return useQuery({
-    queryKey: ["/api/crm/activities/recent", limit],
-    queryFn: async () => {
-      const params = new URLSearchParams();
-      if (limit) params.append("limit", String(limit));
-      
-      const url = `/api/crm/activities/recent${params.toString() ? "?" + params.toString() : ""}`;
-      const response = await apiRequest("GET", url);
-      return response.json();
-    },
-  });
-}
-
-export function useCreateActivity() {
+// Email integration hooks
+export const useSendLeadEmail = () => {
   const queryClient = useQueryClient();
-  
   return useMutation({
-    mutationFn: async (activityData: InsertActivity) => {
-      const response = await apiRequest("POST", "/api/crm/activities", activityData);
-      return response.json();
-    },
+    mutationFn: crmApi.sendLeadEmail,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/crm/activities"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/crm/metrics"] });
-      toast.success("Activity created successfully!");
+      queryClient.invalidateQueries({ queryKey: ['activities'] });
+      toast.success('Email sent successfully');
     },
-    onError: (error: any) => {
-      console.error("Error creating activity:", error);
-      toast.error("Failed to create activity");
+    onError: () => {
+      toast.error('Failed to send email');
     },
   });
-}
+};
 
-export function useUpdateActivity() {
+export const useImportLeads = () => {
   const queryClient = useQueryClient();
-  
   return useMutation({
-    mutationFn: async ({ id, ...data }: { id: number } & Partial<InsertActivity>) => {
-      const response = await apiRequest("PUT", `/api/crm/activities/${id}`, data);
-      return response.json();
+    mutationFn: crmApi.importLeads,
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['leads'] });
+      queryClient.invalidateQueries({ queryKey: ['crm-metrics'] });
+      toast.success(`Successfully imported ${data.leads?.length || 0} leads`);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/crm/activities"] });
-      toast.success("Activity updated successfully!");
-    },
-    onError: (error: any) => {
-      console.error("Error updating activity:", error);
-      toast.error("Failed to update activity");
+    onError: () => {
+      toast.error('Failed to import leads');
     },
   });
-}
+};
 
-export function useDeleteActivity() {
-  const queryClient = useQueryClient();
-  
+export const useExportLeads = () => {
   return useMutation({
-    mutationFn: async (id: number) => {
-      const response = await apiRequest("DELETE", `/api/crm/activities/${id}`);
-      return response.json();
+    mutationFn: crmApi.exportLeads,
+    onSuccess: (blob) => {
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = url;
+      a.download = 'leads.csv';
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      toast.success('Leads exported successfully');
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/crm/activities"] });
-      toast.success("Activity deleted successfully!");
-    },
-    onError: (error: any) => {
-      console.error("Error deleting activity:", error);
-      toast.error("Failed to delete activity");
-    },
-  });
-}
-
-// ==================== TASKS HOOKS ====================
-
-export function useTasks(assignedTo?: number) {
-  return useQuery({
-    queryKey: ["/api/crm/tasks", assignedTo],
-    queryFn: async () => {
-      const params = new URLSearchParams();
-      if (assignedTo) params.append("assignedTo", String(assignedTo));
-      
-      const url = `/api/crm/tasks${params.toString() ? "?" + params.toString() : ""}`;
-      const response = await apiRequest("GET", url);
-      return response.json();
+    onError: () => {
+      toast.error('Failed to export leads');
     },
   });
-}
+};
 
-export function useUpcomingTasks(days?: number) {
-  return useQuery({
-    queryKey: ["/api/crm/tasks/upcoming", days],
-    queryFn: async () => {
-      const params = new URLSearchParams();
-      if (days) params.append("days", String(days));
-      
-      const url = `/api/crm/tasks/upcoming${params.toString() ? "?" + params.toString() : ""}`;
-      const response = await apiRequest("GET", url);
-      return response.json();
-    },
-  });
-}
+// Dashboard hook
+export const useCrmDashboard = () => {
+  const metricsQuery = useCrmMetrics();
+  const leadAnalyticsQuery = useLeadAnalytics();
+  const pipelineQuery = usePipeline();
+  const conversionFunnelQuery = useConversionFunnel();
+  const upcomingTasksQuery = useTasks({ upcoming: true });
+  const recentActivitiesQuery = useActivities({ limit: 10 });
 
-export function useCreateTask() {
-  const queryClient = useQueryClient();
-  
+  return {
+    metrics: metricsQuery.data,
+    leadAnalytics: leadAnalyticsQuery.data,
+    pipeline: pipelineQuery.data,
+    conversionFunnel: conversionFunnelQuery.data,
+    upcomingTasks: upcomingTasksQuery.data?.data || [],
+    recentActivities: recentActivitiesQuery.data?.data || [],
+    isLoading: metricsQuery.isLoading || leadAnalyticsQuery.isLoading || pipelineQuery.isLoading,
+    error: metricsQuery.error || leadAnalyticsQuery.error || pipelineQuery.error,
+  };
+};
+
+// Generate report hook
+export const useGenerateReport = () => {
   return useMutation({
-    mutationFn: async (taskData: InsertTask) => {
-      const response = await apiRequest("POST", "/api/crm/tasks", taskData);
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/crm/tasks"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/crm/metrics"] });
-      toast.success("Task created successfully!");
-    },
-    onError: (error: any) => {
-      console.error("Error creating task:", error);
-      toast.error("Failed to create task");
-    },
-  });
-}
-
-export function useUpdateTask() {
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: async ({ id, ...data }: { id: number } & Partial<InsertTask>) => {
-      const response = await apiRequest("PUT", `/api/crm/tasks/${id}`, data);
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/crm/tasks"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/crm/metrics"] });
-      toast.success("Task updated successfully!");
-    },
-    onError: (error: any) => {
-      console.error("Error updating task:", error);
-      toast.error("Failed to update task");
-    },
-  });
-}
-
-export function useCompleteTask() {
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: async (id: number) => {
-      const response = await apiRequest("POST", `/api/crm/tasks/${id}/complete`);
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/crm/tasks"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/crm/metrics"] });
-      toast.success("Task completed successfully!");
-    },
-    onError: (error: any) => {
-      console.error("Error completing task:", error);
-      toast.error("Failed to complete task");
-    },
-  });
-}
-
-export function useDeleteTask() {
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: async (id: number) => {
-      const response = await apiRequest("DELETE", `/api/crm/tasks/${id}`);
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/crm/tasks"] });
-      toast.success("Task deleted successfully!");
-    },
-    onError: (error: any) => {
-      console.error("Error deleting task:", error);
-      toast.error("Failed to delete task");
-    },
-  });
-}
-
-// ==================== COMPANIES HOOKS ====================
-
-export function useCompanies() {
-  return useQuery({
-    queryKey: ["/api/crm/companies"],
-    queryFn: async () => {
-      const response = await apiRequest("GET", "/api/crm/companies");
-      return response.json();
-    },
-  });
-}
-
-export function useCreateCompany() {
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: async (companyData: InsertCrmCompany) => {
-      const response = await apiRequest("POST", "/api/crm/companies", companyData);
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/crm/companies"] });
-      toast.success("Company created successfully!");
-    },
-    onError: (error: any) => {
-      console.error("Error creating company:", error);
-      toast.error("Failed to create company");
-    },
-  });
-}
-
-export function useUpdateCompany() {
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: async ({ id, ...data }: { id: number } & Partial<InsertCrmCompany>) => {
-      const response = await apiRequest("PUT", `/api/crm/companies/${id}`, data);
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/crm/companies"] });
-      toast.success("Company updated successfully!");
-    },
-    onError: (error: any) => {
-      console.error("Error updating company:", error);
-      toast.error("Failed to update company");
-    },
-  });
-}
-
-export function useDeleteCompany() {
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: async (id: number) => {
-      const response = await apiRequest("DELETE", `/api/crm/companies/${id}`);
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/crm/companies"] });
-      toast.success("Company deleted successfully!");
-    },
-    onError: (error: any) => {
-      console.error("Error deleting company:", error);
-      toast.error("Failed to delete company");
-    },
-  });
-}
-
-// ==================== PHONE CALLS HOOKS ====================
-
-export function usePhoneCalls(contactId?: number) {
-  return useQuery({
-    queryKey: ["/api/crm/phone-calls", contactId],
-    queryFn: async () => {
-      const params = new URLSearchParams();
-      if (contactId) params.append("contactId", String(contactId));
-      
-      const url = `/api/crm/phone-calls${params.toString() ? "?" + params.toString() : ""}`;
-      const response = await apiRequest("GET", url);
-      return response.json();
-    },
-  });
-}
-
-export function useCreatePhoneCall() {
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: async (phoneCallData: InsertPhoneCall) => {
-      const response = await apiRequest("POST", "/api/crm/phone-calls", phoneCallData);
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/crm/phone-calls"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/crm/activities"] });
-      toast.success("Phone call logged successfully!");
-    },
-    onError: (error: any) => {
-      console.error("Error creating phone call:", error);
-      toast.error("Failed to log phone call");
-    },
-  });
-}
-
-export function useUpdatePhoneCall() {
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: async ({ id, ...data }: { id: number } & Partial<InsertPhoneCall>) => {
-      const response = await apiRequest("PUT", `/api/crm/phone-calls/${id}`, data);
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/crm/phone-calls"] });
-      toast.success("Phone call updated successfully!");
-    },
-    onError: (error: any) => {
-      console.error("Error updating phone call:", error);
-      toast.error("Failed to update phone call");
-    },
-  });
-}
-
-export function useDeletePhoneCall() {
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: async (id: number) => {
-      const response = await apiRequest("DELETE", `/api/crm/phone-calls/${id}`);
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/crm/phone-calls"] });
-      toast.success("Phone call deleted successfully!");
-    },
-    onError: (error: any) => {
-      console.error("Error deleting phone call:", error);
-      toast.error("Failed to delete phone call");
-    },
-  });
-}
-
-// ==================== DEAL STAGES HOOKS ====================
-
-export function useDealStages() {
-  return useQuery({
-    queryKey: ["/api/crm/deal-stages"],
-    queryFn: async () => {
-      const response = await apiRequest("GET", "/api/crm/deal-stages");
-      return response.json();
-    },
-  });
-}
-
-export function useCreateDealStage() {
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: async (stageData: InsertDealStage) => {
-      const response = await apiRequest("POST", "/api/crm/deal-stages", stageData);
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/crm/deal-stages"] });
-      toast.success("Deal stage created successfully!");
-    },
-    onError: (error: any) => {
-      console.error("Error creating deal stage:", error);
-      toast.error("Failed to create deal stage");
-    },
-  });
-}
-
-export function useUpdateDealStage() {
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: async ({ id, ...data }: { id: number } & Partial<InsertDealStage>) => {
-      const response = await apiRequest("PUT", `/api/crm/deal-stages/${id}`, data);
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/crm/deal-stages"] });
-      toast.success("Deal stage updated successfully!");
-    },
-    onError: (error: any) => {
-      console.error("Error updating deal stage:", error);
-      toast.error("Failed to update deal stage");
-    },
-  });
-}
-
-export function useReorderDealStages() {
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: async (stageOrders: { id: number; order: number }[]) => {
-      const response = await apiRequest("POST", "/api/crm/deal-stages/reorder", {
-        stageOrders,
+    mutationFn: async ({ type, format, dateRange }: { type: string; format: string; dateRange?: any }) => {
+      // Implementation for generating reports
+      const response = await fetch('/api/crm/reports', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, format, dateRange }),
       });
-      return response.json();
+      if (!response.ok) throw new Error('Failed to generate report');
+      return response.blob();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/crm/deal-stages"] });
-      toast.success("Deal stages reordered successfully!");
+    onSuccess: (blob, variables) => {
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = url;
+      a.download = `crm-report-${variables.type}.${variables.format}`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      toast.success('Report generated successfully');
     },
-    onError: (error: any) => {
-      console.error("Error reordering deal stages:", error);
-      toast.error("Failed to reorder deal stages");
-    },
-  });
-}
-
-export function useDeleteDealStage() {
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: async (id: number) => {
-      const response = await apiRequest("DELETE", `/api/crm/deal-stages/${id}`);
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/crm/deal-stages"] });
-      toast.success("Deal stage deleted successfully!");
-    },
-    onError: (error: any) => {
-      console.error("Error deleting deal stage:", error);
-      toast.error("Failed to delete deal stage");
+    onError: () => {
+      toast.error('Failed to generate report');
     },
   });
-}
-
-// ==================== ANALYTICS & METRICS HOOKS ====================
-
-export function useCrmMetrics() {
-  return useQuery({
-    queryKey: ["/api/crm/metrics"],
-    queryFn: async () => {
-      const response = await apiRequest("GET", "/api/crm/metrics");
-      return response.json();
-    },
-    refetchInterval: 30000, // Refetch every 30 seconds for real-time updates
-  });
-}
-
-export function useLeadAnalytics() {
-  return useQuery({
-    queryKey: ["/api/crm/lead-analytics"],
-    queryFn: async () => {
-      const response = await apiRequest("GET", "/api/crm/lead-analytics");
-      return response.json();
-    },
-  });
-}
-
-export function useLeadSourceAnalytics() {
-  return useQuery({
-    queryKey: ["/api/crm/lead-source-analytics"],
-    queryFn: async () => {
-      const response = await apiRequest("GET", "/api/crm/lead-source-analytics");
-      return response.json();
-    },
-  });
-}
-
-export function useDealPipeline() {
-  return useQuery({
-    queryKey: ["/api/crm/pipeline"],
-    queryFn: async () => {
-      const response = await apiRequest("GET", "/api/crm/pipeline");
-      return response.json();
-    },
-  });
-}
-
-export function useConversionFunnel() {
-  return useQuery({
-    queryKey: ["/api/crm/conversion-funnel"],
-    queryFn: async () => {
-      const response = await apiRequest("GET", "/api/crm/conversion-funnel");
-      return response.json();
-    },
-  });
-}
-
-// ==================== INTEGRATIONS HOOKS ====================
-
-export function useConvertDealToInvoice() {
-  const queryClient = useQueryClient();
-  
-  return useMutation({
-    mutationFn: async ({
-      dealId,
-      invoiceData,
-    }: {
-      dealId: number;
-      invoiceData?: any;
-    }) => {
-      const response = await apiRequest(
-        "POST",
-        `/api/crm/deals/${dealId}/convert-to-invoice`,
-        invoiceData || {}
-      );
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/crm/metrics"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/crm/pipeline"] });
-      toast.success("Deal converted to invoice successfully!");
-    },
-    onError: (error: any) => {
-      console.error("Error converting deal to invoice:", error);
-      toast.error("Failed to convert deal to invoice");
-    },
-  });
-}
-
-export function useGenerateReport() {
-  return useMutation({
-    mutationFn: async ({
-      type,
-      format,
-      dateRange,
-    }: {
-      type: "leads" | "activities" | "tasks" | "metrics";
-      format: "json" | "csv";
-      dateRange?: { from: string; to: string };
-    }) => {
-      const response = await apiRequest("POST", "/api/crm/reports/generate", {
-        type,
-        format,
-        dateRange,
-      });
-      
-      if (format === "csv") {
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = `${type}-report.csv`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        window.URL.revokeObjectURL(url);
-        return { success: true };
-      } else {
-        return response.json();
-      }
-    },
-    onSuccess: () => {
-      toast.success("Report generated successfully!");
-    },
-    onError: (error: any) => {
-      console.error("Error generating report:", error);
-      toast.error("Failed to generate report");
-    },
-  });
-}
-
-// ==================== AUDIT LOGS HOOKS ====================
-
-export function useAuditLogs(resourceType?: string, resourceId?: number) {
-  return useQuery({
-    queryKey: ["/api/crm/audit-logs", resourceType, resourceId],
-    queryFn: async () => {
-      const params = new URLSearchParams();
-      if (resourceType) params.append("resourceType", resourceType);
-      if (resourceId) params.append("resourceId", String(resourceId));
-      
-      const url = `/api/crm/audit-logs${params.toString() ? "?" + params.toString() : ""}`;
-      const response = await apiRequest("GET", url);
-      return response.json();
-    },
-  });
-}
-
-// ==================== COMPOSITE HOOKS ====================
-
-// CRM Dashboard Hook - combines multiple queries for dashboard view
-export function useCrmDashboard() {
-  const metrics = useCrmMetrics();
-  const recentActivities = useRecentActivities(5);
-  const upcomingTasks = useUpcomingTasks(7);
-  const leadAnalytics = useLeadAnalytics();
-  const dealPipeline = useDealPipeline();
-  
-  return {
-    metrics: metrics.data,
-    recentActivities: recentActivities.data || [],
-    upcomingTasks: upcomingTasks.data || [],
-    leadAnalytics: leadAnalytics.data,
-    dealPipeline: dealPipeline.data || [],
-    isLoading:
-      metrics.isLoading ||
-      recentActivities.isLoading ||
-      upcomingTasks.isLoading ||
-      leadAnalytics.isLoading ||
-      dealPipeline.isLoading,
-    error:
-      metrics.error ||
-      recentActivities.error ||
-      upcomingTasks.error ||
-      leadAnalytics.error ||
-      dealPipeline.error,
-  };
-}
-
-// Lead Management Hook - combines lead operations
-export function useLeadManagement() {
-  const createLead = useCreateLead();
-  const updateLead = useUpdateLead();
-  const deleteLead = useDeleteLead();
-  const convertLead = useConvertLead();
-  const importLeads = useImportLeads();
-  const sendEmail = useSendLeadEmail();
-  
-  return {
-    create: createLead.mutateAsync,
-    update: updateLead.mutateAsync,
-    delete: deleteLead.mutateAsync,
-    convert: convertLead.mutateAsync,
-    import: importLeads.mutateAsync,
-    sendEmail: sendEmail.mutateAsync,
-    isLoading:
-      createLead.isPending ||
-      updateLead.isPending ||
-      deleteLead.isPending ||
-      convertLead.isPending ||
-      importLeads.isPending ||
-      sendEmail.isPending,
-  };
-}
-
-// Task Management Hook - combines task operations
-export function useTaskManagement() {
-  const createTask = useCreateTask();
-  const updateTask = useUpdateTask();
-  const deleteTask = useDeleteTask();
-  const completeTask = useCompleteTask();
-  
-  return {
-    create: createTask.mutateAsync,
-    update: updateTask.mutateAsync,
-    delete: deleteTask.mutateAsync,
-    complete: completeTask.mutateAsync,
-    isLoading:
-      createTask.isPending ||
-      updateTask.isPending ||
-      deleteTask.isPending ||
-      completeTask.isPending,
-  };
-}
-
-// Activity Management Hook - combines activity operations
-export function useActivityManagement() {
-  const createActivity = useCreateActivity();
-  const updateActivity = useUpdateActivity();
-  const deleteActivity = useDeleteActivity();
-  
-  return {
-    create: createActivity.mutateAsync,
-    update: updateActivity.mutateAsync,
-    delete: deleteActivity.mutateAsync,
-    isLoading:
-      createActivity.isPending ||
-      updateActivity.isPending ||
-      deleteActivity.isPending,
-  };
-}
-
-// Contacts Hook (existing contacts, for compatibility)
-export function useContacts() {
-  return useQuery({
-    queryKey: ["/api/contacts"],
-    queryFn: async () => {
-      const response = await apiRequest("GET", "/api/contacts");
-      return response.json();
-    },
-  });
-}
-
-// Deals Hook (existing deals, for compatibility)
-export function useDeals() {
-  return useQuery({
-    queryKey: ["/api/deals"],
-    queryFn: async () => {
-      const response = await apiRequest("GET", "/api/deals");
-      return response.json();
-    },
-  });
-}
+};
