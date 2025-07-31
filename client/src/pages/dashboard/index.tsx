@@ -176,7 +176,7 @@ export default function DashboardPage() {
   const { data: lowStockItems = [], refetch: refetchLowStock } = useQuery({
     queryKey: ['lowStockItems'],
     queryFn: async () => {
-      const res = await fetch('/api/inventory/low-stock');
+      const res = await fetch('/api/dashboard/low-stock-items');
       if (!res.ok) throw new Error('Failed to fetch low stock items');
       return res.json();
     },
@@ -184,7 +184,7 @@ export default function DashboardPage() {
   const { data: upcomingLeaves = [], refetch: refetchLeaves } = useQuery({
     queryKey: ['upcomingLeaves'],
     queryFn: async () => {
-      const res = await fetch('/api/hr/upcoming-leaves');
+      const res = await fetch('/api/dashboard/upcoming-leaves');
       if (!res.ok) throw new Error('Failed to fetch upcoming leaves');
       return res.json();
     },
@@ -192,7 +192,7 @@ export default function DashboardPage() {
   const { data: warehouseCapacity = [], refetch: refetchWarehouseCapacity } = useQuery({
     queryKey: ['warehouseCapacity'],
     queryFn: async () => {
-      const res = await fetch('/api/inventory/warehouse-capacity');
+      const res = await fetch('/api/dashboard/warehouse-capacity');
       if (!res.ok) throw new Error('Failed to fetch warehouse capacity');
       return res.json();
     },
@@ -200,7 +200,7 @@ export default function DashboardPage() {
   const { data: deliveryPerformance = [], refetch: refetchDeliveryPerformance } = useQuery({
     queryKey: ['deliveryPerformance'],
     queryFn: async () => {
-      const res = await fetch('/api/operations/delivery-performance');
+      const res = await fetch('/api/dashboard/delivery-performance');
       if (!res.ok) throw new Error('Failed to fetch delivery performance');
       return res.json();
     },

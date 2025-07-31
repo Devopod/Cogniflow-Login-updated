@@ -599,4 +599,134 @@ export function registerDynamicRoutes(app: Express, wsService: any) {
       res.status(500).json({ message: "Failed to fetch delivery performance" });
     }
   });
+
+  app.get("/api/hr/department-headcount", isAuthenticated, async (req, res) => {
+    try {
+      // This would integrate with HR system
+      // For now, return sample data structure for department headcount
+      const sampleData = [
+        { name: "Engineering", value: 12 },
+        { name: "Sales", value: 8 },
+        { name: "Marketing", value: 5 },
+        { name: "HR", value: 3 },
+        { name: "Finance", value: 4 }
+      ];
+      res.json(sampleData);
+    } catch (error) {
+      console.error("Error fetching department headcount:", error);
+      res.status(500).json({ message: "Failed to fetch department headcount" });
+    }
+  });
+
+  app.get("/api/hr/attendance-trends", isAuthenticated, async (req, res) => {
+    try {
+      // This would integrate with HR system
+      // For now, return sample data structure for attendance trends
+      const sampleData = [
+        { day: "Mon", rate: 98 },
+        { day: "Tue", rate: 96 },
+        { day: "Wed", rate: 97 },
+        { day: "Thu", rate: 95 },
+        { day: "Fri", rate: 94 },
+        { day: "Sat", rate: 92 },
+        { day: "Sun", rate: 89 }
+      ];
+      res.json(sampleData);
+    } catch (error) {
+      console.error("Error fetching attendance trends:", error);
+      res.status(500).json({ message: "Failed to fetch attendance trends" });
+    }
+  });
+
+  app.get("/api/finance/dashboard-cards", isAuthenticated, async (req, res) => {
+    try {
+      // This would integrate with finance system
+      // For now, return sample data structure for finance cards
+      const sampleData = {
+        accountsReceivable: 125000,
+        openInvoices: 15,
+        currentInvoices: 85000,
+        oneToThirtyDays: 25000,
+        thirtyPlusDays: 15000,
+        accountsPayable: 75000,
+        vendors: 8,
+        currentPayables: 45000,
+        oneToThirtyDaysPayables: 20000,
+        thirtyPlusDaysPayables: 10000,
+        cashFlow: 50000,
+        income: 200000,
+        expenses: 150000
+      };
+      res.json(sampleData);
+    } catch (error) {
+      console.error("Error fetching finance cards:", error);
+      res.status(500).json({ message: "Failed to fetch finance cards" });
+    }
+  });
+
+  app.get("/api/alerts", isAuthenticated, async (req, res) => {
+    try {
+      // This would integrate with notification system
+      // For now, return sample alerts
+      const sampleData = [
+        {
+          id: 1,
+          title: "Low Inventory Alert",
+          message: "Product XYZ is running low on stock. Only 5 units remaining.",
+          type: "warning",
+          createdAt: new Date()
+        },
+        {
+          id: 2,
+          title: "Overdue Payment",
+          message: "Invoice #INV-2024-001 is 30 days overdue.",
+          type: "error",
+          createdAt: new Date()
+        }
+      ];
+      res.json(sampleData);
+    } catch (error) {
+      console.error("Error fetching alerts:", error);
+      res.status(500).json({ message: "Failed to fetch alerts" });
+    }
+  });
+
+  app.get("/api/activity/recent", isAuthenticated, async (req, res) => {
+    try {
+      // This would integrate with activity tracking system
+      // For now, return sample recent activities
+      const sampleData = [
+        {
+          id: 1,
+          type: "invoice",
+          title: "Invoice #INV-2024-003 created",
+          time: "2 minutes ago",
+          amount: "$1,250.00"
+        },
+        {
+          id: 2,
+          type: "inventory",
+          title: "Product added to inventory",
+          time: "15 minutes ago"
+        },
+        {
+          id: 3,
+          type: "expense",
+          title: "Expense recorded",
+          time: "1 hour ago",
+          amount: "$450.00"
+        },
+        {
+          id: 4,
+          type: "employee",
+          title: "New employee onboarded",
+          time: "2 hours ago"
+        }
+      ];
+      res.json(sampleData);
+    } catch (error) {
+      console.error("Error fetching recent activity:", error);
+      res.status(500).json({ message: "Failed to fetch recent activity" });
+    }
+  });
 }
