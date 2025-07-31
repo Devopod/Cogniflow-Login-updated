@@ -38,7 +38,7 @@ import { wsService } from './src/services/websocket';
 // Create PostgreSQL-based session store
 const PostgresSessionStore = connectPg(session);
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+const resend = new Resend(process.env.RESEND_API_KEY || 're_dummy_api_key_for_development');
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2022-11-15' });
 
 // Define the interface for our storage system

@@ -1,15 +1,14 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
-import ErpNavigation from "@/components/ErpNavigation";
+import { useToast } from "@/hooks/use-toast";
 import ContactManagement from "@/components/crm/ContactManagement";
 import DealManagement from "@/components/crm/DealManagement";
 import LeadManagement from "@/components/crm/LeadManagement";
+import EmailManagement from "@/components/crm/EmailManagement";
 import ActivityManagement from "@/components/crm/ActivityManagement";
 import CompanyManagement from "@/components/crm/CompanyManagement";
 import PhoneCallManagement from "@/components/crm/PhoneCallManagement";
-import { useCrmApi } from "@/hooks/use-api";
 import {
   useCrmDashboard,
   useGenerateReport,
