@@ -9,6 +9,7 @@ import LeadManagement from "@/components/crm/LeadManagement";
 import ActivityManagement from "@/components/crm/ActivityManagement";
 import CompanyManagement from "@/components/crm/CompanyManagement";
 import PhoneCallManagement from "@/components/crm/PhoneCallManagement";
+import { useCrmApi } from "@/hooks/use-api";
 import {
   useCrmDashboard,
   useGenerateReport,
@@ -79,98 +80,30 @@ ChartJS.register(
   ArcElement
 );
 
-// Mock data for CRM dashboard
-const mockMetrics = {
-  totalLeads: 156,
-  totalContacts: 89,
-  openDeals: 23,
-  totalDealValue: 2500000,
-  wonDeals: 12,
-  conversionRate: 15.4
-};
-
-const mockLeadAnalytics = {
-  leadSources: [
-    { source: "Website", count: 45 },
-    { source: "Social Media", count: 32 },
-    { source: "Email Campaign", count: 28 },
-    { source: "Referral", count: 25 },
-    { source: "Cold Call", count: 15 },
-    { source: "Trade Show", count: 11 }
-  ]
-};
-
-const mockPipeline = {
-  stages: [
-    { stage: "Prospecting", count: 15, totalValue: 450000 },
-    { stage: "Qualification", count: 12, totalValue: 380000 },
-    { stage: "Proposal", count: 8, totalValue: 720000 },
-    { stage: "Negotiation", count: 5, totalValue: 650000 },
-    { stage: "Closed Won", count: 3, totalValue: 300000 }
-  ]
-};
-
-const mockUpcomingTasks = [
-  {
-    id: 1,
-    title: "Follow up with Acme Corp",
-    type: "call",
-    priority: "high",
-    dueDate: "2023-12-15T10:00:00Z",
-    contact: "John Smith"
-  },
-  {
-    id: 2,
-    title: "Send proposal to TechStart",
-    type: "email",
-    priority: "medium",
-    dueDate: "2023-12-16T14:00:00Z",
-    contact: "Sarah Johnson"
-  },
-  {
-    id: 3,
-    title: "Demo preparation",
-    type: "meeting",
-    priority: "high",
-    dueDate: "2023-12-17T09:00:00Z",
-    contact: "Michael Chen"
-  }
-];
-
-const mockRecentActivities = [
-  {
-    id: 1,
-    type: "call",
-    description: "Called John Smith at Acme Corp",
-    timestamp: "2023-12-14T15:30:00Z"
-  },
-  {
-    id: 2,
-    type: "email",
-    description: "Sent proposal to Sarah Johnson",
-    timestamp: "2023-12-14T14:20:00Z"
-  },
-  {
-    id: 3,
-    type: "meeting",
-    description: "Demo meeting with Global Services",
-    timestamp: "2023-12-14T11:00:00Z"
-  }
-];
-
 export default function CrmManagement() {
   const { toast: useToastHook } = useToast();
   const [location, setLocation] = useLocation();
   const [currentTab, setCurrentTab] = useState("overview");
   
-  // Using mock data instead of API calls
-  const metrics = mockMetrics;
-  const leadAnalytics = mockLeadAnalytics;
-  const pipeline = mockPipeline;
-  const upcomingTasks = mockUpcomingTasks;
-  const recentActivities = mockRecentActivities;
-  const isLoading = false;
-  const error = null;
+  // Use dynamic API data instead of mock data
+  const crmApi = useCrmApi();
+  
+  // Extract data from API hooks
+  const { data: dashboardData, loading: dashboardLoading, error: dashboardError } = crmApi.dashboard;
+  const { data: leadAnalyticsData, loading: leadAnalyticsLoading } = crmApi.analytics.leads;
+  const { data: pipelineData, loading: pipelineLoading } = crmApi.analytics.pipeline;
+  const { data: upcomingTasksData, loading: tasksLoading } = crmApi.tasks;
+  const { data: recentActivitiesData, loading: activitiesLoading } = crmApi.activities;
+  
+  // Use real data or show loading states
+  const metrics = Array.isArray(dashboardData) && dashboardData.length > 0 ? dashboardData[0] : null;
+  const leadAnalytics = Array.isArray(leadAnalyticsData) && leadAnalyticsData.length > 0 ? leadAnalyticsData[0] : null;
+  const pipeline = Array.isArray(pipelineData) && pipelineData.length > 0 ? pipelineData[0] : null;
+  const upcomingTasks = upcomingTasksData || [];
+  const recentActivities = recentActivitiesData || [];
+  
+  const isLoading = dashboardLoading || leadAnalyticsLoading || pipelineLoading || tasksLoading || activitiesLoading;
+  const error = dashboardError;
 
   // Generate report mutation
   const generateReport = useGenerateReport();
@@ -186,15 +119,19 @@ export default function CrmManagement() {
 
   // Refresh all data
   const handleRefresh = () => {
-    window.location.reload();
-    toast.success("Data refreshed successfully!");
+    crmApi.dashboard.fetchData();
+    crmApi.analytics.leads.fetchData();
+    crmApi.analytics.pipeline.fetchData();
+    crmApi.tasks.fetchData();
+    crmApi.activities.fetchData();
+    useToastHook({ title: "Success", description: "Data refreshed successfully!" });
   };
 
   // Create metrics cards with real-time data
   const metricsCards = metrics ? [
     {
       title: "Total Leads",
-      value: metrics.totalLeads,
+      value: metrics.totalLeads || 0,
       change: "+12%",
       isPositive: true,
       icon: <Users className="h-5 w-5" />,
@@ -202,7 +139,7 @@ export default function CrmManagement() {
     },
     {
       title: "Total Contacts",
-      value: metrics.totalContacts,
+      value: metrics.totalContacts || 0,
       change: "+8%",
       isPositive: true,
       icon: <UserPlus className="h-5 w-5" />,
@@ -210,7 +147,7 @@ export default function CrmManagement() {
     },
     {
       title: "Open Deals",
-      value: metrics.openDeals,
+      value: metrics.openDeals || 0,
       change: "+15%",
       isPositive: true,
       icon: <CheckSquare className="h-5 w-5" />,
@@ -226,7 +163,7 @@ export default function CrmManagement() {
     },
     {
       title: "Won Deals",
-      value: metrics.wonDeals,
+      value: metrics.wonDeals || 0,
       change: "+18%",
       isPositive: true,
       icon: <TrendingUp className="h-5 w-5" />,

@@ -21,7 +21,14 @@ import {
   orderItems, type OrderItem, type InsertOrderItem,
   quotations, type Quotation, type InsertQuotation,
   quotationItems, type QuotationItem, type InsertQuotationItem,
-  auditLogs
+  // CRM imports
+  leads, type Lead, type InsertLead,
+  dealStages, type DealStage, type InsertDealStage,
+  activities, type Activity, type InsertActivity,
+  tasks, type Task, type InsertTask,
+  crmCompanies, type CrmCompany, type InsertCrmCompany,
+  phoneCallsTable, type PhoneCall, type InsertPhoneCall,
+  auditLogs, type AuditLog, type InsertAuditLog
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, sql, and } from "drizzle-orm";
@@ -192,6 +199,73 @@ export interface IStorage {
   createPurchaseOrderItem(orderItem: InsertPurchaseOrderItem): Promise<PurchaseOrderItem>;
   updatePurchaseOrderItem(id: number, data: Partial<InsertPurchaseOrderItem>): Promise<PurchaseOrderItem | undefined>;
   deletePurchaseOrderItem(id: number): Promise<boolean>;
+  
+  // CRM - Leads
+  getLead(id: number): Promise<Lead | undefined>;
+  getLeadsByUser(userId: number): Promise<Lead[]>;
+  createLead(lead: InsertLead): Promise<Lead>;
+  updateLead(id: number, data: Partial<InsertLead>): Promise<Lead | undefined>;
+  deleteLead(id: number): Promise<boolean>;
+  convertLeadToContact(leadId: number): Promise<Contact>;
+  getLeadAnalytics(userId: number): Promise<any>;
+  
+  // CRM - Deal Stages
+  getDealStage(id: number): Promise<DealStage | undefined>;
+  getDealStagesByUser(userId: number): Promise<DealStage[]>;
+  createDealStage(stage: InsertDealStage): Promise<DealStage>;
+  updateDealStage(id: number, data: Partial<InsertDealStage>): Promise<DealStage | undefined>;
+  deleteDealStage(id: number): Promise<boolean>;
+  reorderDealStages(userId: number, stageOrders: { id: number; order: number }[]): Promise<boolean>;
+  
+  // CRM - Activities
+  getActivity(id: number): Promise<Activity | undefined>;
+  getActivitiesByUser(userId: number): Promise<Activity[]>;
+  getActivitiesByContact(contactId: number): Promise<Activity[]>;
+  getActivitiesByLead(leadId: number): Promise<Activity[]>;
+  getActivitiesByDeal(dealId: number): Promise<Activity[]>;
+  createActivity(activity: InsertActivity): Promise<Activity>;
+  updateActivity(id: number, data: Partial<InsertActivity>): Promise<Activity | undefined>;
+  deleteActivity(id: number): Promise<boolean>;
+  getRecentActivities(userId: number, limit?: number): Promise<Activity[]>;
+  
+  // CRM - Tasks
+  getTask(id: number): Promise<Task | undefined>;
+  getTasksByUser(userId: number): Promise<Task[]>;
+  getTasksByAssignee(assigneeId: number): Promise<Task[]>;
+  getUpcomingTasks(userId: number, days?: number): Promise<Task[]>;
+  createTask(task: InsertTask): Promise<Task>;
+  updateTask(id: number, data: Partial<InsertTask>): Promise<Task | undefined>;
+  deleteTask(id: number): Promise<boolean>;
+  completeTask(id: number): Promise<Task | undefined>;
+  
+  // CRM - Companies
+  getCrmCompany(id: number): Promise<CrmCompany | undefined>;
+  getCrmCompaniesByUser(userId: number): Promise<CrmCompany[]>;
+  createCrmCompany(company: InsertCrmCompany): Promise<CrmCompany>;
+  updateCrmCompany(id: number, data: Partial<InsertCrmCompany>): Promise<CrmCompany | undefined>;
+  deleteCrmCompany(id: number): Promise<boolean>;
+  
+  // CRM - Phone Calls
+  getPhoneCall(id: number): Promise<PhoneCall | undefined>;
+  getPhoneCallsByUser(userId: number): Promise<PhoneCall[]>;
+  getPhoneCallsByContact(contactId: number): Promise<PhoneCall[]>;
+  createPhoneCall(phoneCall: InsertPhoneCall): Promise<PhoneCall>;
+  updatePhoneCall(id: number, data: Partial<InsertPhoneCall>): Promise<PhoneCall | undefined>;
+  deletePhoneCall(id: number): Promise<boolean>;
+  
+  // CRM - Metrics and Analytics
+  getCrmMetrics(userId: number): Promise<any>;
+  getLeadSourceAnalytics(userId: number): Promise<any>;
+  getDealPipeline(userId: number): Promise<any>;
+  getSalesConversionFunnel(userId: number): Promise<any>;
+  
+  // CRM - Integrations
+  convertDealToInvoice(dealId: number, invoiceData?: Partial<InsertInvoice>): Promise<Invoice>;
+  
+  // Audit Logging
+  createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
+  getAuditLogsByUser(userId: number): Promise<AuditLog[]>;
+  getAuditLogsByResource(resourceType: string, resourceId: number): Promise<AuditLog[]>;
   
   // Session store for auth
   sessionStore: session.Store;
@@ -1500,6 +1574,1017 @@ export class DatabaseStorage implements IStorage {
     }
     
     return true;
+  }
+
+  // CRM - Leads Management
+  async getLead(id: number): Promise<Lead | undefined> {
+    const [lead] = await db.select().from(leads).where(eq(leads.id, id));
+    return lead;
+  }
+
+  async getLeadsByUser(userId: number): Promise<Lead[]> {
+    const leadList = await db
+      .select()
+      .from(leads)
+      .where(eq(leads.userId, userId))
+      .orderBy(sql`${leads.createdAt} DESC`);
+    return leadList;
+  }
+
+  async createLead(lead: InsertLead): Promise<Lead> {
+    const [newLead] = await db
+      .insert(leads)
+      .values({
+        ...lead,
+        updatedAt: new Date(),
+      })
+      .returning();
+    
+    // Create audit log
+    await this.createAuditLog({
+      userId: lead.userId,
+      action: 'create',
+      resourceType: 'lead',
+      resourceId: newLead.id,
+      newValues: newLead,
+      details: `Created new lead: ${newLead.firstName} ${newLead.lastName}`,
+    });
+
+    // Broadcast WebSocket event
+    if (wsService) {
+      wsService.broadcast('lead_created', newLead);
+    }
+
+    return newLead;
+  }
+
+  async updateLead(id: number, data: Partial<InsertLead>): Promise<Lead | undefined> {
+    const [oldLead] = await db.select().from(leads).where(eq(leads.id, id));
+    
+    const [lead] = await db
+      .update(leads)
+      .set({
+        ...data,
+        updatedAt: new Date(),
+      })
+      .where(eq(leads.id, id))
+      .returning();
+
+    if (lead) {
+      // Create audit log
+      await this.createAuditLog({
+        userId: lead.userId,
+        action: 'update',
+        resourceType: 'lead',
+        resourceId: id,
+        oldValues: oldLead,
+        newValues: lead,
+        details: `Updated lead: ${lead.firstName} ${lead.lastName}`,
+      });
+
+      // Broadcast WebSocket event
+      if (wsService) {
+        wsService.broadcast('lead_updated', lead);
+      }
+    }
+
+    return lead;
+  }
+
+  async deleteLead(id: number): Promise<boolean> {
+    const [lead] = await db.select().from(leads).where(eq(leads.id, id));
+    
+    await db.delete(leads).where(eq(leads.id, id));
+
+    if (lead) {
+      // Create audit log
+      await this.createAuditLog({
+        userId: lead.userId,
+        action: 'delete',
+        resourceType: 'lead',
+        resourceId: id,
+        oldValues: lead,
+        details: `Deleted lead: ${lead.firstName} ${lead.lastName}`,
+      });
+
+      // Broadcast WebSocket event
+      if (wsService) {
+        wsService.broadcast('lead_deleted', { id });
+      }
+    }
+
+    return true;
+  }
+
+  async convertLeadToContact(leadId: number): Promise<Contact> {
+    const [lead] = await db.select().from(leads).where(eq(leads.id, leadId));
+    if (!lead) {
+      throw new Error('Lead not found');
+    }
+
+    // Create contact from lead data
+    const contactData: InsertContact = {
+      userId: lead.userId,
+      firstName: lead.firstName,
+      lastName: lead.lastName,
+      email: lead.email,
+      phone: lead.phone,
+      company: lead.company,
+      notes: lead.notes,
+      source: lead.source,
+      status: 'active',
+      type: 'customer',
+    };
+
+    const [contact] = await db
+      .insert(contacts)
+      .values(contactData)
+      .returning();
+
+    // Update lead status
+    await this.updateLead(leadId, { status: 'converted' });
+
+    // Create audit log
+    await this.createAuditLog({
+      userId: lead.userId,
+      action: 'convert',
+      resourceType: 'lead',
+      resourceId: leadId,
+      details: `Converted lead to contact: ${contact.firstName} ${contact.lastName}`,
+    });
+
+    // Broadcast WebSocket event
+    if (wsService) {
+      wsService.broadcast('lead_converted', { lead, contact });
+      wsService.broadcast('contact_created', contact);
+    }
+
+    return contact;
+  }
+
+  async getLeadAnalytics(userId: number): Promise<any> {
+    const leadStats = await db
+      .select({
+        source: leads.source,
+        status: leads.status,
+        priority: leads.priority,
+        count: sql<number>`COUNT(*)`,
+        totalValue: sql<number>`COALESCE(SUM(${leads.estimatedValue}), 0)`,
+      })
+      .from(leads)
+      .where(eq(leads.userId, userId))
+      .groupBy(leads.source, leads.status, leads.priority);
+
+    const totalLeads = await db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(leads)
+      .where(eq(leads.userId, userId));
+
+    return {
+      totalLeads: totalLeads[0]?.count || 0,
+      bySource: leadStats.reduce((acc, stat) => {
+        if (!acc[stat.source || 'unknown']) {
+          acc[stat.source || 'unknown'] = 0;
+        }
+        acc[stat.source || 'unknown'] += stat.count;
+        return acc;
+      }, {} as Record<string, number>),
+      byStatus: leadStats.reduce((acc, stat) => {
+        if (!acc[stat.status || 'new']) {
+          acc[stat.status || 'new'] = 0;
+        }
+        acc[stat.status || 'new'] += stat.count;
+        return acc;
+      }, {} as Record<string, number>),
+      byPriority: leadStats.reduce((acc, stat) => {
+        if (!acc[stat.priority || 'medium']) {
+          acc[stat.priority || 'medium'] = 0;
+        }
+        acc[stat.priority || 'medium'] += stat.count;
+        return acc;
+      }, {} as Record<string, number>),
+      totalEstimatedValue: leadStats.reduce((sum, stat) => sum + stat.totalValue, 0),
+    };
+  }
+
+  // CRM - Deal Stages Management
+  async getDealStage(id: number): Promise<DealStage | undefined> {
+    const [stage] = await db.select().from(dealStages).where(eq(dealStages.id, id));
+    return stage;
+  }
+
+  async getDealStagesByUser(userId: number): Promise<DealStage[]> {
+    const stages = await db
+      .select()
+      .from(dealStages)
+      .where(and(eq(dealStages.userId, userId), eq(dealStages.isActive, true)))
+      .orderBy(dealStages.order);
+    return stages;
+  }
+
+  async createDealStage(stage: InsertDealStage): Promise<DealStage> {
+    const [newStage] = await db
+      .insert(dealStages)
+      .values({
+        ...stage,
+        updatedAt: new Date(),
+      })
+      .returning();
+
+    // Broadcast WebSocket event
+    if (wsService) {
+      wsService.broadcast('deal_stage_created', newStage);
+    }
+
+    return newStage;
+  }
+
+  async updateDealStage(id: number, data: Partial<InsertDealStage>): Promise<DealStage | undefined> {
+    const [stage] = await db
+      .update(dealStages)
+      .set({
+        ...data,
+        updatedAt: new Date(),
+      })
+      .where(eq(dealStages.id, id))
+      .returning();
+
+    if (stage && wsService) {
+      wsService.broadcast('deal_stage_updated', stage);
+    }
+
+    return stage;
+  }
+
+  async deleteDealStage(id: number): Promise<boolean> {
+    await db.update(dealStages).set({ isActive: false }).where(eq(dealStages.id, id));
+
+    // Broadcast WebSocket event
+    if (wsService) {
+      wsService.broadcast('deal_stage_deleted', { id });
+    }
+
+    return true;
+  }
+
+  async reorderDealStages(userId: number, stageOrders: { id: number; order: number }[]): Promise<boolean> {
+    for (const { id, order } of stageOrders) {
+      await db
+        .update(dealStages)
+        .set({ order, updatedAt: new Date() })
+        .where(and(eq(dealStages.id, id), eq(dealStages.userId, userId)));
+    }
+
+    // Broadcast WebSocket event
+    if (wsService) {
+      wsService.broadcast('deal_stages_reordered', { userId, stageOrders });
+    }
+
+    return true;
+  }
+
+  // CRM - Activities Management
+  async getActivity(id: number): Promise<Activity | undefined> {
+    const [activity] = await db.select().from(activities).where(eq(activities.id, id));
+    return activity;
+  }
+
+  async getActivitiesByUser(userId: number): Promise<Activity[]> {
+    const activityList = await db
+      .select()
+      .from(activities)
+      .where(eq(activities.userId, userId))
+      .orderBy(sql`${activities.createdAt} DESC`);
+    return activityList;
+  }
+
+  async getActivitiesByContact(contactId: number): Promise<Activity[]> {
+    const activityList = await db
+      .select()
+      .from(activities)
+      .where(eq(activities.contactId, contactId))
+      .orderBy(sql`${activities.createdAt} DESC`);
+    return activityList;
+  }
+
+  async getActivitiesByLead(leadId: number): Promise<Activity[]> {
+    const activityList = await db
+      .select()
+      .from(activities)
+      .where(eq(activities.leadId, leadId))
+      .orderBy(sql`${activities.createdAt} DESC`);
+    return activityList;
+  }
+
+  async getActivitiesByDeal(dealId: number): Promise<Activity[]> {
+    const activityList = await db
+      .select()
+      .from(activities)
+      .where(eq(activities.dealId, dealId))
+      .orderBy(sql`${activities.createdAt} DESC`);
+    return activityList;
+  }
+
+  async createActivity(activity: InsertActivity): Promise<Activity> {
+    const [newActivity] = await db
+      .insert(activities)
+      .values({
+        ...activity,
+        updatedAt: new Date(),
+      })
+      .returning();
+
+    // Create audit log
+    await this.createAuditLog({
+      userId: activity.userId,
+      action: 'create',
+      resourceType: 'activity',
+      resourceId: newActivity.id,
+      newValues: newActivity,
+      details: `Created new activity: ${newActivity.subject}`,
+    });
+
+    // Broadcast WebSocket event
+    if (wsService) {
+      wsService.broadcast('activity_created', newActivity);
+    }
+
+    return newActivity;
+  }
+
+  async updateActivity(id: number, data: Partial<InsertActivity>): Promise<Activity | undefined> {
+    const [oldActivity] = await db.select().from(activities).where(eq(activities.id, id));
+    
+    const [activity] = await db
+      .update(activities)
+      .set({
+        ...data,
+        updatedAt: new Date(),
+      })
+      .where(eq(activities.id, id))
+      .returning();
+
+    if (activity) {
+      // Create audit log
+      await this.createAuditLog({
+        userId: activity.userId,
+        action: 'update',
+        resourceType: 'activity',
+        resourceId: id,
+        oldValues: oldActivity,
+        newValues: activity,
+        details: `Updated activity: ${activity.subject}`,
+      });
+
+      // Broadcast WebSocket event
+      if (wsService) {
+        wsService.broadcast('activity_updated', activity);
+      }
+    }
+
+    return activity;
+  }
+
+  async deleteActivity(id: number): Promise<boolean> {
+    const [activity] = await db.select().from(activities).where(eq(activities.id, id));
+    
+    await db.delete(activities).where(eq(activities.id, id));
+
+    if (activity) {
+      // Create audit log
+      await this.createAuditLog({
+        userId: activity.userId,
+        action: 'delete',
+        resourceType: 'activity',
+        resourceId: id,
+        oldValues: activity,
+        details: `Deleted activity: ${activity.subject}`,
+      });
+
+      // Broadcast WebSocket event
+      if (wsService) {
+        wsService.broadcast('activity_deleted', { id });
+      }
+    }
+
+    return true;
+  }
+
+  async getRecentActivities(userId: number, limit: number = 10): Promise<Activity[]> {
+    const recentActivities = await db
+      .select()
+      .from(activities)
+      .where(eq(activities.userId, userId))
+      .orderBy(sql`${activities.createdAt} DESC`)
+      .limit(limit);
+    return recentActivities;
+  }
+
+  // CRM - Tasks Management
+  async getTask(id: number): Promise<Task | undefined> {
+    const [task] = await db.select().from(tasks).where(eq(tasks.id, id));
+    return task;
+  }
+
+  async getTasksByUser(userId: number): Promise<Task[]> {
+    const taskList = await db
+      .select()
+      .from(tasks)
+      .where(eq(tasks.userId, userId))
+      .orderBy(sql`${tasks.dueDate} ASC`);
+    return taskList;
+  }
+
+  async getTasksByAssignee(assigneeId: number): Promise<Task[]> {
+    const taskList = await db
+      .select()
+      .from(tasks)
+      .where(eq(tasks.assignedTo, assigneeId))
+      .orderBy(sql`${tasks.dueDate} ASC`);
+    return taskList;
+  }
+
+  async getUpcomingTasks(userId: number, days: number = 7): Promise<Task[]> {
+    const futureDate = new Date();
+    futureDate.setDate(futureDate.getDate() + days);
+    
+    const upcomingTasks = await db
+      .select()
+      .from(tasks)
+      .where(and(
+        eq(tasks.userId, userId),
+        sql`${tasks.dueDate} <= ${futureDate.toISOString()}`,
+        sql`${tasks.status} != 'completed'`
+      ))
+      .orderBy(sql`${tasks.dueDate} ASC`);
+    return upcomingTasks;
+  }
+
+  async createTask(task: InsertTask): Promise<Task> {
+    const [newTask] = await db
+      .insert(tasks)
+      .values({
+        ...task,
+        updatedAt: new Date(),
+      })
+      .returning();
+
+    // Create audit log
+    await this.createAuditLog({
+      userId: task.userId,
+      action: 'create',
+      resourceType: 'task',
+      resourceId: newTask.id,
+      newValues: newTask,
+      details: `Created new task: ${newTask.title}`,
+    });
+
+    // Broadcast WebSocket event
+    if (wsService) {
+      wsService.broadcast('task_created', newTask);
+    }
+
+    return newTask;
+  }
+
+  async updateTask(id: number, data: Partial<InsertTask>): Promise<Task | undefined> {
+    const [oldTask] = await db.select().from(tasks).where(eq(tasks.id, id));
+    
+    const [task] = await db
+      .update(tasks)
+      .set({
+        ...data,
+        updatedAt: new Date(),
+      })
+      .where(eq(tasks.id, id))
+      .returning();
+
+    if (task) {
+      // Create audit log
+      await this.createAuditLog({
+        userId: task.userId,
+        action: 'update',
+        resourceType: 'task',
+        resourceId: id,
+        oldValues: oldTask,
+        newValues: task,
+        details: `Updated task: ${task.title}`,
+      });
+
+      // Broadcast WebSocket event
+      if (wsService) {
+        wsService.broadcast('task_updated', task);
+      }
+    }
+
+    return task;
+  }
+
+  async deleteTask(id: number): Promise<boolean> {
+    const [task] = await db.select().from(tasks).where(eq(tasks.id, id));
+    
+    await db.delete(tasks).where(eq(tasks.id, id));
+
+    if (task) {
+      // Create audit log
+      await this.createAuditLog({
+        userId: task.userId,
+        action: 'delete',
+        resourceType: 'task',
+        resourceId: id,
+        oldValues: task,
+        details: `Deleted task: ${task.title}`,
+      });
+
+      // Broadcast WebSocket event
+      if (wsService) {
+        wsService.broadcast('task_deleted', { id });
+      }
+    }
+
+    return true;
+  }
+
+  async completeTask(id: number): Promise<Task | undefined> {
+    const [task] = await db
+      .update(tasks)
+      .set({
+        status: 'completed',
+        completedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(tasks.id, id))
+      .returning();
+
+    if (task) {
+      // Create audit log
+      await this.createAuditLog({
+        userId: task.userId,
+        action: 'complete',
+        resourceType: 'task',
+        resourceId: id,
+        details: `Completed task: ${task.title}`,
+      });
+
+      // Broadcast WebSocket event
+      if (wsService) {
+        wsService.broadcast('task_completed', task);
+      }
+    }
+
+    return task;
+  }
+
+  // CRM - Companies Management
+  async getCrmCompany(id: number): Promise<CrmCompany | undefined> {
+    const [company] = await db.select().from(crmCompanies).where(eq(crmCompanies.id, id));
+    return company;
+  }
+
+  async getCrmCompaniesByUser(userId: number): Promise<CrmCompany[]> {
+    const companyList = await db
+      .select()
+      .from(crmCompanies)
+      .where(eq(crmCompanies.userId, userId))
+      .orderBy(sql`${crmCompanies.name} ASC`);
+    return companyList;
+  }
+
+  async createCrmCompany(company: InsertCrmCompany): Promise<CrmCompany> {
+    const [newCompany] = await db
+      .insert(crmCompanies)
+      .values({
+        ...company,
+        updatedAt: new Date(),
+      })
+      .returning();
+
+    // Create audit log
+    await this.createAuditLog({
+      userId: company.userId,
+      action: 'create',
+      resourceType: 'company',
+      resourceId: newCompany.id,
+      newValues: newCompany,
+      details: `Created new company: ${newCompany.name}`,
+    });
+
+    // Broadcast WebSocket event
+    if (wsService) {
+      wsService.broadcast('company_created', newCompany);
+    }
+
+    return newCompany;
+  }
+
+  async updateCrmCompany(id: number, data: Partial<InsertCrmCompany>): Promise<CrmCompany | undefined> {
+    const [oldCompany] = await db.select().from(crmCompanies).where(eq(crmCompanies.id, id));
+    
+    const [company] = await db
+      .update(crmCompanies)
+      .set({
+        ...data,
+        updatedAt: new Date(),
+      })
+      .where(eq(crmCompanies.id, id))
+      .returning();
+
+    if (company) {
+      // Create audit log
+      await this.createAuditLog({
+        userId: company.userId,
+        action: 'update',
+        resourceType: 'company',
+        resourceId: id,
+        oldValues: oldCompany,
+        newValues: company,
+        details: `Updated company: ${company.name}`,
+      });
+
+      // Broadcast WebSocket event
+      if (wsService) {
+        wsService.broadcast('company_updated', company);
+      }
+    }
+
+    return company;
+  }
+
+  async deleteCrmCompany(id: number): Promise<boolean> {
+    const [company] = await db.select().from(crmCompanies).where(eq(crmCompanies.id, id));
+    
+    await db.delete(crmCompanies).where(eq(crmCompanies.id, id));
+
+    if (company) {
+      // Create audit log
+      await this.createAuditLog({
+        userId: company.userId,
+        action: 'delete',
+        resourceType: 'company',
+        resourceId: id,
+        oldValues: company,
+        details: `Deleted company: ${company.name}`,
+      });
+
+      // Broadcast WebSocket event
+      if (wsService) {
+        wsService.broadcast('company_deleted', { id });
+      }
+    }
+
+    return true;
+  }
+
+  // CRM - Phone Calls Management
+  async getPhoneCall(id: number): Promise<PhoneCall | undefined> {
+    const [phoneCall] = await db.select().from(phoneCallsTable).where(eq(phoneCallsTable.id, id));
+    return phoneCall;
+  }
+
+  async getPhoneCallsByUser(userId: number): Promise<PhoneCall[]> {
+    const phoneCallList = await db
+      .select()
+      .from(phoneCallsTable)
+      .where(eq(phoneCallsTable.userId, userId))
+      .orderBy(sql`${phoneCallsTable.createdAt} DESC`);
+    return phoneCallList;
+  }
+
+  async getPhoneCallsByContact(contactId: number): Promise<PhoneCall[]> {
+    const phoneCallList = await db
+      .select()
+      .from(phoneCallsTable)
+      .where(eq(phoneCallsTable.contactId, contactId))
+      .orderBy(sql`${phoneCallsTable.createdAt} DESC`);
+    return phoneCallList;
+  }
+
+  async createPhoneCall(phoneCall: InsertPhoneCall): Promise<PhoneCall> {
+    const [newPhoneCall] = await db
+      .insert(phoneCallsTable)
+      .values({
+        ...phoneCall,
+        updatedAt: new Date(),
+      })
+      .returning();
+
+    // Create audit log
+    await this.createAuditLog({
+      userId: phoneCall.userId,
+      action: 'create',
+      resourceType: 'phone_call',
+      resourceId: newPhoneCall.id,
+      newValues: newPhoneCall,
+      details: `Created new phone call to ${newPhoneCall.phoneNumber}`,
+    });
+
+    // Broadcast WebSocket event
+    if (wsService) {
+      wsService.broadcast('phone_call_created', newPhoneCall);
+    }
+
+    return newPhoneCall;
+  }
+
+  async updatePhoneCall(id: number, data: Partial<InsertPhoneCall>): Promise<PhoneCall | undefined> {
+    const [oldPhoneCall] = await db.select().from(phoneCallsTable).where(eq(phoneCallsTable.id, id));
+    
+    const [phoneCall] = await db
+      .update(phoneCallsTable)
+      .set({
+        ...data,
+        updatedAt: new Date(),
+      })
+      .where(eq(phoneCallsTable.id, id))
+      .returning();
+
+    if (phoneCall) {
+      // Create audit log
+      await this.createAuditLog({
+        userId: phoneCall.userId,
+        action: 'update',
+        resourceType: 'phone_call',
+        resourceId: id,
+        oldValues: oldPhoneCall,
+        newValues: phoneCall,
+        details: `Updated phone call to ${phoneCall.phoneNumber}`,
+      });
+
+      // Broadcast WebSocket event
+      if (wsService) {
+        wsService.broadcast('phone_call_updated', phoneCall);
+      }
+    }
+
+    return phoneCall;
+  }
+
+  async deletePhoneCall(id: number): Promise<boolean> {
+    const [phoneCall] = await db.select().from(phoneCallsTable).where(eq(phoneCallsTable.id, id));
+    
+    await db.delete(phoneCallsTable).where(eq(phoneCallsTable.id, id));
+
+    if (phoneCall) {
+      // Create audit log
+      await this.createAuditLog({
+        userId: phoneCall.userId,
+        action: 'delete',
+        resourceType: 'phone_call',
+        resourceId: id,
+        oldValues: phoneCall,
+        details: `Deleted phone call to ${phoneCall.phoneNumber}`,
+      });
+
+      // Broadcast WebSocket event
+      if (wsService) {
+        wsService.broadcast('phone_call_deleted', { id });
+      }
+    }
+
+    return true;
+  }
+
+  // CRM - Metrics and Analytics
+  async getCrmMetrics(userId: number): Promise<any> {
+    const [totalLeads] = await db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(leads)
+      .where(eq(leads.userId, userId));
+
+    const [totalContacts] = await db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(contacts)
+      .where(eq(contacts.userId, userId));
+
+    const [openDeals] = await db
+      .select({ 
+        count: sql<number>`COUNT(*)`,
+        totalValue: sql<number>`COALESCE(SUM(${deals.value}), 0)`,
+      })
+      .from(deals)
+      .where(and(eq(deals.userId, userId), eq(deals.status, 'open')));
+
+    const [wonDeals] = await db
+      .select({ 
+        count: sql<number>`COUNT(*)`,
+        totalValue: sql<number>`COALESCE(SUM(${deals.value}), 0)`,
+      })
+      .from(deals)
+      .where(and(eq(deals.userId, userId), eq(deals.status, 'won')));
+
+    const [pendingTasks] = await db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(tasks)
+      .where(and(eq(tasks.userId, userId), sql`${tasks.status} != 'completed'`));
+
+    const [recentActivities] = await db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(activities)
+      .where(and(
+        eq(activities.userId, userId),
+        sql`${activities.createdAt} >= ${new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()}`
+      ));
+
+    return {
+      totalLeads: totalLeads?.count || 0,
+      totalContacts: totalContacts?.count || 0,
+      openDeals: openDeals?.count || 0,
+      totalDealValue: openDeals?.totalValue || 0,
+      wonDeals: wonDeals?.count || 0,
+      wonDealValue: wonDeals?.totalValue || 0,
+      pendingTasks: pendingTasks?.count || 0,
+      recentActivities: recentActivities?.count || 0,
+      conversionRate: totalLeads?.count ? ((wonDeals?.count || 0) / totalLeads.count * 100) : 0,
+    };
+  }
+
+  async getLeadSourceAnalytics(userId: number): Promise<any> {
+    const sourceStats = await db
+      .select({
+        source: leads.source,
+        count: sql<number>`COUNT(*)`,
+        converted: sql<number>`SUM(CASE WHEN ${leads.status} = 'converted' THEN 1 ELSE 0 END)`,
+      })
+      .from(leads)
+      .where(eq(leads.userId, userId))
+      .groupBy(leads.source);
+
+    return sourceStats.map(stat => ({
+      source: stat.source || 'Unknown',
+      count: stat.count,
+      converted: stat.converted,
+      conversionRate: stat.count > 0 ? (stat.converted / stat.count * 100) : 0,
+    }));
+  }
+
+  async getDealPipeline(userId: number): Promise<any> {
+    const pipelineStats = await db
+      .select({
+        stage: deals.stage,
+        count: sql<number>`COUNT(*)`,
+        totalValue: sql<number>`COALESCE(SUM(${deals.value}), 0)`,
+        avgProbability: sql<number>`COALESCE(AVG(${deals.probability}), 0)`,
+      })
+      .from(deals)
+      .where(and(eq(deals.userId, userId), eq(deals.status, 'open')))
+      .groupBy(deals.stage);
+
+    return pipelineStats.map(stat => ({
+      stage: stat.stage,
+      count: stat.count,
+      totalValue: stat.totalValue,
+      avgProbability: stat.avgProbability,
+      weightedValue: stat.totalValue * (stat.avgProbability / 100),
+    }));
+  }
+
+  async getSalesConversionFunnel(userId: number): Promise<any> {
+    const funnelData = await db
+      .select({
+        totalLeads: sql<number>`(SELECT COUNT(*) FROM ${leads} WHERE ${leads.userId} = ${userId})`,
+        qualifiedLeads: sql<number>`(SELECT COUNT(*) FROM ${leads} WHERE ${leads.userId} = ${userId} AND ${leads.status} = 'qualified')`,
+        convertedLeads: sql<number>`(SELECT COUNT(*) FROM ${leads} WHERE ${leads.userId} = ${userId} AND ${leads.status} = 'converted')`,
+        totalDeals: sql<number>`(SELECT COUNT(*) FROM ${deals} WHERE ${deals.userId} = ${userId})`,
+        wonDeals: sql<number>`(SELECT COUNT(*) FROM ${deals} WHERE ${deals.userId} = ${userId} AND ${deals.status} = 'won')`,
+      });
+
+    const data = funnelData[0] || {};
+    
+    return {
+      leads: data.totalLeads || 0,
+      qualified: data.qualifiedLeads || 0,
+      converted: data.convertedLeads || 0,
+      deals: data.totalDeals || 0,
+      won: data.wonDeals || 0,
+      rates: {
+        qualification: data.totalLeads ? (data.qualifiedLeads / data.totalLeads * 100) : 0,
+        conversion: data.qualifiedLeads ? (data.convertedLeads / data.qualifiedLeads * 100) : 0,
+        closing: data.totalDeals ? (data.wonDeals / data.totalDeals * 100) : 0,
+      },
+    };
+  }
+
+  // Add missing deal operations
+  async getDeal(id: number): Promise<any> {
+    const [deal] = await db.select().from(deals).where(eq(deals.id, id));
+    return deal;
+  }
+
+  async updateDeal(id: number, data: any): Promise<any> {
+    const [deal] = await db
+      .update(deals)
+      .set(data)
+      .where(eq(deals.id, id))
+      .returning();
+    
+    if (deal && wsService) {
+      wsService.broadcast('deal_updated', deal);
+    }
+    
+    return deal;
+  }
+
+  // CRM - Integrations
+  async convertDealToInvoice(dealId: number, invoiceData?: Partial<InsertInvoice>): Promise<Invoice> {
+    const [deal] = await db.select().from(deals).where(eq(deals.id, dealId));
+    if (!deal) {
+      throw new Error('Deal not found');
+    }
+
+    const contact = deal.contactId ? await this.getContact(deal.contactId) : null;
+    
+    // Generate invoice number
+    const invoiceNumber = await this.generateInvoiceNumber(deal.userId);
+    
+    // Create invoice from deal
+    const newInvoiceData: InsertInvoice = {
+      userId: deal.userId,
+      contactId: deal.contactId,
+      invoiceNumber,
+      issueDate: new Date().toISOString().split('T')[0],
+      dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 30 days from now
+      subtotal: deal.value || 0,
+      taxAmount: 0,
+      discountAmount: 0,
+      totalAmount: deal.value || 0,
+      amountPaid: 0,
+      status: 'draft',
+      payment_status: 'Unpaid',
+      notes: `Invoice generated from deal: ${deal.title}`,
+      currency: deal.currency || 'USD',
+      ...invoiceData,
+    };
+
+    const [invoice] = await db
+      .insert(invoices)
+      .values(newInvoiceData)
+      .returning();
+
+    // Create a single item for the deal
+    await db.insert(invoiceItems).values({
+      invoiceId: invoice.id,
+      productId: null,
+      description: deal.title,
+      quantity: 1,
+      unitPrice: deal.value || 0,
+      taxRate: 0,
+      taxAmount: 0,
+      discountRate: 0,
+      discountAmount: 0,
+      subtotal: deal.value || 0,
+      totalAmount: deal.value || 0,
+    });
+
+    // Update deal status
+    await this.updateDeal(dealId, { status: 'won', actualCloseDate: new Date().toISOString().split('T')[0] });
+
+    // Create audit log
+    await this.createAuditLog({
+      userId: deal.userId,
+      action: 'convert',
+      resourceType: 'deal',
+      resourceId: dealId,
+      details: `Converted deal to invoice: ${invoice.invoiceNumber}`,
+    });
+
+    // Broadcast WebSocket events
+    if (wsService) {
+      wsService.broadcast('deal_converted_to_invoice', { deal, invoice });
+      wsService.broadcast('invoice_created', invoice);
+    }
+
+    return invoice;
+  }
+
+  // Audit Logging
+  async createAuditLog(log: InsertAuditLog): Promise<AuditLog> {
+    const [auditLog] = await db
+      .insert(auditLogs)
+      .values(log)
+      .returning();
+    return auditLog;
+  }
+
+  async getAuditLogsByUser(userId: number): Promise<AuditLog[]> {
+    const logs = await db
+      .select()
+      .from(auditLogs)
+      .where(eq(auditLogs.userId, userId))
+      .orderBy(sql`${auditLogs.createdAt} DESC`)
+      .limit(100);
+    return logs;
+  }
+
+  async getAuditLogsByResource(resourceType: string, resourceId: number): Promise<AuditLog[]> {
+    const logs = await db
+      .select()
+      .from(auditLogs)
+      .where(and(
+        eq(auditLogs.resourceType, resourceType),
+        eq(auditLogs.resourceId, resourceId)
+      ))
+      .orderBy(sql`${auditLogs.createdAt} DESC`);
+    return logs;
   }
 }
 

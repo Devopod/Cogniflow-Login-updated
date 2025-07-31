@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
+import RealtimeNotifications from "./RealtimeNotifications";
 import {
   LayoutDashboard,
   Users,
@@ -305,62 +306,8 @@ export const TopNavigation = ({ user, handleLogout, isCollapsed }: {
       </div>
 
       <div className="flex items-center space-x-4">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className="p-2 rounded-full hover:bg-accent relative">
-              <Bell size={20} />
-              <span className="absolute top-1 right-1 bg-red-500 rounded-full w-2 h-2"></span>
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-80">
-            <DropdownMenuLabel>Notifications</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <div className="max-h-80 overflow-auto">
-              <div className="p-3 border-b">
-                <div className="flex items-start">
-                  <div className="bg-blue-100 p-2 rounded-full">
-                    <FileCheck className="h-4 w-4 text-blue-600" />
-                  </div>
-                  <div className="ml-3">
-                    <p className="text-sm font-medium">New invoice paid</p>
-                    <p className="text-xs text-muted-foreground">INV-2023-001 has been paid</p>
-                    <p className="text-xs text-muted-foreground mt-1">10 minutes ago</p>
-                  </div>
-                </div>
-              </div>
-              <div className="p-3 border-b">
-                <div className="flex items-start">
-                  <div className="bg-green-100 p-2 rounded-full">
-                    <UserPlus className="h-4 w-4 text-green-600" />
-                  </div>
-                  <div className="ml-3">
-                    <p className="text-sm font-medium">New employee onboarded</p>
-                    <p className="text-xs text-muted-foreground">Sarah Johnson has joined the team</p>
-                    <p className="text-xs text-muted-foreground mt-1">1 hour ago</p>
-                  </div>
-                </div>
-              </div>
-              <div className="p-3 border-b">
-                <div className="flex items-start">
-                  <div className="bg-yellow-100 p-2 rounded-full">
-                    <Package className="h-4 w-4 text-yellow-600" />
-                  </div>
-                  <div className="ml-3">
-                    <p className="text-sm font-medium">Inventory alert</p>
-                    <p className="text-xs text-muted-foreground">Product SKU-1234 is low on stock</p>
-                    <p className="text-xs text-muted-foreground mt-1">2 hours ago</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <DropdownMenuSeparator />
-            <div className="p-2 text-center">
-              <Link href="/notifications">
-                <a className="text-sm text-primary hover:underline">View all notifications</a>
-              </Link>
-            </div>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <RealtimeNotifications />
+
         
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

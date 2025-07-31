@@ -141,7 +141,7 @@ export class WSService {
   }
   
   // Broadcast to clients subscribed to a specific resource
-  broadcastToResource(resourceType: string, resourceId: string | number, type: string, data: any) {
+  broadcastToResource(resourceType: string, resourceId: string | number, message: { type: string; data: any }) {
     const resourceKey = `${resourceType}:${resourceId.toString()}`;
     const connections = this.resourceConnections.get(resourceKey);
     
@@ -149,13 +149,13 @@ export class WSService {
       return false;
     }
     
-    const message = JSON.stringify({ type, data });
+    const messageStr = JSON.stringify(message);
     let sentCount = 0;
     
     connections.forEach(({ ws }) => {
       if (ws.readyState === WebSocket.OPEN) {
         try {
-          ws.send(message);
+          ws.send(messageStr);
           sentCount++;
         } catch (error: unknown) {
           console.error(`Error broadcasting to ${resourceType}/${resourceId}:`, error);

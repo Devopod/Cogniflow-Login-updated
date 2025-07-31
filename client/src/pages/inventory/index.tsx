@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
+import { useToast } from "@/hooks/use-toast";
+import { useInventoryApi } from "@/hooks/use-api";
 import {
   Tabs,
   TabsContent,
@@ -73,18 +75,15 @@ const InventoryManagement = () => {
     window.history.replaceState({}, '', url.toString());
   };
 
-  // Mock inventory metrics
-  const inventoryMetrics = {
-    totalItems: 306,
-    totalValue: 142580,
-    lowStockItems: 15,
-    stockTurnover: 4.3,
-    warehouseCount: 4,
-    avgInventoryDays: 75,
-    inventoryToSalesRatio: 0.32,
-    expiringSoon: 8,
-    deadStock: 12
-  };
+  // Use dynamic API data instead of mock data
+  const { toast } = useToast();
+  const inventoryApi = useInventoryApi();
+  
+  // Extract data from API hooks
+  const { data: dashboardData, loading: dashboardLoading, error: dashboardError } = inventoryApi.dashboard;
+  
+  // Use real data or show loading states
+  const inventoryMetrics = Array.isArray(dashboardData) && dashboardData.length > 0 ? dashboardData[0] : null;
 
   return (
     <ErpNavigation>
@@ -120,14 +119,14 @@ const InventoryManagement = () => {
               <div className="flex justify-between items-start">
                 <div>
                   <p className="text-sm font-medium text-muted-foreground mb-1">Total Items</p>
-                  <h2 className="text-3xl font-bold">{inventoryMetrics.totalItems}</h2>
+                  <h2 className="text-3xl font-bold">{inventoryMetrics?.totalItems || 0}</h2>
                 </div>
                 <div className="bg-primary/10 p-2 rounded-full">
                   <Package className="h-5 w-5 text-primary" />
                 </div>
               </div>
               <div className="mt-4 text-sm text-muted-foreground">
-                Across {inventoryMetrics.warehouseCount} warehouses
+                Across {inventoryMetrics?.warehouseCount || 0} warehouses
               </div>
             </CardContent>
           </Card>
@@ -137,14 +136,14 @@ const InventoryManagement = () => {
               <div className="flex justify-between items-start">
                 <div>
                   <p className="text-sm font-medium text-muted-foreground mb-1">Inventory Value</p>
-                  <h2 className="text-3xl font-bold">${inventoryMetrics.totalValue.toLocaleString()}</h2>
+                  <h2 className="text-3xl font-bold">${(inventoryMetrics?.totalValue || 0).toLocaleString()}</h2>
                 </div>
                 <div className="bg-green-500/10 p-2 rounded-full">
                   <TrendingUp className="h-5 w-5 text-green-500" />
                 </div>
               </div>
               <div className="mt-4 text-sm text-muted-foreground">
-                {inventoryMetrics.inventoryToSalesRatio * 100}% of total sales
+                {((inventoryMetrics?.inventoryToSalesRatio || 0) * 100).toFixed(1)}% of total sales
               </div>
             </CardContent>
           </Card>
@@ -154,14 +153,14 @@ const InventoryManagement = () => {
               <div className="flex justify-between items-start">
                 <div>
                   <p className="text-sm font-medium text-muted-foreground mb-1">Low Stock Items</p>
-                  <h2 className="text-3xl font-bold">{inventoryMetrics.lowStockItems}</h2>
+                  <h2 className="text-3xl font-bold">{inventoryMetrics?.lowStockItems || 0}</h2>
                 </div>
                 <div className="bg-amber-500/10 p-2 rounded-full">
                   <Clock className="h-5 w-5 text-amber-500" />
                 </div>
               </div>
               <div className="mt-4 text-sm text-red-500">
-                {inventoryMetrics.expiringSoon} items need attention
+                {inventoryMetrics?.expiringSoon || 0} items need attention
               </div>
             </CardContent>
           </Card>
@@ -171,14 +170,14 @@ const InventoryManagement = () => {
               <div className="flex justify-between items-start">
                 <div>
                   <p className="text-sm font-medium text-muted-foreground mb-1">Stock Turnover</p>
-                  <h2 className="text-3xl font-bold">{inventoryMetrics.stockTurnover}x</h2>
+                  <h2 className="text-3xl font-bold">{inventoryMetrics?.stockTurnover || 0}x</h2>
                 </div>
                 <div className="bg-blue-500/10 p-2 rounded-full">
                   <RefreshCw className="h-5 w-5 text-blue-500" />
                 </div>
               </div>
               <div className="mt-4 text-sm text-muted-foreground">
-                {inventoryMetrics.avgInventoryDays} days avg. inventory
+                {inventoryMetrics?.avgInventoryDays || 0} days avg. inventory
               </div>
             </CardContent>
           </Card>
@@ -243,11 +242,11 @@ const InventoryManagement = () => {
                   <div className="space-y-4">
                     <div className="flex justify-between items-center">
                       <span className="text-sm">Healthy Stock</span>
-                      <Badge className="bg-green-500/10 text-green-500">{inventoryMetrics.totalItems - inventoryMetrics.lowStockItems - inventoryMetrics.deadStock}</Badge>
+                      <Badge className="bg-green-500/10 text-green-500">{(inventoryMetrics?.totalItems || 0) - (inventoryMetrics?.lowStockItems || 0) - (inventoryMetrics?.deadStock || 0)}</Badge>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-sm">Low Stock</span>
-                      <Badge className="bg-amber-500/10 text-amber-500">{inventoryMetrics.lowStockItems}</Badge>
+                      <Badge className="bg-amber-500/10 text-amber-500">{inventoryMetrics?.lowStockItems || 0}</Badge>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-sm">Out of Stock</span>
@@ -255,11 +254,11 @@ const InventoryManagement = () => {
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-sm">Dead Stock (No movement)</span>
-                      <Badge className="bg-slate-500/10 text-slate-500">{inventoryMetrics.deadStock}</Badge>
+                      <Badge className="bg-slate-500/10 text-slate-500">{inventoryMetrics?.deadStock || 0}</Badge>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-sm">Expiring Soon</span>
-                      <Badge className="bg-purple-500/10 text-purple-500">{inventoryMetrics.expiringSoon}</Badge>
+                      <Badge className="bg-purple-500/10 text-purple-500">{inventoryMetrics?.expiringSoon || 0}</Badge>
                     </div>
                     <div className="flex justify-between items-center mt-6">
                       <span className="text-sm font-medium">Overall Health</span>

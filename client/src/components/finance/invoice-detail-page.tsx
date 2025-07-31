@@ -113,11 +113,16 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: number | null }) {
   const createPayment = useCreatePayment();
   const sendInvoice = useSendInvoice();
   // Listen for invoice_sent WebSocket event
-  useWebSocket('invoice_sent', (event) => {
-    if (event.invoiceId === invoiceId) {
-      refetch();
-      toast({ title: 'Invoice Sent', description: 'The invoice was sent to the client.' });
-    }
+  useWebSocket({
+    resource: 'invoices',
+    resourceId: invoiceId || 'all',
+    onMessage: (event) => {
+      if (event.type === 'invoice_sent' && event.invoiceId === invoiceId) {
+        refetch();
+        toast({ title: 'Invoice Sent', description: 'The invoice was sent to the client.' });
+      }
+    },
+    invalidateQueries: [['invoices']]
   });
   
   // Initialize edit form when invoice data is loaded
