@@ -30,15 +30,21 @@ export default function RealtimeNotifications() {
     // Create WebSocket client for global notifications
     const client = new WebSocketClient('global', 'notifications');
     
-    client.addEventListener('message', (event) => {
-      const message = JSON.parse(event.data);
+    // Subscribe to all message types using the client's on method
+    const unsubscribe = client.on('*', (message) => {
       handleRealtimeUpdate(message);
     });
     
-    client.connect();
+    // Connect to the WebSocket server
+    client.connect().catch(error => {
+      console.warn('Failed to connect to WebSocket:', error);
+      // Continue without WebSocket - the app should still work
+    });
+    
     setWsClient(client);
     
     return () => {
+      unsubscribe();
       client.disconnect();
     };
   }, []);

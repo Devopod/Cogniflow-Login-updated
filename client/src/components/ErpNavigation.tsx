@@ -203,10 +203,8 @@ export const Sidebar = ({ isCollapsed, toggleSidebar, activePath }: SidebarProps
     >
       <div className="p-4 flex justify-between items-center border-b">
         {!isCollapsed && (
-          <Link href="/dashboard">
-            <a className="text-xl font-bold flex items-center">
-              <span className="text-primary mr-1">Cogni</span>Flow
-            </a>
+          <Link href="/dashboard" className="text-xl font-bold flex items-center">
+            <span className="text-primary mr-1">Cogni</span>Flow
           </Link>
         )}
         <button onClick={toggleSidebar} className="p-1 rounded-full hover:bg-accent">
@@ -248,14 +246,13 @@ export const Sidebar = ({ isCollapsed, toggleSidebar, activePath }: SidebarProps
                   )}
                 </DropdownMenu>
               ) : (
-                <Link href={item.path}>
-                  <a
-                    className={`flex items-center p-2 rounded-md 
-                      ${item.isActive(activePath) ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:bg-accent'}`}
-                  >
-                    {item.icon}
-                    {!isCollapsed && <span className="ml-3">{item.title}</span>}
-                  </a>
+                <Link 
+                  href={item.path}
+                  className={`flex items-center p-2 rounded-md 
+                    ${item.isActive(activePath) ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:bg-accent'}`}
+                >
+                  {item.icon}
+                  {!isCollapsed && <span className="ml-3">{item.title}</span>}
                 </Link>
               )}
             </li>
@@ -266,14 +263,13 @@ export const Sidebar = ({ isCollapsed, toggleSidebar, activePath }: SidebarProps
           <ul className="space-y-1">
             {bottomNavItems.map((item) => (
               <li key={item.path}>
-                <Link href={item.path}>
-                  <a
-                    className={`flex items-center p-2 rounded-md 
-                      ${item.isActive(activePath) ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:bg-accent'}`}
-                  >
-                    {item.icon}
-                    {!isCollapsed && <span className="ml-3">{item.title}</span>}
-                  </a>
+                <Link 
+                  href={item.path}
+                  className={`flex items-center p-2 rounded-md 
+                    ${item.isActive(activePath) ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:bg-accent'}`}
+                >
+                  {item.icon}
+                  {!isCollapsed && <span className="ml-3">{item.title}</span>}
                 </Link>
               </li>
             ))}

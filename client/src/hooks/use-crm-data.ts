@@ -1,7 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useWebSocket } from './use-websocket';
 import { useEffect } from 'react';
-import { toast } from 'react-toastify';
 
 // Types
 export interface Lead {
@@ -351,6 +350,24 @@ const crmApi = {
     if (!response.ok) throw new Error('Failed to create activity');
     return response.json();
   },
+
+  updateActivity: async ({ id, data }: { id: number; data: Partial<Activity> }) => {
+    const response = await fetch(`/api/crm/activities/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) throw new Error('Failed to update activity');
+    return response.json();
+  },
+
+  deleteActivity: async (id: number) => {
+    const response = await fetch(`/api/crm/activities/${id}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) throw new Error('Failed to delete activity');
+    return response.json();
+  },
   
   // Tasks
   getTasks: async (params?: any) => {
@@ -657,13 +674,6 @@ export const useConvertDealToInvoice = () => {
   });
 };
 
-export const useActivities = (params?: any) => {
-  return useQuery({
-    queryKey: ['activities', params],
-    queryFn: () => crmApi.getActivities(params),
-  });
-};
-
 export const useCreateActivity = () => {
   const queryClient = useQueryClient();
   return useMutation({
@@ -679,10 +689,33 @@ export const useCreateActivity = () => {
   });
 };
 
-export const useTasks = (params?: any) => {
-  return useQuery({
-    queryKey: ['tasks', params],
-    queryFn: () => crmApi.getTasks(params),
+export const useUpdateActivity = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: crmApi.updateActivity,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['activities'] });
+      queryClient.invalidateQueries({ queryKey: ['contact-timeline'] });
+      toast.success('Activity updated successfully');
+    },
+    onError: () => {
+      toast.error('Failed to update activity');
+    },
+  });
+};
+
+export const useDeleteActivity = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: crmApi.deleteActivity,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['activities'] });
+      queryClient.invalidateQueries({ queryKey: ['contact-timeline'] });
+      toast.success('Activity deleted successfully');
+    },
+    onError: () => {
+      toast.error('Failed to delete activity');
+    },
   });
 };
 
@@ -759,52 +792,15 @@ export const useCreatePhoneCall = () => {
   });
 };
 
-export const useCrmMetrics = () => {
-  return useQuery({
-    queryKey: ['crm-metrics'],
-    queryFn: crmApi.getMetrics,
-    refetchInterval: 30000, // Refetch every 30 seconds
-  });
-};
-
-export const useLeadAnalytics = () => {
-  return useQuery({
-    queryKey: ['lead-analytics'],
-    queryFn: crmApi.getLeadAnalytics,
-  });
-};
-
-export const useContactAnalytics = () => {
-  return useQuery({
-    queryKey: ['contact-analytics'],
-    queryFn: crmApi.getContactAnalytics,
-  });
-};
-
-export const usePipeline = () => {
-  return useQuery({
-    queryKey: ['pipeline'],
-    queryFn: crmApi.getPipeline,
-  });
-};
-
-export const useConversionFunnel = () => {
-  return useQuery({
-    queryKey: ['conversion-funnel'],
-    queryFn: crmApi.getConversionFunnel,
-  });
-};
-
 // WebSocket integration for real-time updates
 export const useCrmRealTime = () => {
   const queryClient = useQueryClient();
-  const { lastMessage } = useWebSocket();
-
-  useEffect(() => {
-    if (lastMessage) {
-      const data = JSON.parse(lastMessage);
-      
-      switch (data.type) {
+  
+  useWebSocket({
+    resource: 'crm',
+    resourceId: 'all',
+    onMessage: (message) => {
+      switch (message.type) {
         case 'lead_created':
         case 'lead_updated':
         case 'lead_deleted':
@@ -833,7 +829,7 @@ export const useCrmRealTime = () => {
         case 'activity_updated':
         case 'activity_deleted':
           queryClient.invalidateQueries({ queryKey: ['activities'] });
-          queryClient.invalidateQueries({ queryKey: ['contact-timeline'] });
+          queryClient.invalidateQueries({ queryKey: ['contact-timeline', message.contactId] });
           break;
           
         case 'task_created':
@@ -854,7 +850,7 @@ export const useCrmRealTime = () => {
         case 'phone_call_updated':
         case 'phone_call_deleted':
           queryClient.invalidateQueries({ queryKey: ['phone-calls'] });
-          queryClient.invalidateQueries({ queryKey: ['contact-timeline'] });
+          queryClient.invalidateQueries({ queryKey: ['contact-timeline', message.contactId] });
           break;
           
         case 'metrics_updated':
@@ -862,7 +858,8 @@ export const useCrmRealTime = () => {
           break;
       }
     }
-  }, [lastMessage, queryClient]);
+  });
+
 };
 
 // Email integration hooks
@@ -912,6 +909,65 @@ export const useExportLeads = () => {
     onError: () => {
       toast.error('Failed to export leads');
     },
+  });
+};
+
+// CRM Metrics hook
+export const useCrmMetrics = () => {
+  return useQuery({
+    queryKey: ['crm-metrics'],
+    queryFn: () => crmApi.getMetrics(),
+    staleTime: 1000 * 60 * 5, // 5 minutes
+  });
+};
+
+// Lead Analytics hook
+export const useLeadAnalytics = () => {
+  return useQuery({
+    queryKey: ['lead-analytics'],
+    queryFn: () => crmApi.getLeadAnalytics(),
+    staleTime: 1000 * 60 * 5,
+  });
+};
+
+// Sales Pipeline hook (alias for compatibility)
+export const useSalesPipeline = () => {
+  return usePipeline();
+};
+
+// Pipeline hook
+export const usePipeline = () => {
+  return useQuery({
+    queryKey: ['pipeline'],
+    queryFn: () => crmApi.getPipeline(),
+    staleTime: 1000 * 60 * 5,
+  });
+};
+
+// Conversion Funnel hook
+export const useConversionFunnel = () => {
+  return useQuery({
+    queryKey: ['conversion-funnel'],
+    queryFn: () => crmApi.getConversionFunnel(),
+    staleTime: 1000 * 60 * 5,
+  });
+};
+
+// Tasks hook
+export const useTasks = (params?: any) => {
+  return useQuery({
+    queryKey: ['tasks', params],
+    queryFn: () => crmApi.getTasks(params),
+    staleTime: 1000 * 60 * 2, // 2 minutes
+  });
+};
+
+// Activities hook
+export const useActivities = (params?: any) => {
+  return useQuery({
+    queryKey: ['activities', params],
+    queryFn: () => crmApi.getActivities(params),
+    staleTime: 1000 * 60 * 2,
   });
 };
 

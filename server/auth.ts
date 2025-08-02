@@ -32,7 +32,8 @@ async function comparePasswords(supplied: string, stored: string) {
   return timingSafeEqual(hashedBuf, suppliedBuf);
 }
 
-export function setupAuth(app: Express) {
+// Create session middleware that can be shared
+function createSessionMiddleware() {
   if (!process.env.SESSION_SECRET) {
     process.env.SESSION_SECRET = randomBytes(32).toString('hex');
     console.warn('No SESSION_SECRET environment variable set, using a random value. Sessions will be invalidated on server restart.');
@@ -51,8 +52,15 @@ export function setupAuth(app: Express) {
     }
   };
 
+  return session(sessionSettings);
+}
+
+// Export the session middleware
+export const sessionMiddleware = createSessionMiddleware();
+
+export function setupAuth(app: Express) {
   app.set("trust proxy", 1);
-  app.use(session(sessionSettings));
+  app.use(sessionMiddleware);
   app.use(passport.initialize());
   app.use(passport.session());
 

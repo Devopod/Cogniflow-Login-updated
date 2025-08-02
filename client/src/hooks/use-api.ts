@@ -31,16 +31,21 @@ export function useApi<T = any>(
         options.websocket.resourceId || 'all'
       );
       
-      // Set up event listeners for real-time updates
-      client.addEventListener('message', (event) => {
-        const message = JSON.parse(event.data);
+      // Set up event listeners for real-time updates using the client's on method
+      const unsubscribe = client.on('*', (message) => {
         handleRealtimeUpdate(message);
       });
       
-      client.connect();
+      // Connect to the WebSocket server
+      client.connect().catch(error => {
+        console.warn('Failed to connect to WebSocket:', error);
+        // Continue without WebSocket - the app should still work
+      });
+      
       setWsClient(client);
       
       return () => {
+        unsubscribe();
         client.disconnect();
       };
     }
@@ -90,6 +95,11 @@ export function useApi<T = any>(
         if (endpoint.includes('inventory') || endpoint.includes('stock')) {
           fetchData();
         }
+        break;
+        
+      case 'connection_established':
+        // WebSocket connection confirmation - no action needed
+        console.log('WebSocket connection established for:', endpoint);
         break;
         
       default:

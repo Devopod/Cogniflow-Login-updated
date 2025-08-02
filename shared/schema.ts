@@ -130,6 +130,15 @@ export const userPermissions = pgTable("user_permissions", {
   };
 });
 
+export const settings = pgTable("settings", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id),
+  key: varchar("key", { length: 100 }).notNull(),
+  value: text("value"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 export const sessions = pgTable("sessions", {
   sid: varchar("sid").primaryKey(),
   sess: jsonb("sess").notNull(),
@@ -155,6 +164,7 @@ export const contacts = pgTable("contacts", {
   source: varchar("source", { length: 100 }),
   status: varchar("status", { length: 50 }).default('active'),
   type: varchar("type", { length: 50 }).default('lead'),
+  assignedTo: integer("assigned_to").references(() => users.id),
   payment_portal_token: varchar("payment_portal_token", { length: 255 }),
   saved_payment_methods: jsonb("saved_payment_methods"), // Stores saved cards or bank accounts
   createdAt: timestamp("created_at").defaultNow(),
@@ -1628,18 +1638,31 @@ export const insertPaymentSchema = createInsertSchema(payments).omit({
   // paymentDate: true, // Should be set by backend
 });
 
-export const insertPaymentReminderSchema = createInsertSchema(payment_reminders).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-  sent_at: true,
-});
+export const insertPaymentReminderSchema = createInsertSchema(payment_reminders)
+  .omit({
+    id: true,
+    createdAt: true,
+    updatedAt: true,
+    sent_at: true
+  })
+  .extend({
+    id: z.number().optional(),
+    createdAt: z.date().optional(),
+    updatedAt: z.date().optional(),
+    sent_at: z.date().optional()
+  });
 
-export const insertPaymentHistorySchema = createInsertSchema(payment_history).omit({
-  id: true,
-  createdAt: true,
-  event_timestamp: true,
-});
+export const insertPaymentHistorySchema = createInsertSchema(payment_history)
+  .omit({
+    id: true,
+    createdAt: true,
+    event_timestamp: true
+  })
+  .extend({
+    id: z.number().optional(),
+    createdAt: z.date().optional(),
+    event_timestamp: z.date().optional()
+  });
 
 export const insertPaymentGatewaySettingSchema = createInsertSchema(payment_gateway_settings).omit({
   id: true,
@@ -1912,7 +1935,7 @@ export const tasks = pgTable("tasks", {
   dealId: integer("deal_id").references(() => deals.id),
   title: varchar("title", { length: 200 }).notNull(),
   description: text("description"),
-  type: varchar("type", { length: 50 }).notNull(), // call, email, meeting, follow_up, demo
+  type: varchar("type", { length: 50 }).notNull().default('follow_up'), // call, email, meeting, follow_up, demo
   priority: varchar("priority", { length: 50 }).default('medium'), // low, medium, high, urgent
   status: varchar("status", { length: 50 }).default('pending'), // pending, in_progress, completed, cancelled
   dueDate: timestamp("due_date"),
@@ -1993,7 +2016,7 @@ export const auditLogs = pgTable("audit_logs", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull().references(() => users.id),
   action: varchar("action", { length: 100 }).notNull(),
-  resourceType: varchar("resource_type", { length: 50 }).notNull(), // lead, contact, deal, activity, etc.
+  resourceType: varchar("resource_type", { length: 50 }).notNull().default('unknown'), // lead, contact, deal, activity, etc.
   resourceId: integer("resource_id"),
   oldValues: jsonb("old_values"),
   newValues: jsonb("new_values"),
