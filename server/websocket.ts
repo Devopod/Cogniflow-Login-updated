@@ -12,43 +12,85 @@ export class WSService {
   private wss: WebSocketServer;
   private clients: Set<WebSocket> = new Set();
   private resourceConnections: Map<string, Set<ResourceConnection>> = new Map();
+  private sessionMiddleware: any;
 
-  constructor(server: Server) {
+  constructor(server: Server, sessionMiddleware: any) {
+    this.sessionMiddleware = sessionMiddleware;
+
     this.wss = new WebSocketServer({ noServer: true });
     
     // Handle upgrade requests to parse resource paths
     server.on('upgrade', (request, socket, head) => {
       const { pathname } = parse(request.url || '');
-      
+      console.log(`WebSocket upgrade request for path: ${pathname}`);
+
       // Only handle WebSocket connections that explicitly start with /ws
       // This ensures we don't interfere with Vite's HMR WebSockets
       if (!pathname || !pathname.startsWith('/ws')) {
+        console.log(`Ignoring non-WebSocket upgrade request: ${pathname}`);
         return; // Not our WebSocket connection
       }
       
-      // Parse the path to determine the resource type and ID
-      // Expected format: /ws/{resourceType}/{resourceId}
-      const pathParts = pathname.split('/').filter(Boolean);
-      
-      if (pathParts.length < 2) {
-        // Default global connection for /ws path
+      // Apply session middleware to the upgrade request
+      const req = request as any;
+      const res = {
+        // Mock response object for session middleware
+        getHeader: () => undefined,
+        setHeader: () => {},
+        cookie: () => {},
+        clearCookie: () => {},
+        on: () => {},
+        writeHead: () => {},
+        write: () => {},
+        end: () => {},
+      } as any;
+
+      this.sessionMiddleware(req, res, (err?: any) => {
+        if (err) {
+          console.error('Session middleware error for WebSocket:', err);
+        }
+        
+        // Parse the path to determine the resource type and ID
+        // Expected format: /ws/{resourceType}/{resourceId}
+        const pathParts = pathname.split('/').filter(Boolean);
+        
+        if (pathParts.length < 2) {
+          // Default global connection for /ws path
+          this.wss.handleUpgrade(request, socket, head, (ws) => {
+            this.wss.emit('connection', ws, request, { resourceType: 'global', resourceId: 'all' });
+          });
+          return;
+        }
+        
+        const resourceType = pathParts[1];
+        const resourceId = pathParts.length > 2 ? pathParts[2] : 'all';
+        
         this.wss.handleUpgrade(request, socket, head, (ws) => {
-          this.wss.emit('connection', ws, request, { resourceType: 'global', resourceId: 'all' });
+          this.wss.emit('connection', ws, request, { resourceType, resourceId });
         });
-        return;
-      }
+      });
       
-      const resourceType = pathParts[1];
-      const resourceId = pathParts.length > 2 ? pathParts[2] : 'all';
-      
-      this.wss.handleUpgrade(request, socket, head, (ws) => {
-        this.wss.emit('connection', ws, request, { resourceType, resourceId });
+      // Handle session errors (added)
+      socket.on('error', (error) => {
+        console.error("WebSocket socket error:", error);
+        socket.destroy();
       });
     });
     
     // Handle new connections
     this.wss.on('connection', (ws: WebSocket, request: any, { resourceType, resourceId }: { resourceType: string; resourceId: string }) => {
       console.log(`WebSocket connection established for ${resourceType}/${resourceId}`);
+      
+      // Check if session is available - it should be from Express session middleware
+      const session = (request as any).session;
+      if (!session) {
+        console.warn('WebSocket connected without session - session middleware may not be applied to upgrade requests');
+      } else {
+        console.log(`WebSocket session ID: ${session.id}`);
+      }
+      
+      // Store session to WebSocket (optional)
+      (ws as any).session = session;
       
       // Add to general clients
       this.clients.add(ws);

@@ -283,6 +283,116 @@ export default function ActivityManagement() {
               Log Activity
             </Button>
           </DialogTrigger>
+          <DialogContent className="sm:max-w-[600px]">
+            <DialogHeader>
+              <DialogTitle>Log New Activity</DialogTitle>
+              <DialogDescription>
+                Record a new customer interaction or activity.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="type">Activity Type</Label>
+                  <Select value={formData.type} onValueChange={(value) => setFormData({...formData, type: value})}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {activityTypes.map((type) => (
+                        <SelectItem key={type.value} value={type.value}>
+                          <div className="flex items-center space-x-2">
+                            <type.icon className={`h-4 w-4 ${type.color}`} />
+                            <span>{type.label}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="status">Status</Label>
+                  <Select value={formData.status} onValueChange={(value) => setFormData({...formData, status: value})}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="scheduled">Scheduled</SelectItem>
+                      <SelectItem value="in_progress">In Progress</SelectItem>
+                      <SelectItem value="completed">Completed</SelectItem>
+                      <SelectItem value="cancelled">Cancelled</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="subject">Subject</Label>
+                <Input
+                  id="subject"
+                  value={formData.subject}
+                  onChange={(e) => setFormData({...formData, subject: e.target.value})}
+                  placeholder="Brief description of the activity"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="description">Description</Label>
+                <Textarea
+                  id="description"
+                  value={formData.description}
+                  onChange={(e) => setFormData({...formData, description: e.target.value})}
+                  placeholder="Detailed notes about the activity"
+                  rows={3}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="priority">Priority</Label>
+                  <Select value={formData.priority} onValueChange={(value) => setFormData({...formData, priority: value})}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="low">Low</SelectItem>
+                      <SelectItem value="medium">Medium</SelectItem>
+                      <SelectItem value="high">High</SelectItem>
+                      <SelectItem value="urgent">Urgent</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="scheduledAt">Scheduled Date/Time</Label>
+                  <Input
+                    id="scheduledAt"
+                    type="datetime-local"
+                    value={formData.scheduledAt || ""}
+                    onChange={(e) => setFormData({...formData, scheduledAt: e.target.value})}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="location">Location (Optional)</Label>
+                <Input
+                  id="location"
+                  value={formData.location || ""}
+                  onChange={(e) => setFormData({...formData, location: e.target.value})}
+                  placeholder="Meeting location or call details"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleCreateActivity} disabled={createActivity.isPending}>
+                {createActivity.isPending && <RefreshCw className="h-4 w-4 mr-2 animate-spin" />}
+                Log Activity
+              </Button>
+            </DialogFooter>
+          </DialogContent>
         </Dialog>
       </div>
 
@@ -436,117 +546,7 @@ export default function ActivityManagement() {
         </CardContent>
       </Card>
 
-      {/* Create Activity Dialog */}
-      <DialogContent className="sm:max-w-[600px]">
-        <DialogHeader>
-          <DialogTitle>Log New Activity</DialogTitle>
-          <DialogDescription>
-            Record a new customer interaction or activity.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-4 py-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="type">Activity Type</Label>
-              <Select value={formData.type} onValueChange={(value) => setFormData({...formData, type: value})}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {activityTypes.map((type) => (
-                    <SelectItem key={type.value} value={type.value}>
-                      <div className="flex items-center space-x-2">
-                        <type.icon className={`h-4 w-4 ${type.color}`} />
-                        <span>{type.label}</span>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="status">Status</Label>
-              <Select value={formData.status} onValueChange={(value) => setFormData({...formData, status: value})}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="scheduled">Scheduled</SelectItem>
-                  <SelectItem value="in_progress">In Progress</SelectItem>
-                  <SelectItem value="completed">Completed</SelectItem>
-                  <SelectItem value="cancelled">Cancelled</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          
-          <div className="space-y-2">
-            <Label htmlFor="subject">Subject</Label>
-            <Input
-              id="subject"
-              value={formData.subject}
-              onChange={(e) => setFormData({...formData, subject: e.target.value})}
-              placeholder="Brief description of the activity"
-            />
-          </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="description">Description</Label>
-            <Textarea
-              id="description"
-              value={formData.description}
-              onChange={(e) => setFormData({...formData, description: e.target.value})}
-              placeholder="Detailed notes about the activity"
-              rows={3}
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="priority">Priority</Label>
-              <Select value={formData.priority} onValueChange={(value) => setFormData({...formData, priority: value})}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="low">Low</SelectItem>
-                  <SelectItem value="medium">Medium</SelectItem>
-                  <SelectItem value="high">High</SelectItem>
-                  <SelectItem value="urgent">Urgent</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="scheduledAt">Scheduled Date/Time</Label>
-              <Input
-                id="scheduledAt"
-                type="datetime-local"
-                value={formData.scheduledAt || ""}
-                onChange={(e) => setFormData({...formData, scheduledAt: e.target.value})}
-              />
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="location">Location (Optional)</Label>
-            <Input
-              id="location"
-              value={formData.location || ""}
-              onChange={(e) => setFormData({...formData, location: e.target.value})}
-              placeholder="Meeting location or call details"
-            />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
-            Cancel
-          </Button>
-          <Button onClick={handleCreateActivity} disabled={createActivity.isPending}>
-            {createActivity.isPending && <RefreshCw className="h-4 w-4 mr-2 animate-spin" />}
-            Log Activity
-          </Button>
-        </DialogFooter>
-      </DialogContent>
 
       {/* Edit Activity Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>

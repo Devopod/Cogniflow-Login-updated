@@ -25,6 +25,17 @@ export default defineConfig({
       path: '/__vite_hmr',
       overlay: false, // Disable HMR overlay to prevent conflicts with Dialog portals
     },
+    proxy: {
+      '/api': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+      },
+      '/ws': {
+        target: 'ws://localhost:5000',
+        ws: true,
+        changeOrigin: true,
+      },
+    },
   },
   resolve: {
     alias: {

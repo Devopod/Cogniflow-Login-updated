@@ -18,48 +18,60 @@ export const useWebSocket = ({
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsHost = window.location.hostname === 'localhost' ? 'localhost:5000' : window.location.host;
-    const wsUrl = `${wsProtocol}//${wsHost}/ws/${resource}/${resourceId}`;
+    let reconnectAttempts = 0;
+    const maxReconnectAttempts = 5;
+    const reconnectDelay = 5000; // 5 seconds
     
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
+    const connect = () => {
+      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsHost = window.location.hostname === 'localhost' ? 'localhost:5000' : window.location.host;
+      const wsUrl = `${wsProtocol}//${wsHost}/ws/${resource}/${resourceId}`;
+      
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
 
-    ws.onopen = () => {
-      console.log(`WebSocket connected to ${resource}/${resourceId}`);
-    };
+      ws.onopen = () => {
+        console.log(`WebSocket connected to ${resource}/${resourceId}`);
+        reconnectAttempts = 0; // Reset on successful connection
+      };
 
-    ws.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        console.log(`WebSocket message received for ${resource}:`, message);
-        
-        // Call custom message handler if provided
-        if (onMessage) {
-          onMessage(message);
+      ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          console.log(`WebSocket message received for ${resource}:`, message);
+          
+          if (onMessage) {
+            onMessage(message);
+          }
+          
+          invalidateQueries.forEach(queryKey => {
+            queryClient.invalidateQueries({ queryKey });
+          });
+          
+        } catch (error) {
+          console.error('Error parsing WebSocket message:', error);
         }
-        
-        // Invalidate specified queries
-        invalidateQueries.forEach(queryKey => {
-          queryClient.invalidateQueries({ queryKey });
-        });
-        
-      } catch (error) {
-        console.error('Error parsing WebSocket message:', error);
-      }
+      };
+
+      ws.onerror = (error) => {
+        console.error(`WebSocket error for ${resource}/${resourceId}:`, error);
+      };
+
+      ws.onclose = () => {
+        console.log(`WebSocket disconnected from ${resource}/${resourceId}`);
+        if (reconnectAttempts < maxReconnectAttempts) {
+          reconnectAttempts++;
+          console.log(`Attempting to reconnect (${reconnectAttempts}/${maxReconnectAttempts})...`);
+          setTimeout(connect, reconnectDelay);
+        }
+      };
     };
 
-    ws.onerror = (error) => {
-      console.error(`WebSocket error for ${resource}/${resourceId}:`, error);
-    };
-
-    ws.onclose = () => {
-      console.log(`WebSocket disconnected from ${resource}/${resourceId}`);
-    };
+    connect();
 
     return () => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.close();
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.close();
       }
     };
   }, [resource, resourceId, queryClient]);

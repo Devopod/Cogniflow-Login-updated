@@ -65,7 +65,6 @@ import {
   ArcElement,
 } from "chart.js";
 import { format } from "date-fns";
-import { toast } from "react-toastify";
 
 // Register Chart.js components
 ChartJS.register(

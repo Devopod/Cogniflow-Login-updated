@@ -193,19 +193,11 @@ const InventoryManagement = () => {
           <TabsList className="mb-6 flex flex-wrap">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="products">Products</TabsTrigger>
-            <TabsTrigger value="product-groups">Product Groups</TabsTrigger>
-            <TabsTrigger value="bom">BOM</TabsTrigger>
-            <TabsTrigger value="grn">GRN</TabsTrigger>
-            <TabsTrigger value="gdn">GDN</TabsTrigger>
-            <TabsTrigger value="stock">Stock Control</TabsTrigger>
-            <TabsTrigger value="orders">Purchase Orders</TabsTrigger>
-            <TabsTrigger value="transfers">Stock Transfers</TabsTrigger>
             <TabsTrigger value="warehouses">Warehouses</TabsTrigger>
+            <TabsTrigger value="stock">Stock Count</TabsTrigger>
             <TabsTrigger value="reorder" className="bg-amber-100 dark:bg-amber-900/30">Reorder Levels</TabsTrigger>
-            <TabsTrigger value="notifications">Notifications</TabsTrigger>
-            <TabsTrigger value="tasks">Task Scheduler</TabsTrigger>
-            <TabsTrigger value="setup">Setup</TabsTrigger>
-            <TabsTrigger value="branding">Branding</TabsTrigger>
+            <TabsTrigger value="orders">Purchase Orders</TabsTrigger>
+            <TabsTrigger value="analysis">Inventory Analysis</TabsTrigger>
           </TabsList>
 
           {/* Overview Tab */}
@@ -483,56 +475,6 @@ const InventoryManagement = () => {
           <TabsContent value="products">
             <ProductCatalog />
           </TabsContent>
-          
-          {/* Product Groups Tab */}
-          <TabsContent value="product-groups" className="space-y-6">
-            <ProductGroup />
-          </TabsContent>
-          
-          {/* BOM Tab */}
-          <TabsContent value="bom" className="space-y-6">
-            <BillOfMaterials />
-          </TabsContent>
-          
-          {/* GRN Tab */}
-          <TabsContent value="grn" className="space-y-6">
-            <GoodsReceiptNote />
-          </TabsContent>
-          
-          {/* GDN Tab */}
-          <TabsContent value="gdn" className="space-y-6">
-            <GoodsDeliveryNote />
-          </TabsContent>
-
-          {/* Stock Control Tab */}
-          <TabsContent value="stock" className="space-y-6">
-            <StockManagement />
-          </TabsContent>
-
-          {/* Purchase Orders Tab */}
-          <TabsContent value="orders" className="space-y-6">
-            <PurchaseOrders />
-          </TabsContent>
-
-          {/* Stock Transfers Tab */}
-          <TabsContent value="transfers" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Stock Transfers</CardTitle>
-                <CardDescription>
-                  This feature will allow you to move inventory between warehouse locations
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
-                <GitBranch className="h-16 w-16 text-primary/40" />
-                <h3 className="text-xl font-semibold">Stock Transfer Module</h3>
-                <p className="text-center text-muted-foreground max-w-md">
-                  This module is coming in the next implementation phase. You'll be able to transfer stock between 
-                  warehouses and track inventory movements across locations.
-                </p>
-              </CardContent>
-            </Card>
-          </TabsContent>
 
           {/* Warehouses Tab */}
           <TabsContent value="warehouses" className="space-y-6">
@@ -540,7 +482,7 @@ const InventoryManagement = () => {
               <CardHeader>
                 <CardTitle>Warehouse Management</CardTitle>
                 <CardDescription>
-                  This feature will allow you to manage warehouse locations and zones
+                  Manage warehouse locations and zones
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
@@ -553,30 +495,117 @@ const InventoryManagement = () => {
               </CardContent>
             </Card>
           </TabsContent>
-          
-          {/* Setup Tab */}
-          <TabsContent value="setup" className="space-y-6">
-            <SetupMaster />
-          </TabsContent>
-          
-          {/* Notifications Tab */}
-          <TabsContent value="notifications" className="space-y-6">
-            <NotificationCenter />
-          </TabsContent>
-          
-          {/* Task Scheduler Tab */}
-          <TabsContent value="tasks" className="space-y-6">
-            <TaskScheduler />
-          </TabsContent>
-          
-          {/* Branding Tab */}
-          <TabsContent value="branding" className="space-y-6">
-            <BrandingMaster />
+
+          {/* Stock Count Tab */}
+          <TabsContent value="stock" className="space-y-6">
+            <StockManagement />
           </TabsContent>
 
           {/* Reorder Levels Tab */}
           <TabsContent value="reorder" className="space-y-6">
             <ReorderLevelManagement />
+          </TabsContent>
+
+          {/* Purchase Orders Tab */}
+          <TabsContent value="orders" className="space-y-6">
+            <PurchaseOrders />
+          </TabsContent>
+
+          {/* Inventory Analysis Tab */}
+          <TabsContent value="analysis" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Inventory Analysis</CardTitle>
+                <CardDescription>
+                  Advanced analytics and insights for inventory optimization
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-lg">Stock Movement Analysis</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="h-[200px] bg-muted/20 rounded-md flex flex-col items-center justify-center">
+                        <BarChart3 className="h-8 w-8 text-muted-foreground mb-2" />
+                        <p className="text-sm text-muted-foreground">Stock movement trends</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-lg">ABC Analysis</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="h-[200px] bg-muted/20 rounded-md flex flex-col items-center justify-center">
+                        <TrendingUp className="h-8 w-8 text-muted-foreground mb-2" />
+                        <p className="text-sm text-muted-foreground">Product categorization</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-lg">Turnover Ratio</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="h-[200px] bg-muted/20 rounded-md flex flex-col items-center justify-center">
+                        <RefreshCw className="h-8 w-8 text-muted-foreground mb-2" />
+                        <p className="text-sm text-muted-foreground">Inventory turnover metrics</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+                
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Top Performing Products</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-3">
+                        <div className="flex justify-between items-center p-2 border rounded">
+                          <span className="text-sm font-medium">Business Laptop Pro</span>
+                          <Badge className="bg-green-500/10 text-green-500">High Turnover</Badge>
+                        </div>
+                        <div className="flex justify-between items-center p-2 border rounded">
+                          <span className="text-sm font-medium">Office Chair Deluxe</span>
+                          <Badge className="bg-green-500/10 text-green-500">High Turnover</Badge>
+                        </div>
+                        <div className="flex justify-between items-center p-2 border rounded">
+                          <span className="text-sm font-medium">LaserJet Printer Pro</span>
+                          <Badge className="bg-blue-500/10 text-blue-500">Medium Turnover</Badge>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Slow Moving Items</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-3">
+                        <div className="flex justify-between items-center p-2 border rounded">
+                          <span className="text-sm font-medium">Vintage Desk Lamp</span>
+                          <Badge className="bg-red-500/10 text-red-500">Slow Moving</Badge>
+                        </div>
+                        <div className="flex justify-between items-center p-2 border rounded">
+                          <span className="text-sm font-medium">Classic Bookshelf</span>
+                          <Badge className="bg-amber-500/10 text-amber-500">Low Turnover</Badge>
+                        </div>
+                        <div className="flex justify-between items-center p-2 border rounded">
+                          <span className="text-sm font-medium">Executive Pen Set</span>
+                          <Badge className="bg-red-500/10 text-red-500">Dead Stock</Badge>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
       </div>

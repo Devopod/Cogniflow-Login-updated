@@ -9,6 +9,7 @@ import multer from "multer";
 import { mpesaUtils } from "./utils/mpesa";
 import { faceRecognitionUtils } from "./utils/faceRecognition";
 import { WSService } from "./websocket";
+import { sessionMiddleware } from "./auth";
 import { setWSService } from "./src/routes/invoices";
 import { setPaymentWSService } from "./src/services/payment";
 import { setSchedulerWSService } from "./src/services/scheduler";
@@ -61,7 +62,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const server = createServer(app);
   
   // Initialize WebSocket service
-  const wsService = new WSService(server);
+  const wsService = new WSService(server, sessionMiddleware);
   
   // Set WebSocket service for various components
   setWSService(wsService);
@@ -324,8 +325,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         userId: req.user!.id
       });
       
-      wsService.broadcastToResource('inventory', 'all', 'product_created', {
-        product: product
+      wsService.broadcastToResource('inventory', 'all', {
+        type: 'product_created',
+        data: { product: product }
       });
       
       res.status(201).json(product);
@@ -353,8 +355,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         userId: req.user!.id
       });
       
-      wsService.broadcastToResource('inventory', 'all', 'product_updated', {
-        product: updatedProduct
+      wsService.broadcastToResource('inventory', 'all', {
+        type: 'product_updated',
+        data: { product: updatedProduct }
       });
       
       res.json(updatedProduct);
@@ -382,8 +385,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         userId: req.user!.id
       });
       
-      wsService.broadcastToResource('inventory', 'all', 'product_deleted', {
-        productId: productId
+      wsService.broadcastToResource('inventory', 'all', {
+        type: 'product_deleted',
+        data: { productId: productId }
       });
       
       res.status(204).end();
@@ -704,9 +708,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
         
         // Broadcast order updates to specific resource listeners
-        wsService.broadcastToResource('orders', 'all', 'order_created', {
-          order,
-          orderId: order.id
+        wsService.broadcastToResource('orders', 'all', {
+          type: 'order_created',
+          data: { order, orderId: order.id }
         });
         
         // Broadcast sales metrics update
@@ -755,9 +759,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Broadcast order item creation via WebSocket
       const wsService = req.app.locals.wsService;
       if (wsService) {
-        wsService.broadcastToResource('orders', orderId, 'order_item_created', {
-          item,
-          orderId
+        wsService.broadcastToResource('orders', orderId, {
+          type: 'order_item_created',
+          data: { item, orderId }
         });
         wsService.broadcast('sales_metrics_updated', {
           message: 'Sales metrics need refresh due to order item update'
@@ -789,9 +793,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Broadcast order update via WebSocket
       const wsService = req.app.locals.wsService;
       if (wsService) {
-        wsService.broadcastToResource('orders', orderId, 'order_updated', {
-          order: updatedOrder,
-          orderId
+        wsService.broadcastToResource('orders', orderId, {
+          type: 'order_updated',
+          data: { order: updatedOrder, orderId }
         });
         wsService.broadcast('order_updated', {
           order: updatedOrder,
@@ -831,9 +835,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Broadcast order deletion via WebSocket
       const wsService = req.app.locals.wsService;
       if (wsService) {
-        wsService.broadcastToResource('orders', orderId, 'order_deleted', {
-          orderId,
-          orderNumber: existingOrder.orderNumber
+        wsService.broadcastToResource('orders', orderId, {
+          type: 'order_deleted',
+          data: { orderId, orderNumber: existingOrder.orderNumber }
         });
         wsService.broadcast('order_deleted', {
           orderId,
@@ -1199,13 +1203,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const wsService = req.app.locals.wsService;
       if (wsService) {
         // Broadcast to specific invoice
-        wsService.broadcastToResource('invoices', invoiceId, 'invoice_updated', {
-          invoice: updatedInvoice
+        wsService.broadcastToResource('invoices', invoiceId, {
+          type: 'invoice_updated',
+          data: { invoice: updatedInvoice }
         });
         
         // Also broadcast to global invoices channel
-        wsService.broadcastToResource('invoices', 'all', 'invoice_updated', {
-          invoiceId: invoiceId
+        wsService.broadcastToResource('invoices', 'all', {
+          type: 'invoice_updated',
+          data: { invoiceId: invoiceId }
         });
       }
       
@@ -1262,17 +1268,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const wsService = req.app.locals.wsService;
         if (wsService) {
           // Broadcast to specific invoice
-          wsService.broadcastToResource('invoices', req.body.relatedDocumentId, 'payment_added', {
-            amount: payment.amount,
-            paymentId: payment.id,
-            paymentDate: payment.paymentDate,
-            paymentMethod: payment.paymentMethod
+          wsService.broadcastToResource('invoices', req.body.relatedDocumentId, {
+            type: 'payment_added',
+            data: {
+              amount: payment.amount,
+              paymentId: payment.id,
+              paymentDate: payment.paymentDate,
+              paymentMethod: payment.paymentMethod
+            }
           });
           
           // Also broadcast to global invoices channel
-          wsService.broadcastToResource('invoices', 'all', 'payment_added', {
-            invoiceId: req.body.relatedDocumentId,
-            amount: payment.amount
+          wsService.broadcastToResource('invoices', 'all', {
+            type: 'payment_added',
+            data: {
+              invoiceId: req.body.relatedDocumentId,
+              amount: payment.amount
+            }
           });
         }
       }
@@ -1300,21 +1312,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (wsService) {
         // If this payment is related to an invoice, broadcast to that invoice
         if (payment.relatedDocumentType === 'invoice' && payment.relatedDocumentId) {
-          wsService.broadcastToResource('invoices', payment.relatedDocumentId, 'payment_updated', {
-            paymentId: paymentId,
-            payment: updatedPayment
+          wsService.broadcastToResource('invoices', payment.relatedDocumentId, {
+            type: 'payment_updated',
+            data: {
+              paymentId: paymentId,
+              payment: updatedPayment
+            }
           });
           
           // Also broadcast to global invoices channel
-          wsService.broadcastToResource('invoices', 'all', 'payment_updated', {
-            paymentId: paymentId,
-            invoiceId: payment.relatedDocumentId
+          wsService.broadcastToResource('invoices', 'all', {
+            type: 'payment_updated',
+            data: {
+              paymentId: paymentId,
+              invoiceId: payment.relatedDocumentId
+            }
           });
         }
         
         // Broadcast to payments channel
-        wsService.broadcastToResource('payments', paymentId, 'payment_updated', {
-          payment: updatedPayment
+        wsService.broadcastToResource('payments', paymentId, {
+          type: 'payment_updated',
+          data: { payment: updatedPayment }
         });
       }
       
@@ -1345,20 +1364,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (wsService) {
         // If this payment was related to an invoice, broadcast to that invoice
         if (relatedDocumentType === 'invoice' && relatedDocumentId) {
-          wsService.broadcastToResource('invoices', relatedDocumentId, 'payment_deleted', {
-            paymentId: paymentId
+          wsService.broadcastToResource('invoices', relatedDocumentId, {
+            type: 'payment_deleted',
+            data: { paymentId: paymentId }
           });
           
           // Also broadcast to global invoices channel
-          wsService.broadcastToResource('invoices', 'all', 'payment_deleted', {
-            paymentId: paymentId,
-            invoiceId: relatedDocumentId
+          wsService.broadcastToResource('invoices', 'all', {
+            type: 'payment_deleted',
+            data: {
+              paymentId: paymentId,
+              invoiceId: relatedDocumentId
+            }
           });
         }
         
         // Broadcast to payments channel
-        wsService.broadcastToResource('payments', 'all', 'payment_deleted', {
-          paymentId: paymentId
+        wsService.broadcastToResource('payments', 'all', {
+          type: 'payment_deleted',
+          data: { paymentId: paymentId }
         });
       }
       
@@ -1669,8 +1693,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         userId: req.user!.id
       });
       
-      wsService.broadcastToResource('purchase', 'all', 'supplier_created', {
-        supplier: supplier
+      wsService.broadcastToResource('purchase', 'all', {
+        type: 'supplier_created',
+        data: { supplier: supplier }
       });
       
       res.status(201).json(supplier);
