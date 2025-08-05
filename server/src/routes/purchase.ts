@@ -1,10 +1,60 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../../db';
 import * as schema from '../../../shared/schema';
-import { eq, and, sql, desc, asc, ilike, or, gte, lte, sum } from 'drizzle-orm';
+import { eq, and, sql, desc, asc, ilike, or, gte, lte, sum, count, avg } from 'drizzle-orm';
 import { WSService } from '../../websocket';
+import { PurchaseWebSocketService } from '../../websocket-purchase';
 
 const router = Router();
+let purchaseWS: PurchaseWebSocketService;
+
+export function setPurchaseWSService(wsService: WSService) {
+  purchaseWS = new PurchaseWebSocketService(wsService);
+}
+
+// Middleware to ensure user is authenticated
+const requireAuth = (req: Request, res: Response, next: any) => {
+  if (!req.user) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+  next();
+};
+
+// Helper function to safely convert dates
+function safeDate(dateValue: any): string {
+  if (!dateValue) {
+    return new Date().toISOString();
+  }
+  
+  if (dateValue instanceof Date) {
+    return dateValue.toISOString();
+  }
+  
+  const date = new Date(dateValue);
+  if (isNaN(date.getTime())) {
+    return new Date().toISOString();
+  }
+  
+  return date.toISOString();
+}
+
+// Helper function to safely convert date for filtering
+function safeDateFilter(dateValue: any): Date {
+  if (!dateValue) {
+    return new Date();
+  }
+  
+  if (dateValue instanceof Date) {
+    return dateValue;
+  }
+  
+  const date = new Date(dateValue);
+  if (isNaN(date.getTime())) {
+    return new Date();
+  }
+  
+  return date;
+}
 
 // Middleware to get user ID
 const getUserId = (req: Request): number => {
@@ -12,48 +62,96 @@ const getUserId = (req: Request): number => {
 };
 
 // Get purchase dashboard metrics
-router.get('/dashboard', async (req: Request, res: Response) => {
+router.get('/dashboard', requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = getUserId(req);
+    const userId = req.user.id;
     
-    const metricsQuery = sql`
-      SELECT 
-        COUNT(DISTINCT pr.id) as total_purchase_requests,
-        COUNT(CASE WHEN pr.status = 'pending' THEN 1 END) as pending_requests,
-        COUNT(CASE WHEN pr.status = 'approved' THEN 1 END) as approved_requests,
-        COUNT(DISTINCT po.id) as total_purchase_orders,
-        COUNT(CASE WHEN po.status = 'pending' THEN 1 END) as pending_orders,
-        COUNT(CASE WHEN po.status = 'delivered' THEN 1 END) as delivered_orders,
-        SUM(CASE WHEN po.status = 'pending' THEN po.total_amount ELSE 0 END) as pending_amount,
-        SUM(po.total_amount) as total_spend,
-        COUNT(DISTINCT s.id) as total_suppliers
-      FROM ${schema.purchaseRequests} pr
-      FULL OUTER JOIN ${schema.purchaseOrders} po ON pr.user_id = po.user_id
-      FULL OUTER JOIN ${schema.suppliers} s ON po.user_id = s.user_id
-      WHERE COALESCE(pr.user_id, po.user_id, s.user_id) = ${userId}
-    `;
-    
-    const [metrics] = await db.execute(metricsQuery);
-    
+    // Get purchase request metrics
+    const requestMetrics = await db
+      .select({
+        totalRequests: count(),
+        pendingRequests: sum(sql`CASE WHEN ${schema.purchaseRequests.status} = 'pending' THEN 1 ELSE 0 END`),
+        approvedRequests: sum(sql`CASE WHEN ${schema.purchaseRequests.status} = 'approved' THEN 1 ELSE 0 END`),
+        rejectedRequests: sum(sql`CASE WHEN ${schema.purchaseRequests.status} = 'rejected' THEN 1 ELSE 0 END`)
+      })
+      .from(schema.purchaseRequests)
+      .where(eq(schema.purchaseRequests.userId, userId));
+
+    // Get purchase order metrics
+    const orderMetrics = await db
+      .select({
+        totalOrders: count(),
+        pendingOrders: sum(sql`CASE WHEN ${schema.purchaseOrders.status} = 'pending' THEN 1 ELSE 0 END`),
+        deliveredOrders: sum(sql`CASE WHEN ${schema.purchaseOrders.status} = 'delivered' THEN 1 ELSE 0 END`),
+        totalSpend: sum(schema.purchaseOrders.totalAmount),
+        pendingAmount: sum(sql`CASE WHEN ${schema.purchaseOrders.status} = 'pending' THEN ${schema.purchaseOrders.totalAmount} ELSE 0 END`)
+      })
+      .from(schema.purchaseOrders)
+      .where(eq(schema.purchaseOrders.userId, userId));
+
+    // Get supplier count
+    const supplierMetrics = await db
+      .select({
+        totalSuppliers: count(),
+        activeSuppliers: sum(sql`CASE WHEN ${schema.suppliers.status} = 'active' THEN 1 ELSE 0 END`)
+      })
+      .from(schema.suppliers)
+      .where(eq(schema.suppliers.userId, userId));
+
     // Calculate additional metrics
-    const avgOrderValue = Number(metrics.total_purchase_orders) > 0 
-      ? Number(metrics.total_spend) / Number(metrics.total_purchase_orders)
+    const avgOrderValue = Number(orderMetrics[0]?.totalOrders || 0) > 0 
+      ? (Number(orderMetrics[0]?.totalSpend || 0) / Number(orderMetrics[0]?.totalOrders || 1))
       : 0;
-    
+
+    // Calculate on-time delivery rate (simplified)
+    const deliveryMetrics = await db
+      .select({
+        onTimeDeliveries: count(sql`CASE WHEN ${schema.purchaseOrders.status} = 'delivered' THEN 1 END`),
+        totalDelivered: count(sql`CASE WHEN ${schema.purchaseOrders.status} = 'delivered' THEN 1 END`)
+      })
+      .from(schema.purchaseOrders)
+      .where(eq(schema.purchaseOrders.userId, userId));
+
+    const onTimeDeliveryRate = Number(deliveryMetrics[0]?.totalDelivered || 0) > 0 
+      ? (Number(deliveryMetrics[0]?.onTimeDeliveries || 0) / Number(deliveryMetrics[0]?.totalDelivered || 1)) * 100
+      : 0;
+
+    // Calculate supplier performance overview (simplified since we don't have deliveryDate)
+    const supplierPerformanceMetrics = await db
+      .select({
+        totalOrders: sql<number>`CAST(COUNT(${schema.purchaseOrders.id}) AS INTEGER)`,
+        deliveredOrders: sql<number>`CAST(COUNT(CASE WHEN ${schema.purchaseOrders.status} = 'delivered' THEN 1 END) AS INTEGER)`
+      })
+      .from(schema.suppliers)
+      .leftJoin(schema.purchaseOrders, eq(schema.suppliers.id, schema.purchaseOrders.supplierId))
+      .where(eq(schema.suppliers.userId, userId));
+
+    // Calculate supplier performance as delivery rate (orders delivered vs total orders)
+    const supplierPerformance = Number(supplierPerformanceMetrics[0]?.totalOrders || 0) > 0
+      ? (Number(supplierPerformanceMetrics[0]?.deliveredOrders || 0) / Number(supplierPerformanceMetrics[0]?.totalOrders || 1)) * 100
+      : 0;
+
     const result = {
-      totalPurchaseRequests: Number(metrics.total_purchase_requests) || 0,
-      pendingRequests: Number(metrics.pending_requests) || 0,
-      approvedRequests: Number(metrics.approved_requests) || 0,
-      totalPurchaseOrders: Number(metrics.total_purchase_orders) || 0,
-      pendingOrders: Number(metrics.pending_orders) || 0,
-      deliveredOrders: Number(metrics.delivered_orders) || 0,
-      pendingAmount: Number(metrics.pending_amount) || 0,
-      totalSpend: Number(metrics.total_spend) || 0,
-      totalSuppliers: Number(metrics.total_suppliers) || 0,
-      avgOrderValue: Math.round(avgOrderValue),
-      onTimeDeliveryRate: 85.5, // This would be calculated from delivery data
-      supplierPerformance: 92.3, // This would be calculated from supplier ratings
+      totalPurchaseRequests: Number(requestMetrics[0]?.totalRequests || 0),
+      pendingRequests: Number(requestMetrics[0]?.pendingRequests || 0),
+      approvedRequests: Number(requestMetrics[0]?.approvedRequests || 0),
+      rejectedRequests: Number(requestMetrics[0]?.rejectedRequests || 0),
+      totalPurchaseOrders: Number(orderMetrics[0]?.totalOrders || 0),
+      pendingOrders: Number(orderMetrics[0]?.pendingOrders || 0),
+      deliveredOrders: Number(orderMetrics[0]?.deliveredOrders || 0),
+      pendingAmount: Number(orderMetrics[0]?.pendingAmount || 0),
+      totalSpend: Number(orderMetrics[0]?.totalSpend || 0),
+      totalSuppliers: Number(supplierMetrics[0]?.totalSuppliers || 0),
+      activeSuppliers: Number(supplierMetrics[0]?.activeSuppliers || 0),
+      avgOrderValue: Math.round(avgOrderValue * 100) / 100,
+      onTimeDeliveryRate: Math.round(onTimeDeliveryRate * 100) / 100,
+      supplierPerformance: Math.round(supplierPerformance * 100) / 100
     };
+    
+    // Broadcast metrics update if WebSocket service is available
+    if (purchaseWS) {
+      purchaseWS.broadcastPurchaseMetricsUpdated(userId, result);
+    }
     
     res.json(result);
   } catch (error) {
@@ -63,52 +161,91 @@ router.get('/dashboard', async (req: Request, res: Response) => {
 });
 
 // Get all suppliers with pagination and filtering
-router.get('/suppliers', async (req: Request, res: Response) => {
+router.get('/suppliers', requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = getUserId(req);
+    const userId = req.user.id;
     const { page = 1, limit = 10, search, status } = req.query;
     
+    // Build base query with proper joins
     let query = db
       .select({
         supplier: schema.suppliers,
-        orderCount: sql`COUNT(po.id) as order_count`,
-        totalSpend: sql`COALESCE(SUM(po.total_amount), 0) as total_spend`,
-        lastOrderDate: sql`MAX(po.order_date) as last_order_date`
+        orderCount: sql<number>`CAST(COUNT(DISTINCT ${schema.purchaseOrders.id}) AS INTEGER)`,
+        totalSpend: sql<number>`CAST(COALESCE(SUM(${schema.purchaseOrders.totalAmount}), 0) AS DECIMAL)`,
+        lastOrderDate: sql<string>`MAX(${schema.purchaseOrders.orderDate})`
       })
       .from(schema.suppliers)
       .leftJoin(schema.purchaseOrders, eq(schema.suppliers.id, schema.purchaseOrders.supplierId))
       .where(eq(schema.suppliers.userId, userId))
       .groupBy(schema.suppliers.id);
     
-    // Add filters
-    if (search) {
+    // Add search filter
+    if (search && typeof search === 'string') {
       query = query.where(
-        or(
-          ilike(schema.suppliers.name, `%${search}%`),
-          ilike(schema.suppliers.contactPerson, `%${search}%`),
-          ilike(schema.suppliers.email, `%${search}%`)
+        and(
+          eq(schema.suppliers.userId, userId),
+          or(
+            ilike(schema.suppliers.name, `%${search}%`),
+            ilike(schema.suppliers.contactPerson, `%${search}%`),
+            ilike(schema.suppliers.email, `%${search}%`)
+          )
         )
       );
     }
     
-    if (status) {
-      query = query.where(eq(schema.suppliers.status, status as string));
+    // Add status filter
+    if (status && typeof status === 'string') {
+      query = query.where(
+        and(
+          eq(schema.suppliers.userId, userId),
+          eq(schema.suppliers.status, status)
+        )
+      );
     }
     
     const offset = (Number(page) - 1) * Number(limit);
-    const suppliers = await query.limit(Number(limit)).offset(offset).orderBy(desc(schema.suppliers.createdAt));
+    const suppliers = await query
+      .limit(Number(limit))
+      .offset(offset)
+      .orderBy(desc(schema.suppliers.createdAt));
     
     // Get total count for pagination
-    const totalQuery = db.select({ count: sql`count(*)` }).from(schema.suppliers).where(eq(schema.suppliers.userId, userId));
-    const [{ count }] = await totalQuery;
+    let countQuery = db
+      .select({ count: count() })
+      .from(schema.suppliers)
+      .where(eq(schema.suppliers.userId, userId));
+    
+    if (search && typeof search === 'string') {
+      countQuery = countQuery.where(
+        and(
+          eq(schema.suppliers.userId, userId),
+          or(
+            ilike(schema.suppliers.name, `%${search}%`),
+            ilike(schema.suppliers.contactPerson, `%${search}%`),
+            ilike(schema.suppliers.email, `%${search}%`)
+          )
+        )
+      );
+    }
+    
+    if (status && typeof status === 'string') {
+      countQuery = countQuery.where(
+        and(
+          eq(schema.suppliers.userId, userId),
+          eq(schema.suppliers.status, status)
+        )
+      );
+    }
+    
+    const [{ count: totalCount }] = await countQuery;
     
     res.json({
       suppliers,
       pagination: {
         page: Number(page),
         limit: Number(limit),
-        total: Number(count),
-        pages: Math.ceil(Number(count) / Number(limit))
+        total: Number(totalCount),
+        pages: Math.ceil(Number(totalCount) / Number(limit))
       }
     });
   } catch (error) {
@@ -118,19 +255,25 @@ router.get('/suppliers', async (req: Request, res: Response) => {
 });
 
 // Create new supplier
-router.post('/suppliers', async (req: Request, res: Response) => {
+router.post('/suppliers', requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = getUserId(req);
-    const supplierData = { ...req.body, userId };
+    const userId = req.user.id;
+    const supplierData = { 
+      ...req.body, 
+      userId, 
+      createdAt: new Date(), 
+      updatedAt: new Date() 
+    };
     
-    const [newSupplier] = await db.insert(schema.suppliers).values(supplierData).returning();
+    const [newSupplier] = await db
+      .insert(schema.suppliers)
+      .values(supplierData)
+      .returning();
     
     // Broadcast real-time update
-    const wsService = req.app.locals.wsService as WSService;
-    wsService.broadcastToResource('purchase', 'suppliers', {
-      type: 'supplier_created',
-      data: newSupplier
-    });
+    if (purchaseWS) {
+      purchaseWS.broadcastSupplierCreated(userId, newSupplier);
+    }
     
     res.status(201).json(newSupplier);
   } catch (error) {
@@ -140,15 +283,22 @@ router.post('/suppliers', async (req: Request, res: Response) => {
 });
 
 // Update supplier
-router.put('/suppliers/:id', async (req: Request, res: Response) => {
+router.put('/suppliers/:id', requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = getUserId(req);
+    const userId = req.user.id;
     const supplierId = parseInt(req.params.id);
+    
+    if (isNaN(supplierId)) {
+      return res.status(400).json({ error: 'Invalid supplier ID' });
+    }
     
     const [updatedSupplier] = await db
       .update(schema.suppliers)
       .set({ ...req.body, updatedAt: new Date() })
-      .where(and(eq(schema.suppliers.id, supplierId), eq(schema.suppliers.userId, userId)))
+      .where(and(
+        eq(schema.suppliers.id, supplierId), 
+        eq(schema.suppliers.userId, userId)
+      ))
       .returning();
     
     if (!updatedSupplier) {
@@ -156,11 +306,9 @@ router.put('/suppliers/:id', async (req: Request, res: Response) => {
     }
     
     // Broadcast real-time update
-    const wsService = req.app.locals.wsService as WSService;
-    wsService.broadcastToResource('purchase', 'suppliers', {
-      type: 'supplier_updated',
-      data: updatedSupplier
-    });
+    if (purchaseWS) {
+      purchaseWS.broadcastSupplierUpdated(userId, updatedSupplier);
+    }
     
     res.json(updatedSupplier);
   } catch (error) {
@@ -169,10 +317,55 @@ router.put('/suppliers/:id', async (req: Request, res: Response) => {
   }
 });
 
-// Get all purchase requests
-router.get('/requests', async (req: Request, res: Response) => {
+// Delete supplier
+router.delete('/suppliers/:id', requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = getUserId(req);
+    const userId = req.user.id;
+    const supplierId = parseInt(req.params.id);
+    
+    if (isNaN(supplierId)) {
+      return res.status(400).json({ error: 'Invalid supplier ID' });
+    }
+    
+    // Check if supplier has any purchase orders
+    const orders = await db
+      .select({ id: schema.purchaseOrders.id })
+      .from(schema.purchaseOrders)
+      .where(and(
+        eq(schema.purchaseOrders.supplierId, supplierId),
+        eq(schema.purchaseOrders.userId, userId)
+      ))
+      .limit(1);
+    
+    if (orders.length > 0) {
+      return res.status(400).json({ 
+        error: 'Cannot delete supplier with existing purchase orders. Consider deactivating instead.' 
+      });
+    }
+    
+    const [deletedSupplier] = await db
+      .delete(schema.suppliers)
+      .where(and(
+        eq(schema.suppliers.id, supplierId),
+        eq(schema.suppliers.userId, userId)
+      ))
+      .returning();
+    
+    if (!deletedSupplier) {
+      return res.status(404).json({ error: 'Supplier not found' });
+    }
+    
+    res.json({ message: 'Supplier deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting supplier:', error);
+    res.status(500).json({ error: 'Failed to delete supplier' });
+  }
+});
+
+// Get all purchase requests
+router.get('/requests', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user.id;
     const { page = 1, limit = 10, status, department } = req.query;
     
     let query = db
@@ -188,7 +381,12 @@ router.get('/requests', async (req: Request, res: Response) => {
           firstName: schema.users.firstName,
           lastName: schema.users.lastName
         },
-        itemCount: sql`COUNT(pri.id) as item_count`
+        approvedByUser: {
+          id: schema.users.id,
+          firstName: schema.users.firstName,
+          lastName: schema.users.lastName
+        },
+        itemCount: sql<number>`CAST(COUNT(DISTINCT ${schema.purchaseRequestItems.id}) AS INTEGER)`
       })
       .from(schema.purchaseRequests)
       .leftJoin(schema.departments, eq(schema.purchaseRequests.departmentId, schema.departments.id))
@@ -196,23 +394,80 @@ router.get('/requests', async (req: Request, res: Response) => {
       .leftJoin(schema.purchaseRequestItems, eq(schema.purchaseRequests.id, schema.purchaseRequestItems.purchaseRequestId))
       .where(eq(schema.purchaseRequests.userId, userId))
       .groupBy(
-        schema.purchaseRequests.id, 
-        schema.departments.id, 
-        schema.users.id
+        schema.purchaseRequests.id,
+        schema.departments.id,
+        schema.departments.name,
+        schema.departments.code,
+        schema.users.id,
+        schema.users.firstName,
+        schema.users.lastName
       );
     
-    if (status) {
-      query = query.where(eq(schema.purchaseRequests.status, status as string));
+    if (status && typeof status === 'string') {
+      query = query.where(
+        and(
+          eq(schema.purchaseRequests.userId, userId),
+          eq(schema.purchaseRequests.status, status)
+        )
+      );
     }
     
-    if (department) {
-      query = query.where(eq(schema.purchaseRequests.departmentId, parseInt(department as string)));
+    if (department && typeof department === 'string') {
+      const deptId = parseInt(department);
+      if (!isNaN(deptId)) {
+        query = query.where(
+          and(
+            eq(schema.purchaseRequests.userId, userId),
+            eq(schema.purchaseRequests.departmentId, deptId)
+          )
+        );
+      }
     }
     
     const offset = (Number(page) - 1) * Number(limit);
-    const requests = await query.limit(Number(limit)).offset(offset).orderBy(desc(schema.purchaseRequests.createdAt));
+    const requests = await query
+      .limit(Number(limit))
+      .offset(offset)
+      .orderBy(desc(schema.purchaseRequests.createdAt));
     
-    res.json({ requests });
+    // Get total count for pagination
+    let countQuery = db
+      .select({ count: count() })
+      .from(schema.purchaseRequests)
+      .where(eq(schema.purchaseRequests.userId, userId));
+    
+    if (status && typeof status === 'string') {
+      countQuery = countQuery.where(
+        and(
+          eq(schema.purchaseRequests.userId, userId),
+          eq(schema.purchaseRequests.status, status)
+        )
+      );
+    }
+    
+    if (department && typeof department === 'string') {
+      const deptId = parseInt(department);
+      if (!isNaN(deptId)) {
+        countQuery = countQuery.where(
+          and(
+            eq(schema.purchaseRequests.userId, userId),
+            eq(schema.purchaseRequests.departmentId, deptId)
+          )
+        );
+      }
+    }
+    
+    const [{ count: totalCount }] = await countQuery;
+    
+    res.json({
+      requests,
+      pagination: {
+        page: Number(page),
+        limit: Number(limit),
+        total: Number(totalCount),
+        pages: Math.ceil(Number(totalCount) / Number(limit))
+      }
+    });
   } catch (error) {
     console.error('Error fetching purchase requests:', error);
     res.status(500).json({ error: 'Failed to fetch purchase requests' });
@@ -220,48 +475,54 @@ router.get('/requests', async (req: Request, res: Response) => {
 });
 
 // Create new purchase request
-router.post('/requests', async (req: Request, res: Response) => {
+router.post('/requests', requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = getUserId(req);
+    const userId = req.user.id;
     const { items, ...requestData } = req.body;
     
     // Generate request number
-    const requestNumber = `PR${Date.now()}`;
+    const requestNumber = `PR-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
+    
+    // Calculate total amount
+    let totalAmount = 0;
+    if (items && Array.isArray(items)) {
+      totalAmount = items.reduce((sum: number, item: any) => {
+        return sum + (Number(item.quantity || 0) * Number(item.estimatedUnitPrice || 0));
+      }, 0);
+    }
+    
     const fullRequestData = { 
       ...requestData, 
       userId, 
       requestNumber,
-      requestedBy: userId 
+      requestedBy: userId,
+      totalAmount,
+      createdAt: new Date(),
+      updatedAt: new Date()
     };
     
-    const [newRequest] = await db.insert(schema.purchaseRequests).values(fullRequestData).returning();
+    const [newRequest] = await db
+      .insert(schema.purchaseRequests)
+      .values(fullRequestData)
+      .returning();
     
     // Add items if provided
-    if (items && items.length > 0) {
+    if (items && Array.isArray(items) && items.length > 0) {
       const itemsData = items.map((item: any) => ({
         ...item,
-        purchaseRequestId: newRequest.id
+        purchaseRequestId: newRequest.id,
+        estimatedTotal: Number(item.quantity || 0) * Number(item.estimatedUnitPrice || 0),
+        createdAt: new Date(),
+        updatedAt: new Date()
       }));
       
       await db.insert(schema.purchaseRequestItems).values(itemsData);
-      
-      // Calculate total amount
-      const totalAmount = items.reduce((sum: number, item: any) => 
-        sum + (item.quantity * (item.estimatedUnitPrice || 0)), 0
-      );
-      
-      await db
-        .update(schema.purchaseRequests)
-        .set({ totalAmount })
-        .where(eq(schema.purchaseRequests.id, newRequest.id));
     }
     
     // Broadcast real-time update
-    const wsService = req.app.locals.wsService as WSService;
-    wsService.broadcastToResource('purchase', 'requests', {
-      type: 'request_created',
-      data: newRequest
-    });
+    if (purchaseWS) {
+      purchaseWS.broadcastPurchaseRequestCreated(userId, newRequest);
+    }
     
     res.status(201).json(newRequest);
   } catch (error) {
@@ -270,24 +531,96 @@ router.post('/requests', async (req: Request, res: Response) => {
   }
 });
 
-// Approve/reject purchase request
-router.put('/requests/:id/status', async (req: Request, res: Response) => {
+// Get specific purchase request with items
+router.get('/requests/:id', requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = getUserId(req);
+    const userId = req.user.id;
     const requestId = parseInt(req.params.id);
-    const { status } = req.body; // status: 'approved' | 'rejected'
     
-    const updateData = {
+    if (isNaN(requestId)) {
+      return res.status(400).json({ error: 'Invalid request ID' });
+    }
+    
+    const [request] = await db
+      .select({
+        request: schema.purchaseRequests,
+        department: {
+          id: schema.departments.id,
+          name: schema.departments.name,
+          code: schema.departments.code
+        },
+        requestedByUser: {
+          id: schema.users.id,
+          firstName: schema.users.firstName,
+          lastName: schema.users.lastName
+        }
+      })
+      .from(schema.purchaseRequests)
+      .leftJoin(schema.departments, eq(schema.purchaseRequests.departmentId, schema.departments.id))
+      .leftJoin(schema.users, eq(schema.purchaseRequests.requestedBy, schema.users.id))
+      .where(and(
+        eq(schema.purchaseRequests.id, requestId),
+        eq(schema.purchaseRequests.userId, userId)
+      ))
+      .limit(1);
+    
+    if (!request) {
+      return res.status(404).json({ error: 'Purchase request not found' });
+    }
+    
+    // Get request items
+    const items = await db
+      .select({
+        item: schema.purchaseRequestItems,
+        product: schema.products
+      })
+      .from(schema.purchaseRequestItems)
+      .leftJoin(schema.products, eq(schema.purchaseRequestItems.productId, schema.products.id))
+      .where(eq(schema.purchaseRequestItems.purchaseRequestId, requestId));
+    
+    res.json({ ...request, items });
+  } catch (error) {
+    console.error('Error fetching purchase request:', error);
+    res.status(500).json({ error: 'Failed to fetch purchase request' });
+  }
+});
+
+// Update purchase request status
+router.put('/requests/:id/status', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user.id;
+    const requestId = parseInt(req.params.id);
+    const { status, notes } = req.body;
+    
+    if (isNaN(requestId)) {
+      return res.status(400).json({ error: 'Invalid request ID' });
+    }
+    
+    if (!status) {
+      return res.status(400).json({ error: 'Status is required' });
+    }
+    
+    const updateData: any = {
       status,
-      approvedBy: userId,
-      approvalDate: new Date(),
       updatedAt: new Date()
     };
+    
+    if (status === 'approved') {
+      updateData.approvedBy = userId;
+      updateData.approvalDate = new Date();
+    }
+    
+    if (notes) {
+      updateData.notes = notes;
+    }
     
     const [updatedRequest] = await db
       .update(schema.purchaseRequests)
       .set(updateData)
-      .where(and(eq(schema.purchaseRequests.id, requestId), eq(schema.purchaseRequests.userId, userId)))
+      .where(and(
+        eq(schema.purchaseRequests.id, requestId),
+        eq(schema.purchaseRequests.userId, userId)
+      ))
       .returning();
     
     if (!updatedRequest) {
@@ -295,11 +628,13 @@ router.put('/requests/:id/status', async (req: Request, res: Response) => {
     }
     
     // Broadcast real-time update
-    const wsService = req.app.locals.wsService as WSService;
-    wsService.broadcastToResource('purchase', 'requests', {
-      type: 'request_status_updated',
-      data: updatedRequest
-    });
+    if (purchaseWS) {
+      if (status === 'approved') {
+        purchaseWS.broadcastPurchaseRequestApproved(userId, updatedRequest, { id: userId });
+      } else if (status === 'rejected') {
+        purchaseWS.broadcastPurchaseRequestRejected(userId, updatedRequest, { id: userId });
+      }
+    }
     
     res.json(updatedRequest);
   } catch (error) {
@@ -309,9 +644,9 @@ router.put('/requests/:id/status', async (req: Request, res: Response) => {
 });
 
 // Get all purchase orders
-router.get('/orders', async (req: Request, res: Response) => {
+router.get('/orders', requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = getUserId(req);
+    const userId = req.user.id;
     const { page = 1, limit = 10, status, supplierId } = req.query;
     
     let query = db
@@ -322,35 +657,84 @@ router.get('/orders', async (req: Request, res: Response) => {
           name: schema.suppliers.name,
           contactPerson: schema.suppliers.contactPerson
         },
-        request: {
-          id: schema.purchaseRequests.id,
-          requestNumber: schema.purchaseRequests.requestNumber
-        },
-        itemCount: sql`COUNT(poi.id) as item_count`
+        itemCount: sql<number>`CAST(COUNT(DISTINCT ${schema.purchaseOrderItems.id}) AS INTEGER)`
       })
       .from(schema.purchaseOrders)
-      .innerJoin(schema.suppliers, eq(schema.purchaseOrders.supplierId, schema.suppliers.id))
-      .leftJoin(schema.purchaseRequests, eq(schema.purchaseOrders.purchaseRequestId, schema.purchaseRequests.id))
+      .leftJoin(schema.suppliers, eq(schema.purchaseOrders.supplierId, schema.suppliers.id))
       .leftJoin(schema.purchaseOrderItems, eq(schema.purchaseOrders.id, schema.purchaseOrderItems.purchaseOrderId))
       .where(eq(schema.purchaseOrders.userId, userId))
       .groupBy(
         schema.purchaseOrders.id,
         schema.suppliers.id,
-        schema.purchaseRequests.id
+        schema.suppliers.name,
+        schema.suppliers.contactPerson
       );
     
-    if (status) {
-      query = query.where(eq(schema.purchaseOrders.status, status as string));
+    if (status && typeof status === 'string') {
+      query = query.where(
+        and(
+          eq(schema.purchaseOrders.userId, userId),
+          eq(schema.purchaseOrders.status, status)
+        )
+      );
     }
     
-    if (supplierId) {
-      query = query.where(eq(schema.purchaseOrders.supplierId, parseInt(supplierId as string)));
+    if (supplierId && typeof supplierId === 'string') {
+      const supplierIdInt = parseInt(supplierId);
+      if (!isNaN(supplierIdInt)) {
+        query = query.where(
+          and(
+            eq(schema.purchaseOrders.userId, userId),
+            eq(schema.purchaseOrders.supplierId, supplierIdInt)
+          )
+        );
+      }
     }
     
     const offset = (Number(page) - 1) * Number(limit);
-    const orders = await query.limit(Number(limit)).offset(offset).orderBy(desc(schema.purchaseOrders.createdAt));
+    const orders = await query
+      .limit(Number(limit))
+      .offset(offset)
+      .orderBy(desc(schema.purchaseOrders.createdAt));
     
-    res.json({ orders });
+    // Get total count for pagination
+    let countQuery = db
+      .select({ count: count() })
+      .from(schema.purchaseOrders)
+      .where(eq(schema.purchaseOrders.userId, userId));
+    
+    if (status && typeof status === 'string') {
+      countQuery = countQuery.where(
+        and(
+          eq(schema.purchaseOrders.userId, userId),
+          eq(schema.purchaseOrders.status, status)
+        )
+      );
+    }
+    
+    if (supplierId && typeof supplierId === 'string') {
+      const supplierIdInt = parseInt(supplierId);
+      if (!isNaN(supplierIdInt)) {
+        countQuery = countQuery.where(
+          and(
+            eq(schema.purchaseOrders.userId, userId),
+            eq(schema.purchaseOrders.supplierId, supplierIdInt)
+          )
+        );
+      }
+    }
+    
+    const [{ count: totalCount }] = await countQuery;
+    
+    res.json({
+      orders,
+      pagination: {
+        page: Number(page),
+        limit: Number(limit),
+        total: Number(totalCount),
+        pages: Math.ceil(Number(totalCount) / Number(limit))
+      }
+    });
   } catch (error) {
     console.error('Error fetching purchase orders:', error);
     res.status(500).json({ error: 'Failed to fetch purchase orders' });
@@ -358,37 +742,80 @@ router.get('/orders', async (req: Request, res: Response) => {
 });
 
 // Create new purchase order
-router.post('/orders', async (req: Request, res: Response) => {
+router.post('/orders', requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = getUserId(req);
+    const userId = req.user.id;
     const { items, ...orderData } = req.body;
     
+    if (!orderData.supplierId) {
+      return res.status(400).json({ error: 'Supplier ID is required' });
+    }
+    
+    // Verify supplier exists and belongs to user
+    const [supplier] = await db
+      .select({ id: schema.suppliers.id })
+      .from(schema.suppliers)
+      .where(and(
+        eq(schema.suppliers.id, orderData.supplierId),
+        eq(schema.suppliers.userId, userId)
+      ))
+      .limit(1);
+    
+    if (!supplier) {
+      return res.status(400).json({ error: 'Invalid supplier ID' });
+    }
+    
     // Generate order number
-    const orderNumber = `PO${Date.now()}`;
-    const fullOrderData = { 
-      ...orderData, 
-      userId, 
-      orderNumber 
+    const orderNumber = `PO-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
+    
+    // Calculate totals
+    let subtotal = 0;
+    let totalAmount = 0;
+    
+    if (items && Array.isArray(items)) {
+      subtotal = items.reduce((sum: number, item: any) => {
+        return sum + (Number(item.quantity || 0) * Number(item.unitPrice || 0));
+      }, 0);
+      
+      const taxAmount = Number(orderData.taxAmount || 0);
+      const shippingAmount = Number(orderData.shippingAmount || 0);
+      const discountAmount = Number(orderData.discountAmount || 0);
+      
+      totalAmount = subtotal + taxAmount + shippingAmount - discountAmount;
+    }
+    
+    const fullOrderData = {
+      ...orderData,
+      userId,
+      orderNumber,
+      subtotal,
+      totalAmount,
+      createdAt: new Date(),
+      updatedAt: new Date()
     };
     
-    const [newOrder] = await db.insert(schema.purchaseOrders).values(fullOrderData).returning();
+    const [newOrder] = await db
+      .insert(schema.purchaseOrders)
+      .values(fullOrderData)
+      .returning();
     
     // Add items if provided
-    if (items && items.length > 0) {
+    if (items && Array.isArray(items) && items.length > 0) {
       const itemsData = items.map((item: any) => ({
         ...item,
-        purchaseOrderId: newOrder.id
+        purchaseOrderId: newOrder.id,
+        total: Number(item.quantity || 0) * Number(item.unitPrice || 0),
+        createdAt: new Date(),
+        updatedAt: new Date()
       }));
       
       await db.insert(schema.purchaseOrderItems).values(itemsData);
     }
     
     // Broadcast real-time update
-    const wsService = req.app.locals.wsService as WSService;
-    wsService.broadcastToResource('purchase', 'orders', {
-      type: 'order_created',
-      data: newOrder
-    });
+    if (purchaseWS) {
+      purchaseWS.broadcastPurchaseOrderCreated(userId, newOrder);
+    }
     
     res.status(201).json(newOrder);
   } catch (error) {
@@ -397,66 +824,113 @@ router.post('/orders', async (req: Request, res: Response) => {
   }
 });
 
-// Update purchase order status
-router.put('/orders/:id/status', async (req: Request, res: Response) => {
+// Get specific purchase order with items
+router.get('/orders/:id', requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = getUserId(req);
+    const userId = req.user.id;
     const orderId = parseInt(req.params.id);
-    const { status } = req.body; // status: 'confirmed' | 'shipped' | 'delivered' | 'cancelled'
     
-    const [updatedOrder] = await db
-      .update(schema.purchaseOrders)
-      .set({ 
-        status,
-        updatedAt: new Date()
+    if (isNaN(orderId)) {
+      return res.status(400).json({ error: 'Invalid order ID' });
+    }
+    
+    const [order] = await db
+      .select({
+        order: schema.purchaseOrders,
+        supplier: {
+          id: schema.suppliers.id,
+          name: schema.suppliers.name,
+          contactPerson: schema.suppliers.contactPerson,
+          email: schema.suppliers.email,
+          phone: schema.suppliers.phone,
+          address: schema.suppliers.address
+        }
       })
-      .where(and(eq(schema.purchaseOrders.id, orderId), eq(schema.purchaseOrders.userId, userId)))
-      .returning();
+      .from(schema.purchaseOrders)
+      .leftJoin(schema.suppliers, eq(schema.purchaseOrders.supplierId, schema.suppliers.id))
+      .where(and(
+        eq(schema.purchaseOrders.id, orderId),
+        eq(schema.purchaseOrders.userId, userId)
+      ))
+      .limit(1);
     
-    if (!updatedOrder) {
+    if (!order) {
       return res.status(404).json({ error: 'Purchase order not found' });
     }
     
-    // If order is delivered, update inventory
-    if (status === 'delivered') {
-      // Get order items and update inventory
-      const orderItems = await db
-        .select()
-        .from(schema.purchaseOrderItems)
-        .where(eq(schema.purchaseOrderItems.purchaseOrderId, orderId));
-      
-      for (const item of orderItems) {
-        if (item.productId) {
-          // Add inventory transaction
-          await db.insert(schema.inventoryTransactions).values({
-            userId,
-            productId: item.productId,
-            type: 'purchase',
-            quantity: item.quantity,
-            relatedDocumentType: 'purchase_order',
-            relatedDocumentId: orderId,
-            notes: `Purchase order ${updatedOrder.orderNumber} delivered`,
-            transactionDate: new Date()
-          });
-          
-          // Update product stock quantity
-          await db
-            .update(schema.products)
-            .set({
-              stockQuantity: sql`${schema.products.stockQuantity} + ${item.quantity}`,
-              updatedAt: new Date()
-            })
-            .where(eq(schema.products.id, item.productId));
-        }
-      }
+    // Get order items
+    const items = await db
+      .select({
+        item: schema.purchaseOrderItems,
+        product: schema.products
+      })
+      .from(schema.purchaseOrderItems)
+      .leftJoin(schema.products, eq(schema.purchaseOrderItems.productId, schema.products.id))
+      .where(eq(schema.purchaseOrderItems.purchaseOrderId, orderId));
+    
+    res.json({ ...order, items });
+  } catch (error) {
+    console.error('Error fetching purchase order:', error);
+    res.status(500).json({ error: 'Failed to fetch purchase order' });
+  }
+});
+
+// Update purchase order status
+router.put('/orders/:id/status', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user.id;
+    const orderId = parseInt(req.params.id);
+    const { status, notes } = req.body;
+    
+    if (isNaN(orderId)) {
+      return res.status(400).json({ error: 'Invalid order ID' });
     }
     
+    if (!status) {
+      return res.status(400).json({ error: 'Status is required' });
+    }
+    
+    // Get current order for comparison
+    const [currentOrder] = await db
+      .select()
+      .from(schema.purchaseOrders)
+      .where(and(
+        eq(schema.purchaseOrders.id, orderId),
+        eq(schema.purchaseOrders.userId, userId)
+      ))
+      .limit(1);
+    
+    if (!currentOrder) {
+      return res.status(404).json({ error: 'Purchase order not found' });
+    }
+    
+    const updateData: any = {
+      status,
+      updatedAt: new Date()
+    };
+    
+    if (status === 'approved') {
+      updateData.approvedBy = userId;
+      updateData.approvalDate = new Date();
+    }
+    
+    if (notes) {
+      updateData.notes = notes;
+    }
+    
+    const [updatedOrder] = await db
+      .update(schema.purchaseOrders)
+      .set(updateData)
+      .where(and(
+        eq(schema.purchaseOrders.id, orderId),
+        eq(schema.purchaseOrders.userId, userId)
+      ))
+      .returning();
+    
     // Broadcast real-time update
-    const wsService = req.app.locals.wsService as WSService;
-    wsService.broadcastToResource('purchase', 'orders', {
-      type: 'order_status_updated',
-      data: updatedOrder
-    });
+    if (purchaseWS) {
+      purchaseWS.broadcastPurchaseOrderStatusChanged(userId, updatedOrder, currentOrder.status);
+    }
     
     res.json(updatedOrder);
   } catch (error) {
@@ -465,174 +939,37 @@ router.put('/orders/:id/status', async (req: Request, res: Response) => {
   }
 });
 
-// Get purchase order items
-router.get('/orders/:id/items', async (req: Request, res: Response) => {
-  try {
-    const userId = getUserId(req);
-    const orderId = parseInt(req.params.id);
-    
-    const items = await db
-      .select({
-        item: schema.purchaseOrderItems,
-        product: {
-          id: schema.products.id,
-          name: schema.products.name,
-          sku: schema.products.sku,
-          unit: schema.products.unit
-        }
-      })
-      .from(schema.purchaseOrderItems)
-      .leftJoin(schema.products, eq(schema.purchaseOrderItems.productId, schema.products.id))
-      .innerJoin(schema.purchaseOrders, eq(schema.purchaseOrderItems.purchaseOrderId, schema.purchaseOrders.id))
-      .where(
-        and(
-          eq(schema.purchaseOrderItems.purchaseOrderId, orderId),
-          eq(schema.purchaseOrders.userId, userId)
-        )
-      )
-      .orderBy(asc(schema.purchaseOrderItems.id));
-    
-    res.json(items);
-  } catch (error) {
-    console.error('Error fetching purchase order items:', error);
-    res.status(500).json({ error: 'Failed to fetch purchase order items' });
-  }
-});
-
-// Get purchase request items
-router.get('/requests/:id/items', async (req: Request, res: Response) => {
-  try {
-    const userId = getUserId(req);
-    const requestId = parseInt(req.params.id);
-    
-    const items = await db
-      .select({
-        item: schema.purchaseRequestItems,
-        product: {
-          id: schema.products.id,
-          name: schema.products.name,
-          sku: schema.products.sku,
-          unit: schema.products.unit
-        }
-      })
-      .from(schema.purchaseRequestItems)
-      .leftJoin(schema.products, eq(schema.purchaseRequestItems.productId, schema.products.id))
-      .innerJoin(schema.purchaseRequests, eq(schema.purchaseRequestItems.purchaseRequestId, schema.purchaseRequests.id))
-      .where(
-        and(
-          eq(schema.purchaseRequestItems.purchaseRequestId, requestId),
-          eq(schema.purchaseRequests.userId, userId)
-        )
-      )
-      .orderBy(asc(schema.purchaseRequestItems.id));
-    
-    res.json(items);
-  } catch (error) {
-    console.error('Error fetching purchase request items:', error);
-    res.status(500).json({ error: 'Failed to fetch purchase request items' });
-  }
-});
-
-// Get top suppliers by spend
-router.get('/analytics/top-suppliers', async (req: Request, res: Response) => {
-  try {
-    const userId = getUserId(req);
-    const { limit = 5 } = req.query;
-    
-    const topSuppliers = await db
-      .select({
-        supplier: schema.suppliers,
-        totalSpend: sql`SUM(po.total_amount) as total_spend`,
-        orderCount: sql`COUNT(po.id) as order_count`,
-        avgOrderValue: sql`AVG(po.total_amount) as avg_order_value`
-      })
-      .from(schema.suppliers)
-      .innerJoin(schema.purchaseOrders, eq(schema.suppliers.id, schema.purchaseOrders.supplierId))
-      .where(eq(schema.suppliers.userId, userId))
-      .groupBy(schema.suppliers.id)
-      .orderBy(desc(sql`total_spend`))
-      .limit(Number(limit));
-    
-    res.json(topSuppliers);
-  } catch (error) {
-    console.error('Error fetching top suppliers:', error);
-    res.status(500).json({ error: 'Failed to fetch top suppliers' });
-  }
-});
-
-// Get purchase trends
-router.get('/analytics/trends', async (req: Request, res: Response) => {
-  try {
-    const userId = getUserId(req);
-    const { period = 'monthly' } = req.query; // monthly, weekly, daily
-    
-    let dateFormat = 'YYYY-MM';
-    if (period === 'weekly') dateFormat = 'YYYY-WW';
-    if (period === 'daily') dateFormat = 'YYYY-MM-DD';
-    
-    const trends = await db.execute(sql`
-      SELECT 
-        TO_CHAR(order_date, '${dateFormat}') as period,
-        COUNT(*) as order_count,
-        SUM(total_amount) as total_amount,
-        AVG(total_amount) as avg_amount
-      FROM ${schema.purchaseOrders}
-      WHERE user_id = ${userId}
-        AND order_date >= CURRENT_DATE - INTERVAL '12 months'
-      GROUP BY TO_CHAR(order_date, '${dateFormat}')
-      ORDER BY period DESC
-      LIMIT 12
-    `);
-    
-    res.json(trends);
-  } catch (error) {
-    console.error('Error fetching purchase trends:', error);
-    res.status(500).json({ error: 'Failed to fetch purchase trends' });
-  }
-});
-
-// Get purchase summary by category
-router.get('/analytics/category-summary', async (req: Request, res: Response) => {
-  try {
-    const userId = getUserId(req);
-    
-    const categorySummary = await db
-      .select({
-        category: schema.products.category,
-        totalQuantity: sql`SUM(poi.quantity) as total_quantity`,
-        totalAmount: sql`SUM(poi.quantity * poi.unitPrice) as total_amount`,
-        orderCount: sql`COUNT(DISTINCT po.id) as order_count`
-      })
-      .from(schema.purchaseOrders)
-      .innerJoin(schema.purchaseOrderItems, eq(schema.purchaseOrders.id, schema.purchaseOrderItems.purchaseOrderId))
-      .leftJoin(schema.products, eq(schema.purchaseOrderItems.productId, schema.products.id))
-      .where(eq(schema.purchaseOrders.userId, userId))
-      .groupBy(schema.products.category)
-      .orderBy(desc(sql`total_amount`));
-    
-    res.json(categorySummary);
-  } catch (error) {
-    console.error('Error fetching category summary:', error);
-    res.status(500).json({ error: 'Failed to fetch category summary' });
-  }
-});
-
 // Convert purchase request to purchase order
-router.post('/requests/:id/convert-to-order', async (req: Request, res: Response) => {
+router.post('/requests/:id/convert-to-order', requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = getUserId(req);
+    const userId = req.user.id;
     const requestId = parseInt(req.params.id);
     const { supplierId, ...orderDetails } = req.body;
     
+    if (isNaN(requestId)) {
+      return res.status(400).json({ error: 'Invalid request ID' });
+    }
+    
+    if (!supplierId) {
+      return res.status(400).json({ error: 'Supplier ID is required' });
+    }
+    
     // Get the purchase request
-    const request = await db
+    const [request] = await db
       .select()
       .from(schema.purchaseRequests)
-      .where(and(eq(schema.purchaseRequests.id, requestId), eq(schema.purchaseRequests.userId, userId)))
+      .where(and(
+        eq(schema.purchaseRequests.id, requestId),
+        eq(schema.purchaseRequests.userId, userId)
+      ))
       .limit(1);
     
-    if (!request.length) {
+    if (!request) {
       return res.status(404).json({ error: 'Purchase request not found' });
+    }
+    
+    if (request.status !== 'approved') {
+      return res.status(400).json({ error: 'Purchase request must be approved before conversion' });
     }
     
     // Get request items
@@ -641,19 +978,40 @@ router.post('/requests/:id/convert-to-order', async (req: Request, res: Response
       .from(schema.purchaseRequestItems)
       .where(eq(schema.purchaseRequestItems.purchaseRequestId, requestId));
     
+    // Generate order number
+    const orderNumber = `PO-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
+    
+    // Calculate totals from request items
+    const subtotal = requestItems.reduce((sum, item) => 
+      sum + (Number(item.quantity) * Number(item.estimatedUnitPrice || 0)), 0
+    );
+    
+    const taxAmount = Number(orderDetails.taxAmount || 0);
+    const shippingAmount = Number(orderDetails.shippingAmount || 0);
+    const discountAmount = Number(orderDetails.discountAmount || 0);
+    const totalAmount = subtotal + taxAmount + shippingAmount - discountAmount;
+    
     // Create purchase order
-    const orderNumber = `PO${Date.now()}`;
-    const [newOrder] = await db.insert(schema.purchaseOrders).values({
+    const orderData = {
       userId,
-      supplierId,
+      supplierId: Number(supplierId),
       purchaseRequestId: requestId,
       orderNumber,
-      orderDate: new Date(),
-      subtotal: request[0].totalAmount || 0,
-      totalAmount: request[0].totalAmount || 0,
+      subtotal,
+      taxAmount,
+      shippingAmount,
+      discountAmount,
+      totalAmount,
       status: 'pending',
-      ...orderDetails
-    }).returning();
+      ...orderDetails,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    
+    const [newOrder] = await db
+      .insert(schema.purchaseOrders)
+      .values(orderData)
+      .returning();
     
     // Convert request items to order items
     if (requestItems.length > 0) {
@@ -663,30 +1021,219 @@ router.post('/requests/:id/convert-to-order', async (req: Request, res: Response
         description: item.description,
         quantity: item.quantity,
         unitPrice: item.estimatedUnitPrice || 0,
-        subtotal: item.quantity * (item.estimatedUnitPrice || 0),
-        totalAmount: item.quantity * (item.estimatedUnitPrice || 0)
+        total: Number(item.quantity) * Number(item.estimatedUnitPrice || 0),
+        createdAt: new Date(),
+        updatedAt: new Date()
       }));
       
       await db.insert(schema.purchaseOrderItems).values(orderItemsData);
     }
     
-    // Update request status
+    // Update request status to 'converted'
     await db
       .update(schema.purchaseRequests)
-      .set({ status: 'converted', updatedAt: new Date() })
+      .set({ 
+        status: 'converted',
+        updatedAt: new Date()
+      })
       .where(eq(schema.purchaseRequests.id, requestId));
     
     // Broadcast real-time update
-    const wsService = req.app.locals.wsService as WSService;
-    wsService.broadcastToResource('purchase', 'orders', {
-      type: 'order_created_from_request',
-      data: { order: newOrder, requestId }
-    });
+    if (purchaseWS) {
+      purchaseWS.broadcastPurchaseOrderCreated(userId, newOrder);
+    }
     
     res.status(201).json(newOrder);
   } catch (error) {
-    console.error('Error converting request to order:', error);
-    res.status(500).json({ error: 'Failed to convert request to order' });
+    console.error('Error converting purchase request to order:', error);
+    res.status(500).json({ error: 'Failed to convert purchase request to order' });
+  }
+});
+
+// Get purchase analytics
+router.get('/analytics', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user.id;
+    const { period = '30' } = req.query;
+    
+    const days = parseInt(period as string) || 30;
+    const fromDate = new Date();
+    fromDate.setDate(fromDate.getDate() - days);
+    
+    // Spending trends
+    const spendingTrends = await db
+      .select({
+        date: sql<string>`DATE(${schema.purchaseOrders.orderDate})`,
+        amount: sql<number>`CAST(SUM(${schema.purchaseOrders.totalAmount}) AS DECIMAL)`
+      })
+      .from(schema.purchaseOrders)
+      .where(and(
+        eq(schema.purchaseOrders.userId, userId),
+        gte(schema.purchaseOrders.orderDate, fromDate)
+      ))
+      .groupBy(sql`DATE(${schema.purchaseOrders.orderDate})`)
+      .orderBy(sql`DATE(${schema.purchaseOrders.orderDate})`);
+    
+    // Top suppliers
+    const topSuppliers = await db
+      .select({
+        supplier: schema.suppliers,
+        totalSpent: sql<number>`CAST(SUM(${schema.purchaseOrders.totalAmount}) AS DECIMAL)`,
+        orderCount: sql<number>`CAST(COUNT(${schema.purchaseOrders.id}) AS INTEGER)`
+      })
+      .from(schema.suppliers)
+      .leftJoin(schema.purchaseOrders, eq(schema.suppliers.id, schema.purchaseOrders.supplierId))
+      .where(and(
+        eq(schema.suppliers.userId, userId),
+        gte(schema.purchaseOrders.orderDate, fromDate)
+      ))
+      .groupBy(schema.suppliers.id)
+      .orderBy(desc(sql`SUM(${schema.purchaseOrders.totalAmount})`))
+      .limit(10);
+    
+    // Category spending
+    const categorySpending = await db
+      .select({
+        category: schema.products.category,
+        totalSpent: sql<number>`CAST(SUM(${schema.purchaseOrderItems.total}) AS DECIMAL)`,
+        orderCount: sql<number>`CAST(COUNT(DISTINCT ${schema.purchaseOrders.id}) AS INTEGER)`
+      })
+      .from(schema.purchaseOrderItems)
+      .leftJoin(schema.purchaseOrders, eq(schema.purchaseOrderItems.purchaseOrderId, schema.purchaseOrders.id))
+      .leftJoin(schema.products, eq(schema.purchaseOrderItems.productId, schema.products.id))
+      .where(and(
+        eq(schema.purchaseOrders.userId, userId),
+        gte(schema.purchaseOrders.orderDate, fromDate)
+      ))
+      .groupBy(schema.products.category)
+      .orderBy(desc(sql`SUM(${schema.purchaseOrderItems.total})`));
+    
+    // Request approval metrics
+    const approvalMetrics = await db
+      .select({
+        avgApprovalDays: sql<number>`CAST(AVG(EXTRACT(epoch FROM (${schema.purchaseRequests.approvalDate} - ${schema.purchaseRequests.requestDate}))/86400) AS DECIMAL)`,
+        approvedCount: sql<number>`CAST(COUNT(CASE WHEN ${schema.purchaseRequests.status} = 'approved' THEN 1 END) AS INTEGER)`,
+        rejectedCount: sql<number>`CAST(COUNT(CASE WHEN ${schema.purchaseRequests.status} = 'rejected' THEN 1 END) AS INTEGER)`,
+        pendingCount: sql<number>`CAST(COUNT(CASE WHEN ${schema.purchaseRequests.status} = 'pending' THEN 1 END) AS INTEGER)`
+      })
+      .from(schema.purchaseRequests)
+      .where(and(
+        eq(schema.purchaseRequests.userId, userId),
+        gte(schema.purchaseRequests.requestDate, fromDate)
+      ));
+    
+    res.json({
+      spendingTrends,
+      topSuppliers,
+      categorySpending,
+      approvalMetrics: approvalMetrics[0] || {
+        avgApprovalDays: 0,
+        approvedCount: 0,
+        rejectedCount: 0,
+        pendingCount: 0
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching purchase analytics:', error);
+    res.status(500).json({ error: 'Failed to fetch purchase analytics' });
+  }
+});
+
+// Get supplier performance metrics
+router.get('/suppliers/performance', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user.id;
+    
+    const performance = await db
+      .select({
+        supplier: schema.suppliers,
+        totalOrders: sql<number>`CAST(COUNT(${schema.purchaseOrders.id}) AS INTEGER)`,
+        deliveredOrders: sql<number>`CAST(COUNT(CASE WHEN ${schema.purchaseOrders.status} = 'delivered' THEN 1 END) AS INTEGER)`,
+        totalAmount: sql<number>`CAST(COALESCE(SUM(${schema.purchaseOrders.totalAmount}), 0) AS DECIMAL)`,
+        onTimeDeliveries: sql<number>`CAST(COUNT(CASE WHEN ${schema.purchaseOrders.status} = 'delivered' THEN 1 END) AS INTEGER)`,
+        avgDeliveryDays: sql<number>`CAST(0 AS DECIMAL)`,
+        lastOrderDate: sql<string>`MAX(${schema.purchaseOrders.orderDate})`
+      })
+      .from(schema.suppliers)
+      .leftJoin(schema.purchaseOrders, eq(schema.suppliers.id, schema.purchaseOrders.supplierId))
+      .where(eq(schema.suppliers.userId, userId))
+      .groupBy(schema.suppliers.id)
+      .orderBy(desc(sql`COUNT(${schema.purchaseOrders.id})`));
+
+    const performanceWithMetrics = performance.map(p => {
+      // Since we don't have actual delivery dates, use order fulfillment rate as main metric
+      const orderFulfillmentRate = p.totalOrders > 0 ? (p.deliveredOrders / p.totalOrders) * 100 : 0;
+      const deliveryRate = orderFulfillmentRate; // Same as fulfillment rate for now
+      const overallScore = orderFulfillmentRate; // Simplified scoring
+      
+      return {
+        ...p,
+        deliveryRate: Math.round(deliveryRate * 100) / 100,
+        orderFulfillmentRate: Math.round(orderFulfillmentRate * 100) / 100,
+        overallScore: Math.round(overallScore * 100) / 100,
+        avgDeliveryDays: 0 // Not available without deliveryDate
+      };
+    });
+    
+    res.json(performanceWithMetrics);
+  } catch (error) {
+    console.error('Error fetching supplier performance:', error);
+    res.status(500).json({ error: 'Failed to fetch supplier performance' });
+  }
+});
+
+// Get individual supplier performance
+router.get('/suppliers/:id/performance', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user.id;
+    const supplierId = parseInt(req.params.id);
+    
+    if (isNaN(supplierId)) {
+      return res.status(400).json({ error: 'Invalid supplier ID' });
+    }
+
+    const performance = await db
+      .select({
+        supplier: schema.suppliers,
+        totalOrders: sql<number>`CAST(COUNT(${schema.purchaseOrders.id}) AS INTEGER)`,
+        deliveredOrders: sql<number>`CAST(COUNT(CASE WHEN ${schema.purchaseOrders.status} = 'delivered' THEN 1 END) AS INTEGER)`,
+        pendingOrders: sql<number>`CAST(COUNT(CASE WHEN ${schema.purchaseOrders.status} = 'pending' THEN 1 END) AS INTEGER)`,
+        totalAmount: sql<number>`CAST(COALESCE(SUM(${schema.purchaseOrders.totalAmount}), 0) AS DECIMAL)`,
+        onTimeDeliveries: sql<number>`CAST(COUNT(CASE WHEN ${schema.purchaseOrders.status} = 'delivered' THEN 1 END) AS INTEGER)`,
+        avgDeliveryDays: sql<number>`CAST(0 AS DECIMAL)`,
+        lastOrderDate: sql<string>`MAX(${schema.purchaseOrders.orderDate})`,
+        firstOrderDate: sql<string>`MIN(${schema.purchaseOrders.orderDate})`
+      })
+      .from(schema.suppliers)
+      .leftJoin(schema.purchaseOrders, eq(schema.suppliers.id, schema.purchaseOrders.supplierId))
+      .where(and(
+        eq(schema.suppliers.userId, userId),
+        eq(schema.suppliers.id, supplierId)
+      ))
+      .groupBy(schema.suppliers.id);
+
+    if (performance.length === 0) {
+      return res.status(404).json({ error: 'Supplier not found' });
+    }
+
+    const p = performance[0];
+    // Since we don't have actual delivery dates, use order fulfillment rate as main metric
+    const orderFulfillmentRate = p.totalOrders > 0 ? (p.deliveredOrders / p.totalOrders) * 100 : 0;
+    const deliveryRate = orderFulfillmentRate; // Same as fulfillment rate for now
+    const overallScore = orderFulfillmentRate; // Simplified scoring
+    
+    const result = {
+      ...p,
+      deliveryRate: Math.round(deliveryRate * 100) / 100,
+      orderFulfillmentRate: Math.round(orderFulfillmentRate * 100) / 100,
+      overallScore: Math.round(overallScore * 100) / 100,
+      avgDeliveryDays: 0 // Not available without deliveryDate
+    };
+    
+    res.json(result);
+  } catch (error) {
+    console.error('Error fetching supplier performance:', error);
+    res.status(500).json({ error: 'Failed to fetch supplier performance' });
   }
 });
 

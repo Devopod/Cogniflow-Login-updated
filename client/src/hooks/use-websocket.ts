@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 
 interface WebSocketHookOptions {
@@ -16,6 +16,7 @@ export const useWebSocket = ({
 }: WebSocketHookOptions) => {
   const wsRef = useRef<WebSocket | null>(null);
   const queryClient = useQueryClient();
+  const [isConnected, setIsConnected] = useState(false);
 
   useEffect(() => {
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -27,6 +28,7 @@ export const useWebSocket = ({
 
     ws.onopen = () => {
       console.log(`WebSocket connected to ${resource}/${resourceId}`);
+      setIsConnected(true);
     };
 
     ws.onmessage = (event) => {
@@ -51,10 +53,12 @@ export const useWebSocket = ({
 
     ws.onerror = (error) => {
       console.error(`WebSocket error for ${resource}/${resourceId}:`, error);
+      setIsConnected(false);
     };
 
     ws.onclose = () => {
       console.log(`WebSocket disconnected from ${resource}/${resourceId}`);
+      setIsConnected(false);
     };
 
     return () => {
@@ -70,7 +74,7 @@ export const useWebSocket = ({
     }
   };
 
-  return { sendMessage };
+  return { sendMessage, isConnected };
 };
 
 // Specific hook for sales real-time updates

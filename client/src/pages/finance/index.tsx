@@ -14,6 +14,9 @@ import {
 import ModuleLayout from "@/components/layout/ModuleLayout";
 import FinanceOverview from "@/components/finance/FinanceOverview";
 import InvoicesList from "@/components/finance/InvoicesList";
+import ExpenseManagement from "@/components/finance/ExpenseManagement";
+import ChartOfAccounts from "@/components/finance/ChartOfAccounts";
+import FinancialReports from "@/components/finance/FinancialReports";
 
 const FinanceManagement = () => {
   const [location] = useLocation();
@@ -98,45 +101,9 @@ const FinanceManagement = () => {
       {/* Display content based on current view */}
       {currentView === "overview" && <FinanceOverview />}
       {currentView === "invoices" && <InvoicesList />}
-      {currentView === "expenses" && (
-        <div className="p-8 flex flex-col items-center justify-center text-center bg-muted/20 rounded-lg min-h-[60vh]">
-          <Receipt className="h-16 w-16 text-muted-foreground mb-4" />
-          <h3 className="text-2xl font-semibold mb-2">Expenses Management</h3>
-          <p className="text-muted-foreground max-w-md mb-6">
-            Track and manage all your business expenses, categorize spending, and generate expense reports.
-          </p>
-          <Button>
-            <Plus className="h-4 w-4 mr-2" />
-            Add New Expense
-          </Button>
-        </div>
-      )}
-      {currentView === "accounts" && (
-        <div className="p-8 flex flex-col items-center justify-center text-center bg-muted/20 rounded-lg min-h-[60vh]">
-          <FileText className="h-16 w-16 text-muted-foreground mb-4" />
-          <h3 className="text-2xl font-semibold mb-2">Chart of Accounts</h3>
-          <p className="text-muted-foreground max-w-md mb-6">
-            Organize your financial accounts in a structured hierarchy for effective financial management.
-          </p>
-          <Button>
-            <Plus className="h-4 w-4 mr-2" />
-            Add New Account
-          </Button>
-        </div>
-      )}
-      {currentView === "reports" && (
-        <div className="p-8 flex flex-col items-center justify-center text-center bg-muted/20 rounded-lg min-h-[60vh]">
-          <BarChart3 className="h-16 w-16 text-muted-foreground mb-4" />
-          <h3 className="text-2xl font-semibold mb-2">Financial Reports</h3>
-          <p className="text-muted-foreground max-w-md mb-6">
-            Generate comprehensive financial reports including profit & loss, balance sheets, and cash flow statements.
-          </p>
-          <Button>
-            <FileDown className="h-4 w-4 mr-2" />
-            Generate Report
-          </Button>
-        </div>
-      )}
+      {currentView === "expenses" && <ExpenseManagement />}
+      {currentView === "accounts" && <ChartOfAccounts />}
+      {currentView === "reports" && <FinancialReports />}
       {currentView === "taxes" && (
         <div className="p-8 flex flex-col items-center justify-center text-center bg-muted/20 rounded-lg min-h-[60vh]">
           <Settings className="h-16 w-16 text-muted-foreground mb-4" />

@@ -30,8 +30,8 @@ export default function RealtimeNotifications() {
     // Create WebSocket client for global notifications
     const client = new WebSocketClient('global', 'notifications');
     
-    client.addEventListener('message', (event) => {
-      const message = JSON.parse(event.data);
+    // Subscribe to all message types using the WebSocketClient API
+    const unsubscribe = client.on('*', (message) => {
       handleRealtimeUpdate(message);
     });
     
@@ -39,6 +39,7 @@ export default function RealtimeNotifications() {
     setWsClient(client);
     
     return () => {
+      unsubscribe();
       client.disconnect();
     };
   }, []);

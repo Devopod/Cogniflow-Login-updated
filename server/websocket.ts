@@ -141,7 +141,7 @@ export class WSService {
   }
   
   // Broadcast to clients subscribed to a specific resource
-  broadcastToResource(resourceType: string, resourceId: string | number, message: { type: string; data: any }) {
+  broadcastToResource(resourceType: string, resourceId: string | number, type: string, data: any) {
     const resourceKey = `${resourceType}:${resourceId.toString()}`;
     const connections = this.resourceConnections.get(resourceKey);
     
@@ -149,7 +149,7 @@ export class WSService {
       return false;
     }
     
-    const messageStr = JSON.stringify(message);
+    const messageStr = JSON.stringify({ type, data });
     let sentCount = 0;
     
     connections.forEach(({ ws }) => {
@@ -165,6 +165,31 @@ export class WSService {
     
     if (sentCount > 0) {
       console.log(`Broadcast message to ${sentCount} clients for ${resourceType}/${resourceId}`);
+    }
+    
+    return sentCount > 0;
+  }
+
+  // Broadcast to all clients (user-specific broadcast)
+  broadcastToUser(userId: number, type: string, data: any) {
+    const message = JSON.stringify({ type, data });
+    let sentCount = 0;
+    
+    // For now, broadcast to all clients since we don't have user-specific connections
+    // In a production environment, you'd want to track user connections
+    this.clients.forEach(client => {
+      if (client.readyState === WebSocket.OPEN) {
+        try {
+          client.send(message);
+          sentCount++;
+        } catch (error: unknown) {
+          console.error(`Error broadcasting to user ${userId}:`, error);
+        }
+      }
+    });
+    
+    if (sentCount > 0) {
+      console.log(`Broadcast message to ${sentCount} clients for user ${userId}`);
     }
     
     return sentCount > 0;

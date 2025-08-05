@@ -53,7 +53,8 @@ import paymentGatewayRoutes from './src/routes/payment-gateways';
 import emailTestRoutes from './src/routes/email-test';
 import inventoryRoutes from './src/routes/inventory';
 import hrmsRoutes from './src/routes/hrms';
-import purchaseRoutes from './src/routes/purchase';
+import financeRoutes, { setFinanceWSService } from './src/routes/finance';
+import purchaseRoutes, { setPurchaseWSService } from './src/routes/purchase';
 import { registerDynamicRoutes } from './routes-dynamic';
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -68,6 +69,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   setPaymentWSService(wsService);
   setSchedulerWSService(wsService);
   setWebSocketService(wsService);
+  setFinanceWSService(wsService);
+  setPurchaseWSService(wsService);
   
   // Store WebSocket service in app.locals for access in routes
   app.locals.wsService = wsService;
@@ -125,8 +128,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Register HRMS routes
   app.use('/api/hrms', hrmsRoutes);
   
-  // Register Purchase routes
-  app.use('/api/purchase', purchaseRoutes);
+  // Register Purchase routes  
+  app.use('/api/purchase', isAuthenticated, purchaseRoutes);
+  
+  // Register Finance routes  
+  app.use('/api/finance', isAuthenticated, financeRoutes);
 
   // API routes with authentication
   

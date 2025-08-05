@@ -20,7 +20,7 @@ import HRManagement from "@/pages/hrms";
 import SupplierManagement from "@/pages/suppliers";
 import PaymentsManagement from "@/pages/payments";
 import ReportsManagement from "@/pages/reports";
-import PurchaseManagement from "@/pages/purchase";
+import PurchasePage from "@/pages/purchase";
 import { PublicInvoiceView } from "@/pages/public/invoice-view";
 import { PaymentSuccessPage } from "@/pages/payment/success";
 import { PaymentCancelPage } from "@/pages/payment/cancel";
@@ -145,11 +145,11 @@ function Router() {
       <ProtectedRoute path="/suppliers/catalogs" component={SupplierManagement} />
       
       {/* Purchase Module */}
-      <ProtectedRoute path="/purchase" component={PurchaseManagement} />
-      <ProtectedRoute path="/purchase/orders" component={PurchaseManagement} />
-      <ProtectedRoute path="/purchase/requisitions" component={PurchaseManagement} />
-      <ProtectedRoute path="/purchase/suppliers" component={PurchaseManagement} />
-      <ProtectedRoute path="/purchase/reports" component={PurchaseManagement} />
+      <ProtectedRoute path="/purchase" component={PurchasePage} />
+      <ProtectedRoute path="/purchase/orders" component={PurchasePage} />
+      <ProtectedRoute path="/purchase/requests" component={PurchasePage} />
+      <ProtectedRoute path="/purchase/suppliers" component={PurchasePage} />
+      <ProtectedRoute path="/purchase/analytics" component={PurchasePage} />
       
       {/* Payments Module */}
       <ProtectedRoute path="/payments" component={PaymentsManagement} />
