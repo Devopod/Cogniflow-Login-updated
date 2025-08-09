@@ -15,7 +15,7 @@ import {
   useGenerateReport,
   useCrmMetrics,
   useLeadAnalytics,
-  useSalesPipeline,
+  useDealPipeline,
   useTasks,
   useActivities,
 } from "@/hooks/use-crm-data";
