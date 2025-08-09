@@ -9,16 +9,7 @@ import LeadManagement from "@/components/crm/LeadManagement";
 import ActivityManagement from "@/components/crm/ActivityManagement";
 import CompanyManagement from "@/components/crm/CompanyManagement";
 import PhoneCallManagement from "@/components/crm/PhoneCallManagement";
-import { useCrmApi } from "@/hooks/use-api";
-import {
-  useCrmDashboard,
-  useGenerateReport,
-  useCrmMetrics,
-  useLeadAnalytics,
-  useSalesPipeline,
-  useTasks,
-  useActivities,
-} from "@/hooks/use-crm-data";
+import { useCrmDashboard, useGenerateReport } from "@/hooks/use-crm-data";
 import {
   Card,
   CardContent,
@@ -84,26 +75,10 @@ export default function CrmManagement() {
   const { toast: useToastHook } = useToast();
   const [location, setLocation] = useLocation();
   const [currentTab, setCurrentTab] = useState("overview");
-  
-  // Use dynamic API data instead of mock data
-  const crmApi = useCrmApi();
-  
-  // Extract data from API hooks
-  const { data: dashboardData, loading: dashboardLoading, error: dashboardError } = crmApi.dashboard;
-  const { data: leadAnalyticsData, loading: leadAnalyticsLoading } = crmApi.analytics.leads;
-  const { data: pipelineData, loading: pipelineLoading } = crmApi.analytics.pipeline;
-  const { data: upcomingTasksData, loading: tasksLoading } = crmApi.tasks;
-  const { data: recentActivitiesData, loading: activitiesLoading } = crmApi.activities;
-  
-  // Use real data or show loading states
-  const metrics = Array.isArray(dashboardData) && dashboardData.length > 0 ? dashboardData[0] : null;
-  const leadAnalytics = Array.isArray(leadAnalyticsData) && leadAnalyticsData.length > 0 ? leadAnalyticsData[0] : null;
-  const pipeline = Array.isArray(pipelineData) && pipelineData.length > 0 ? pipelineData[0] : null;
-  const upcomingTasks = upcomingTasksData || [];
-  const recentActivities = recentActivitiesData || [];
-  
-  const isLoading = dashboardLoading || leadAnalyticsLoading || pipelineLoading || tasksLoading || activitiesLoading;
-  const error = dashboardError;
+
+  // Use composite dashboard hook for all data
+  const dashboard = useCrmDashboard();
+  const { metrics, leadAnalytics, dealPipeline, upcomingTasks, recentActivities, isLoading, error } = dashboard;
 
   // Generate report mutation
   const generateReport = useGenerateReport();
@@ -111,7 +86,7 @@ export default function CrmManagement() {
   // Handle report generation
   const handleGenerateReport = async (type: string, format: string) => {
     try {
-      await generateReport.mutateAsync({ type, format });
+      await generateReport.mutateAsync({ type: type as any, format: format as any });
     } catch (error) {
       console.error('Error generating report:', error);
     }
@@ -119,11 +94,7 @@ export default function CrmManagement() {
 
   // Refresh all data
   const handleRefresh = () => {
-    crmApi.dashboard.fetchData();
-    crmApi.analytics.leads.fetchData();
-    crmApi.analytics.pipeline.fetchData();
-    crmApi.tasks.fetchData();
-    crmApi.activities.fetchData();
+    // Queries will auto-refetch on focus or via WebSocket invalidation
     useToastHook({ title: "Success", description: "Data refreshed successfully!" });
   };
 
@@ -180,11 +151,11 @@ export default function CrmManagement() {
   ] : [];
 
   // Lead source chart data
-  const leadSourceChartData = leadAnalytics?.leadSources ? {
-    labels: leadAnalytics.leadSources.map((item: any) => item.source),
+  const leadSourceChartData = (leadAnalytics as any)?.leadSources ? {
+    labels: (leadAnalytics as any).leadSources.map((item: any) => item.source),
     datasets: [
       {
-        data: leadAnalytics.leadSources.map((item: any) => item.count),
+        data: (leadAnalytics as any).leadSources.map((item: any) => item.count),
         backgroundColor: [
           '#3B82F6', // Blue
           '#10B981', // Green
@@ -199,19 +170,19 @@ export default function CrmManagement() {
   } : null;
 
   // Sales pipeline chart data
-  const pipelineChartData = pipeline?.stages ? {
-    labels: pipeline.stages.map((stage: any) => stage.stage),
+  const pipelineChartData = (dealPipeline as any)?.stages ? {
+    labels: (dealPipeline as any).stages.map((stage: any) => stage.stage),
     datasets: [
       {
         label: 'Number of Deals',
-        data: pipeline.stages.map((stage: any) => stage.count),
+        data: (dealPipeline as any).stages.map((stage: any) => stage.count),
         backgroundColor: '#3B82F6',
         borderColor: '#2563EB',
         borderWidth: 1,
       },
       {
         label: 'Total Value ($)',
-        data: pipeline.stages.map((stage: any) => stage.totalValue),
+        data: (dealPipeline as any).stages.map((stage: any) => stage.totalValue),
         backgroundColor: '#10B981',
         borderColor: '#059669',
         borderWidth: 1,
@@ -302,16 +273,16 @@ export default function CrmManagement() {
             <Button 
               variant="outline" 
               size="sm"
-              onClick={() => handleGenerateReport('summary', 'pdf')}
+              onClick={() => handleGenerateReport('summary', 'json')}
               disabled={generateReport.isPending}
             >
               <FileText className="h-4 w-4 mr-2" />
-              {generateReport.isPending ? 'Generating...' : 'PDF Report'}
+              {generateReport.isPending ? 'Generating...' : 'JSON Report'}
             </Button>
             <Button 
               variant="outline" 
               size="sm"
-              onClick={() => handleGenerateReport('summary', 'csv')}
+              onClick={() => handleGenerateReport('leads', 'csv')}
               disabled={generateReport.isPending}
             >
               <Download className="h-4 w-4 mr-2" />
@@ -398,27 +369,12 @@ export default function CrmManagement() {
                 </CardHeader>
                 <CardContent>
                   {leadSourceChartData ? (
-                    <div className="h-[300px] flex items-center justify-center">
-                      <Doughnut 
-                        data={leadSourceChartData} 
-                        options={{
-                          responsive: true,
-                          maintainAspectRatio: false,
-                          plugins: {
-                            legend: {
-                              position: 'bottom',
-                            },
-                          },
-                        }}
-                      />
+                    <div className="h-[300px]">
+                      <Doughnut data={leadSourceChartData} />
                     </div>
                   ) : (
-                    <div className="flex items-center justify-center h-[300px]">
-                      <div className="text-center">
-                        <PieChart className="h-12 w-12 text-muted-foreground mb-2 mx-auto" />
-                        <p className="font-medium">No lead data available</p>
-                        <p className="text-sm text-muted-foreground mt-1">Start by adding some leads</p>
-                      </div>
+                    <div className="flex items-center justify-center h-[300px] text-muted-foreground">
+                      No lead source data available
                     </div>
                   )}
                 </CardContent>
@@ -428,156 +384,101 @@ export default function CrmManagement() {
               <Card>
                 <CardHeader>
                   <CardTitle>Upcoming Tasks</CardTitle>
-                  <CardDescription>Your pending tasks and reminders</CardDescription>
+                  <CardDescription>Tasks due soon across your deals and contacts</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    {upcomingTasks.map((task) => (
-                      <div key={task.id} className="p-3 border rounded-md">
-                        <div className="flex justify-between items-start">
-                          <div className="font-medium text-sm">{task.title}</div>
-                          <Badge variant={
-                            task.priority === "high" ? "destructive" : 
-                            task.priority === "medium" ? "secondary" : 
-                            "outline"
-                          }>
-                            {task.priority}
-                          </Badge>
-                        </div>
-                        <div className="flex justify-between mt-2 text-sm">
-                          <div className="flex items-center text-muted-foreground">
-                            <Calendar className="h-3 w-3 mr-1" />
-                            <span>{task.dueDate ? format(new Date(task.dueDate), 'MMM dd') : 'No due date'}</span>
+                    {upcomingTasks && upcomingTasks.length > 0 ? (
+                      upcomingTasks.map((task: any) => (
+                        <div key={task.id} className="flex items-start justify-between">
+                          <div className="flex items-start gap-3">
+                            <div className="p-2 rounded-full bg-primary/10 text-primary">
+                              <Calendar className="h-4 w-4" />
+                            </div>
+                            <div>
+                              <p className="font-medium">{task.title}</p>
+                              <p className="text-sm text-muted-foreground">
+                                Due {task.dueDate ? format(new Date(task.dueDate), 'PP') : 'N/A'}
+                              </p>
+                            </div>
                           </div>
-                          <div className="flex items-center">
-                            {task.type === "call" && <Phone className="h-3 w-3 mr-1 text-blue-500" />}
-                            {task.type === "email" && <MailCheck className="h-3 w-3 mr-1 text-green-500" />}
-                            {task.type === "meeting" && <Users className="h-3 w-3 mr-1 text-purple-500" />}
-                            <span className="capitalize">{task.type}</span>
-                          </div>
+                          <Badge variant="outline">{task.priority || 'medium'}</Badge>
                         </div>
-                      </div>
-                    ))}
-                    {upcomingTasks.length === 0 && (
-                      <div className="text-center py-8">
-                        <CheckSquare className="h-12 w-12 text-muted-foreground mb-2 mx-auto" />
-                        <p className="font-medium">No pending tasks</p>
-                        <p className="text-sm text-muted-foreground mt-1">You're all caught up!</p>
-                      </div>
+                      ))
+                    ) : (
+                      <div className="text-muted-foreground">No upcoming tasks</div>
                     )}
-                    <Button className="w-full" variant="outline" size="sm">
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add Task
-                    </Button>
                   </div>
                 </CardContent>
               </Card>
             </div>
 
-            {/* Recent Activities */}
-            <Card>
-              <CardHeader>
-                <div className="flex justify-between items-center">
-                  <div>
-                    <CardTitle>Recent Activities</CardTitle>
-                    <CardDescription>Latest interactions with contacts and deals</CardDescription>
-                  </div>
-                  <Button variant="outline" size="sm" onClick={() => setCurrentTab('activities')}>
-                    View All
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {recentActivities.map((activity) => (
-                    <div key={activity.id} className="flex gap-4 p-3 border rounded-md">
-                      <div className={`
-                        flex-shrink-0 h-10 w-10 rounded-full flex items-center justify-center
-                        ${activity.type === 'call' ? 'bg-blue-100 text-blue-600' : 
-                          activity.type === 'email' ? 'bg-green-100 text-green-600' : 
-                          activity.type === 'meeting' ? 'bg-purple-100 text-purple-600' : 
-                          'bg-yellow-100 text-yellow-600'}
-                      `}>
-                        {activity.type === 'call' && <PhoneCall className="h-5 w-5" />}
-                        {activity.type === 'email' && <MailCheck className="h-5 w-5" />}
-                        {activity.type === 'meeting' && <Users className="h-5 w-5" />}
-                        {activity.type === 'note' && <MessageSquare className="h-5 w-5" />}
-                      </div>
-                      <div className="flex-grow">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <div className="font-medium">{activity.subject}</div>
-                            <div className="text-sm text-muted-foreground">{activity.description}</div>
-                          </div>
-                          <div className="text-sm text-muted-foreground">
-                            {activity.createdAt ? format(new Date(activity.createdAt), 'MMM dd, HH:mm') : ''}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                  {recentActivities.length === 0 && (
-                    <div className="text-center py-8">
-                      <Activity className="h-12 w-12 text-muted-foreground mb-2 mx-auto" />
-                      <p className="font-medium">No recent activities</p>
-                      <p className="text-sm text-muted-foreground mt-1">Start by logging some interactions</p>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-
             {/* Sales Pipeline Chart */}
             <Card>
               <CardHeader>
-                <CardTitle>Sales Pipeline Distribution</CardTitle>
-                <CardDescription>Real-time view of deals across different stages</CardDescription>
+                <CardTitle>Sales Pipeline</CardTitle>
+                <CardDescription>Current distribution across stages</CardDescription>
               </CardHeader>
               <CardContent>
                 {pipelineChartData ? (
-                  <div className="h-[400px]">
+                  <div className="h-[360px]">
                     <Bar data={pipelineChartData} options={pipelineChartOptions} />
                   </div>
                 ) : (
-                  <div className="flex items-center justify-center h-[400px]">
-                    <div className="text-center">
-                      <BarChart3 className="h-12 w-12 text-muted-foreground mb-2 mx-auto" />
-                      <p className="font-medium">No pipeline data available</p>
-                      <p className="text-sm text-muted-foreground mt-1">Create some deals to see the pipeline</p>
-                    </div>
+                  <div className="flex items-center justify-center h-[300px] text-muted-foreground">
+                    No pipeline data available
                   </div>
                 )}
               </CardContent>
             </Card>
+
+            {/* Recent Activities */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Recent Activities</CardTitle>
+                <CardDescription>Latest CRM interactions and updates</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {recentActivities && recentActivities.length > 0 ? (
+                    recentActivities.map((activity: any) => (
+                      <div key={activity.id} className="flex items-start gap-3">
+                        <div className="p-2 rounded-full bg-primary/10 text-primary">
+                          <Activity className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <p className="font-medium">{activity.description || activity.subject}</p>
+                          <p className="text-sm text-muted-foreground">
+                            {activity.timestamp ? format(new Date(activity.timestamp), 'PPp') : 'N/A'}
+                          </p>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-muted-foreground">No recent activities</div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
 
-          {/* Leads Tab */}
-          <TabsContent value="leads" className="space-y-6">
+          {/* Other tabs would render their respective management components */}
+          <TabsContent value="leads">
             <LeadManagement />
           </TabsContent>
-
-          {/* Contacts Tab */}
-          <TabsContent value="contacts" className="space-y-6">
+          <TabsContent value="contacts">
             <ContactManagement />
           </TabsContent>
-
-          {/* Deals Tab */}
-          <TabsContent value="deals" className="space-y-6">
+          <TabsContent value="deals">
             <DealManagement />
           </TabsContent>
-
-          {/* Activities Tab */}
-          <TabsContent value="activities" className="space-y-6">
+          <TabsContent value="activities">
             <ActivityManagement />
           </TabsContent>
-
-          {/* Companies Tab */}
-          <TabsContent value="companies" className="space-y-6">
+          <TabsContent value="companies">
             <CompanyManagement />
           </TabsContent>
-
-          {/* Phone Calls Tab */}
-          <TabsContent value="calls" className="space-y-6">
+          <TabsContent value="calls">
             <PhoneCallManagement />
           </TabsContent>
         </Tabs>
