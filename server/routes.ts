@@ -49,12 +49,13 @@ import adminRoutes from './src/routes/admin';
 import paymentRoutes from './src/routes/payments';
 import paymentReminderRoutes from './src/routes/payment-reminders';
 import crmRoutes from './src/routes/crm';
+import inventoryRoutes from './src/routes/inventory';
 import paymentGatewayRoutes from './src/routes/payment-gateways';
 import emailTestRoutes from './src/routes/email-test';
-import inventoryRoutes from './src/routes/inventory';
 import hrmsRoutes from './src/routes/hrms';
 import financeRoutes, { setFinanceWSService } from './src/routes/finance';
 import purchaseRoutes, { setPurchaseWSService } from './src/routes/purchase';
+import reportsRoutes, { setWSService as setReportsWSService } from './src/routes/reports';
 import { registerDynamicRoutes } from './routes-dynamic';
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -71,6 +72,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   setWebSocketService(wsService);
   setFinanceWSService(wsService);
   setPurchaseWSService(wsService);
+  setReportsWSService(wsService);
   
   // Store WebSocket service in app.locals for access in routes
   app.locals.wsService = wsService;
@@ -133,6 +135,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Register Finance routes  
   app.use('/api/finance', isAuthenticated, financeRoutes);
+  
+  // Register Reports routes  
+  app.use('/api/reports', isAuthenticated, reportsRoutes);
 
   // API routes with authentication
   

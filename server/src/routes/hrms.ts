@@ -32,7 +32,7 @@ router.get('/dashboard', async (req: Request, res: Response) => {
       WHERE e.user_id = ${userId}
     `;
     
-    const [metrics] = await db.execute(metricsQuery);
+    const [metrics] = await db.execute(metricsQuery as any);
     
     // Calculate additional metrics
     const attendanceRate = metrics.total_employees > 0 
@@ -651,19 +651,19 @@ router.get('/attendance/summary', async (req: Request, res: Response) => {
       SELECT 
         COUNT(CASE WHEN a.check_in_time IS NOT NULL THEN 1 END) as present,
         COUNT(CASE WHEN a.check_in_time IS NULL AND e.status = 'active' THEN 1 END) as absent,
-        COUNT(CASE WHEN lr.status = 'approved' AND '${date}' BETWEEN lr.start_date AND lr.end_date THEN 1 END) as on_leave,
+        COUNT(CASE WHEN lr.status = 'approved' AND ${date} BETWEEN lr.start_date AND lr.end_date THEN 1 END) as on_leave,
         AVG(CASE 
           WHEN a.check_out_time IS NOT NULL THEN 
             EXTRACT(EPOCH FROM (a.check_out_time - a.check_in_time)) / 3600 
           END
         ) as avg_hours_worked
       FROM ${schema.employees} e
-      LEFT JOIN ${schema.attendance} a ON e.id = a.employee_id AND DATE(a.check_in_time) = '${date}'
+      LEFT JOIN ${schema.attendance} a ON e.id = a.employee_id AND DATE(a.check_in_time) = ${sql`${date}::date` }
       LEFT JOIN ${schema.leaveRequests} lr ON e.id = lr.employee_id
       WHERE e.user_id = ${userId} AND e.status = 'active'
     `;
     
-    const [summary] = await db.execute(summaryQuery);
+    const [summary] = await db.execute(summaryQuery as any);
     
     res.json({
       present: Number(summary.present) || 0,

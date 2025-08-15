@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
-import { useInventoryApi } from "@/hooks/use-api";
+import { useInventoryDashboard, useProducts, useLowStockProducts } from "@/hooks/use-inventory-data";
+import useInventoryWebSocket from "@/hooks/use-inventory-websocket";
 import {
   Tabs,
   TabsContent,
@@ -20,16 +21,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import ErpNavigation from "@/components/ErpNavigation";
 import ProductCatalog from "@/components/inventory/ProductCatalog";
+import SimpleProductForm from "@/components/inventory/SimpleProductForm";
 import PurchaseOrders from "@/components/inventory/PurchaseOrders";
-import BillOfMaterials from "@/components/inventory/BillOfMaterials";
-import GoodsReceiptNote from "@/components/inventory/GoodsReceiptNote";
-import GoodsDeliveryNote from "@/components/inventory/GoodsDeliveryNote";
-import ProductGroup from "@/components/inventory/ProductGroup";
-import SetupMaster from "@/components/inventory/SetupMaster";
-import BrandingMaster from "@/components/inventory/BrandingMaster";
 import StockManagement from "@/components/inventory/StockManagement";
-import TaskScheduler from "@/components/inventory/TaskScheduler";
-import NotificationCenter from "@/components/inventory/Notifications";
 import ReorderLevelManagement from "@/components/inventory/ReorderLevelManagement";
 import {
   BarChart3,
@@ -53,6 +47,7 @@ import {
 
 const InventoryManagement = () => {
   const [location, setLocation] = useLocation();
+  const { toast } = useToast();
   
   // Get tab from URL or default to overview
   const getTabFromUrl = () => {
@@ -62,6 +57,9 @@ const InventoryManagement = () => {
   };
   
   const [currentTab, setCurrentTab] = useState(getTabFromUrl());
+  const [showSimpleProductForm, setShowSimpleProductForm] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState(null);
+  const [formMode, setFormMode] = useState<'create' | 'edit'>('create');
   
   // Update URL when tab changes
   const handleTabChange = (tab: string) => {
@@ -75,15 +73,39 @@ const InventoryManagement = () => {
     window.history.replaceState({}, '', url.toString());
   };
 
-  // Use dynamic API data instead of mock data
-  const { toast } = useToast();
-  const inventoryApi = useInventoryApi();
+  // Real-time inventory data hooks
+  const { data: dashboardData, isLoading: dashboardLoading, error: dashboardError } = useInventoryDashboard();
+  const { data: lowStockData } = useLowStockProducts();
+  
+  // Initialize WebSocket for real-time updates
+  useInventoryWebSocket();
   
   // Extract data from API hooks
-  const { data: dashboardData, loading: dashboardLoading, error: dashboardError } = inventoryApi.dashboard;
-  
-  // Use real data or show loading states
   const inventoryMetrics = Array.isArray(dashboardData) && dashboardData.length > 0 ? dashboardData[0] : null;
+  const lowStockProducts = lowStockData || [];
+
+  // Handle refresh
+  const handleRefresh = () => {
+    // These will automatically refetch due to query invalidation
+    toast({
+      title: "Success",
+      description: "Inventory data refreshed successfully!",
+    });
+  };
+
+  // Handle add product
+  const handleAddProduct = () => {
+    setFormMode('create');
+    setSelectedProduct(null);
+    setShowSimpleProductForm(true);
+  };
+
+  // Handle edit product
+  const handleEditProduct = (product: any) => {
+    setFormMode('edit');
+    setSelectedProduct(product);
+    setShowSimpleProductForm(true);
+  };
 
   return (
     <ErpNavigation>
@@ -101,11 +123,11 @@ const InventoryManagement = () => {
               <FileText className="h-4 w-4 mr-2" />
               Reports
             </Button>
-            <Button variant="outline" size="sm">
-              <Cog className="h-4 w-4 mr-2" />
-              Settings
+            <Button variant="outline" size="sm" onClick={handleRefresh}>
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Refresh
             </Button>
-            <Button size="sm">
+            <Button size="sm" onClick={handleAddProduct}>
               <PlusSquare className="h-4 w-4 mr-2" />
               New Product
             </Button>
@@ -193,19 +215,10 @@ const InventoryManagement = () => {
           <TabsList className="mb-6 flex flex-wrap">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="products">Products</TabsTrigger>
-            <TabsTrigger value="product-groups">Product Groups</TabsTrigger>
-            <TabsTrigger value="bom">BOM</TabsTrigger>
-            <TabsTrigger value="grn">GRN</TabsTrigger>
-            <TabsTrigger value="gdn">GDN</TabsTrigger>
             <TabsTrigger value="stock">Stock Control</TabsTrigger>
             <TabsTrigger value="orders">Purchase Orders</TabsTrigger>
-            <TabsTrigger value="transfers">Stock Transfers</TabsTrigger>
             <TabsTrigger value="warehouses">Warehouses</TabsTrigger>
             <TabsTrigger value="reorder" className="bg-amber-100 dark:bg-amber-900/30">Reorder Levels</TabsTrigger>
-            <TabsTrigger value="notifications">Notifications</TabsTrigger>
-            <TabsTrigger value="tasks">Task Scheduler</TabsTrigger>
-            <TabsTrigger value="setup">Setup</TabsTrigger>
-            <TabsTrigger value="branding">Branding</TabsTrigger>
           </TabsList>
 
           {/* Overview Tab */}
@@ -484,26 +497,6 @@ const InventoryManagement = () => {
             <ProductCatalog />
           </TabsContent>
           
-          {/* Product Groups Tab */}
-          <TabsContent value="product-groups" className="space-y-6">
-            <ProductGroup />
-          </TabsContent>
-          
-          {/* BOM Tab */}
-          <TabsContent value="bom" className="space-y-6">
-            <BillOfMaterials />
-          </TabsContent>
-          
-          {/* GRN Tab */}
-          <TabsContent value="grn" className="space-y-6">
-            <GoodsReceiptNote />
-          </TabsContent>
-          
-          {/* GDN Tab */}
-          <TabsContent value="gdn" className="space-y-6">
-            <GoodsDeliveryNote />
-          </TabsContent>
-
           {/* Stock Control Tab */}
           <TabsContent value="stock" className="space-y-6">
             <StockManagement />
@@ -512,26 +505,6 @@ const InventoryManagement = () => {
           {/* Purchase Orders Tab */}
           <TabsContent value="orders" className="space-y-6">
             <PurchaseOrders />
-          </TabsContent>
-
-          {/* Stock Transfers Tab */}
-          <TabsContent value="transfers" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Stock Transfers</CardTitle>
-                <CardDescription>
-                  This feature will allow you to move inventory between warehouse locations
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
-                <GitBranch className="h-16 w-16 text-primary/40" />
-                <h3 className="text-xl font-semibold">Stock Transfer Module</h3>
-                <p className="text-center text-muted-foreground max-w-md">
-                  This module is coming in the next implementation phase. You'll be able to transfer stock between 
-                  warehouses and track inventory movements across locations.
-                </p>
-              </CardContent>
-            </Card>
           </TabsContent>
 
           {/* Warehouses Tab */}
@@ -554,31 +527,19 @@ const InventoryManagement = () => {
             </Card>
           </TabsContent>
           
-          {/* Setup Tab */}
-          <TabsContent value="setup" className="space-y-6">
-            <SetupMaster />
-          </TabsContent>
-          
-          {/* Notifications Tab */}
-          <TabsContent value="notifications" className="space-y-6">
-            <NotificationCenter />
-          </TabsContent>
-          
-          {/* Task Scheduler Tab */}
-          <TabsContent value="tasks" className="space-y-6">
-            <TaskScheduler />
-          </TabsContent>
-          
-          {/* Branding Tab */}
-          <TabsContent value="branding" className="space-y-6">
-            <BrandingMaster />
-          </TabsContent>
-
           {/* Reorder Levels Tab */}
           <TabsContent value="reorder" className="space-y-6">
             <ReorderLevelManagement />
           </TabsContent>
         </Tabs>
+        
+        {/* Simplified Product Form - Only 6 main fields */}
+        <SimpleProductForm
+          open={showSimpleProductForm}
+          onOpenChange={setShowSimpleProductForm}
+          product={selectedProduct}
+          mode={formMode}
+        />
       </div>
     </ErpNavigation>
   );

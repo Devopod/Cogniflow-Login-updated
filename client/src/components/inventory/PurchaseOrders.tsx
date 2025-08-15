@@ -73,6 +73,7 @@ import {
   RefreshCw,
   Search,
   Send,
+  TrendingUp,
   Truck,
   Upload,
   XCircle,
@@ -91,187 +92,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useProducts } from '@/hooks/use-inventory-data';
 import { useWebSocket } from '@/hooks/use-websocket';
 
-// Sample purchase orders - TODO: Convert to dynamic data
-const purchaseOrders = [
-  {
-    id: "PO-2023-001",
-    supplierName: "TechSource Inc.",
-    supplierId: 1,
-    status: "Received",
-    dateCreated: "2023-05-01",
-    expectedDelivery: "2023-05-10",
-    actualDelivery: "2023-05-08",
-    totalAmount: 4499.95,
-    items: [
-      { id: 1, productId: "PRD-2023-001", productName: "Business Laptop Pro", quantity: 5, unitPrice: 899.99, total: 4499.95 }
-    ],
-    terms: "Net 30",
-    paymentStatus: "Paid",
-    receivingNotes: "All items received in good condition.",
-    approvalWorkflow: [
-      { step: "Created", user: "Sarah Johnson", date: "2023-04-28", status: "Completed" },
-      { step: "Department Approval", user: "Michael Chen", date: "2023-04-29", status: "Completed" },
-      { step: "Financial Approval", user: "David Wilson", date: "2023-04-30", status: "Completed" },
-      { step: "Final Approval", user: "Emma Rodriguez", date: "2023-05-01", status: "Completed" }
-    ],
-    shipping: {
-      method: "UPS Ground",
-      trackingNumber: "1Z999AA10123456784",
-      cost: 35.50,
-      address: "1234 Business Park, Suite 100, San Francisco, CA 94107"
-    },
-    attachments: [
-      { name: "Invoice #INV-4567", type: "PDF", size: "1.2 MB", date: "2023-05-09" },
-      { name: "Packing Slip", type: "PDF", size: "0.8 MB", date: "2023-05-08" }
-    ],
-    notes: "Standard order for quarterly laptop refresh.",
-    relatedDocuments: [
-      { type: "GRN", id: "GRN-2023-004", date: "2023-05-08" },
-      { type: "Payment", id: "PMT-2023-045", date: "2023-05-15", amount: 4499.95 }
-    ]
-  },
-  {
-    id: "PO-2023-002",
-    supplierName: "Furniture Plus",
-    supplierId: 2,
-    status: "Partially Received",
-    dateCreated: "2023-05-05",
-    expectedDelivery: "2023-05-25",
-    actualDelivery: "2023-05-22",
-    totalAmount: 3600.00,
-    items: [
-      { id: 2, productId: "PRD-2023-002", productName: "Ergonomic Office Desk", quantity: 8, unitPrice: 450.00, total: 3600.00 }
-    ],
-    terms: "Net 45",
-    paymentStatus: "Pending",
-    receivingNotes: "Only 5 of 8 desks received due to backorder. Remaining expected in 2 weeks.",
-    approvalWorkflow: [
-      { step: "Created", user: "Robert Kim", date: "2023-05-03", status: "Completed" },
-      { step: "Department Approval", user: "Linda Martinez", date: "2023-05-04", status: "Completed" },
-      { step: "Financial Approval", user: "David Wilson", date: "2023-05-05", status: "Completed" },
-      { step: "Final Approval", user: "Emma Rodriguez", date: "2023-05-05", status: "Completed" }
-    ],
-    shipping: {
-      method: "Freight",
-      trackingNumber: "FRT78901234567",
-      cost: 150.00,
-      address: "1234 Business Park, Suite 100, San Francisco, CA 94107"
-    },
-    attachments: [
-      { name: "Partial Invoice #INV-5678", type: "PDF", size: "1.0 MB", date: "2023-05-22" }
-    ],
-    notes: "Office expansion project phase 1. Remaining items to be delivered by June 10.",
-    relatedDocuments: [
-      { type: "GRN", id: "GRN-2023-006", date: "2023-05-22" }
-    ]
-  },
-  {
-    id: "PO-2023-003",
-    supplierName: "Office Supplies Direct",
-    supplierId: 3,
-    status: "Pending",
-    dateCreated: "2023-05-15",
-    expectedDelivery: "2023-05-30",
-    totalAmount: 435.00,
-    items: [
-      { id: 3, productId: "PRD-2023-005", productName: "Office Stationery Kit", quantity: 30, unitPrice: 14.50, total: 435.00 }
-    ],
-    terms: "Net 15",
-    paymentStatus: "Not Invoiced",
-    approvalWorkflow: [
-      { step: "Created", user: "Sophia Lee", date: "2023-05-14", status: "Completed" },
-      { step: "Department Approval", user: "Michael Chen", date: "2023-05-15", status: "Completed" },
-      { step: "Financial Approval", user: "David Wilson", date: "2023-05-15", status: "Completed" },
-      { step: "Final Approval", user: "Emma Rodriguez", date: "2023-05-15", status: "Completed" }
-    ],
-    shipping: {
-      method: "Standard Shipping",
-      address: "1234 Business Park, Suite 100, San Francisco, CA 94107"
-    },
-    notes: "Monthly office supplies replenishment.",
-    relatedDocuments: []
-  },
-  {
-    id: "PO-2023-004",
-    supplierName: "Enterprise IT Solutions",
-    supplierId: 4,
-    status: "Draft",
-    dateCreated: "2023-05-18",
-    totalAmount: 8400.00,
-    items: [
-      { id: 4, productId: "PRD-2023-006", productName: "Enterprise Server", quantity: 2, unitPrice: 4200.00, total: 8400.00 }
-    ],
-    terms: "Net 60",
-    paymentStatus: "Not Invoiced",
-    approvalWorkflow: [
-      { step: "Created", user: "James Wilson", date: "2023-05-18", status: "Completed" },
-      { step: "Department Approval", user: "Pending", status: "Pending" },
-      { step: "Financial Approval", user: "Pending", status: "Pending" },
-      { step: "Final Approval", user: "Pending", status: "Pending" }
-    ],
-    shipping: {
-      method: "To Be Determined",
-      address: "1234 Business Park, Suite 100, San Francisco, CA 94107"
-    },
-    notes: "Datacenter expansion project. Need approval by May 25 to meet project timeline.",
-    relatedDocuments: []
-  },
-  {
-    id: "PO-2023-005",
-    supplierName: "SafetyFirst Supplies",
-    supplierId: 5,
-    status: "Approved",
-    dateCreated: "2023-05-20",
-    expectedDelivery: "2023-06-05",
-    totalAmount: 925.00,
-    items: [
-      { id: 5, productId: "PRD-2023-007", productName: "Safety Helmet", quantity: 50, unitPrice: 18.50, total: 925.00 }
-    ],
-    terms: "Net 30",
-    paymentStatus: "Not Invoiced",
-    approvalWorkflow: [
-      { step: "Created", user: "Robert Kim", date: "2023-05-18", status: "Completed" },
-      { step: "Department Approval", user: "Linda Martinez", date: "2023-05-19", status: "Completed" },
-      { step: "Financial Approval", user: "David Wilson", date: "2023-05-20", status: "Completed" },
-      { step: "Final Approval", user: "Emma Rodriguez", date: "2023-05-20", status: "Completed" }
-    ],
-    shipping: {
-      method: "Standard Shipping",
-      address: "1234 Business Park, Suite 100, San Francisco, CA 94107"
-    },
-    notes: "Safety equipment for new construction project.",
-    relatedDocuments: []
-  },
-  {
-    id: "PO-2023-006",
-    supplierName: "TechSource Inc.",
-    supplierId: 1,
-    status: "Cancelled",
-    dateCreated: "2023-05-12",
-    expectedDelivery: "2023-05-26",
-    totalAmount: 1598.00,
-    items: [
-      { id: 6, productId: "PRD-2023-004", productName: "LaserJet Printer Pro", quantity: 5, unitPrice: 319.60, total: 1598.00 }
-    ],
-    terms: "Net 30",
-    paymentStatus: "Not Invoiced",
-    approvalWorkflow: [
-      { step: "Created", user: "Sarah Johnson", date: "2023-05-10", status: "Completed" },
-      { step: "Department Approval", user: "Michael Chen", date: "2023-05-11", status: "Completed" },
-      { step: "Financial Approval", user: "David Wilson", date: "2023-05-12", status: "Completed" },
-      { step: "Final Approval", user: "Emma Rodriguez", date: "2023-05-12", status: "Completed" },
-      { step: "Cancelled", user: "Sarah Johnson", date: "2023-05-15", status: "Completed" }
-    ],
-    shipping: {
-      method: "UPS Ground",
-      address: "1234 Business Park, Suite 100, San Francisco, CA 94107"
-    },
-    notes: "Order cancelled due to change in printer requirements. Upgraded to different model under PO-2023-007.",
-    relatedDocuments: [
-      { type: "PO", id: "PO-2023-007", date: "2023-05-15" }
-    ]
-  }
-];
+// Purchase orders will be fetched from backend
 
 // Payment terms
 const paymentTerms = [
@@ -327,20 +148,21 @@ const PurchaseOrders = () => {
   
   // Dynamic data hooks
   const { data: suppliers = [], isLoading: isLoadingSuppliers } = useQuery({
-    queryKey: ['suppliers'],
+    queryKey: ['/api/purchase/suppliers'],
     queryFn: async () => {
-      const response = await fetch('/api/suppliers');
+      const response = await fetch('/api/purchase/suppliers');
       if (!response.ok) throw new Error('Failed to fetch suppliers');
-      return response.json();
+      const data = await response.json();
+      return data.suppliers || data; // normalize
     }
   });
 
-  const { data: products = [], isLoading: isLoadingProducts } = useProducts();
+  const { data: products = [], isLoading: isLoadingProducts } = useProducts({ limit: 200 });
   
   // Real-time updates via WebSocket
   useWebSocket({
     resource: 'purchase',
-    invalidateQueries: [['suppliers'], ['products'], ['purchaseOrders']]
+    invalidateQueries: [['/api/purchase/suppliers'], ['/api/inventory/products'], ['/api/purchase/orders']]
   });
   
   const [searchTerm, setSearchTerm] = useState("");
@@ -357,20 +179,34 @@ const PurchaseOrders = () => {
   const [selectedSupplierForNewPO, setSelectedSupplierForNewPO] = useState<string>("");
   const [expectedDeliveryDate, setExpectedDeliveryDate] = useState<Date>();
   
-  // Filter purchase orders
-  const filteredPOs = purchaseOrders.filter(po => {
+  // Backend-driven purchase orders
+  const { data: poResponse, isLoading: isLoadingPOs } = useQuery({
+    queryKey: ['/api/purchase/orders', { status: statusFilter, supplierId: selectedSupplier }],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (statusFilter !== 'all') params.append('status', statusFilter);
+      if (selectedSupplier) params.append('supplierId', selectedSupplier);
+      const res = await fetch(`/api/purchase/orders?${params.toString()}`);
+      if (!res.ok) throw new Error('Failed to fetch purchase orders');
+      return res.json();
+    }
+  });
+
+  const purchaseOrders = poResponse?.orders || [];
+
+  // Filter purchase orders (client-side extras like search and date)
+  const filteredPOs = purchaseOrders.filter((po: any) => {
     // Search filter
+    const supplierName = po?.supplier?.name || po.supplierName || '';
+    const poId = po?.order?.orderNumber || po.id || '';
     const matchesSearch = 
-      po.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      po.supplierName.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    // Status filter
-    const matchesStatus = statusFilter === "all" || po.status === statusFilter;
+      String(poId).toLowerCase().includes(searchTerm.toLowerCase()) ||
+      String(supplierName).toLowerCase().includes(searchTerm.toLowerCase());
     
     // Date filter
     let matchesDate = true;
     if (dateRange.from) {
-      const poDate = new Date(po.dateCreated);
+      const poDate = new Date(po?.order?.orderDate || po.dateCreated || po.createdAt);
       if (dateRange.to) {
         matchesDate = poDate >= dateRange.from && poDate <= dateRange.to;
       } else {
@@ -378,10 +214,7 @@ const PurchaseOrders = () => {
       }
     }
     
-    // Supplier filter
-    const matchesSupplier = !selectedSupplier || po.supplierId.toString() === selectedSupplier;
-    
-    return matchesSearch && matchesStatus && matchesDate && matchesSupplier;
+    return matchesSearch && matchesDate;
   });
   
   // View purchase order details
@@ -453,39 +286,33 @@ const PurchaseOrders = () => {
   };
   
   // Create purchase order
-  const handleCreatePO = () => {
+  const handleCreatePO = async () => {
     // Validation
     if (!selectedSupplierForNewPO) {
-      toast({
-        title: "Supplier required",
-        description: "Please select a supplier for this purchase order",
-        variant: "destructive",
-      });
+      toast({ title: "Supplier required", description: "Please select a supplier", variant: "destructive" });
       return;
     }
-    
-    // Check if any items are missing product selection
-    const missingProducts = newPOItems.some(item => !item.productId);
-    if (missingProducts) {
-      toast({
-        title: "Incomplete items",
-        description: "Please select products for all items",
-        variant: "destructive",
-      });
+    if (newPOItems.some(item => !item.productId)) {
+      toast({ title: "Incomplete items", description: "Please select products for all items", variant: "destructive" });
       return;
     }
-    
-    // Submit success
-    toast({
-      title: "Purchase order created",
-      description: "Purchase order has been created successfully",
-    });
-    
-    // Reset form
-    setShowCreatePO(false);
-    setSelectedSupplierForNewPO("");
-    setNewPOItems([{ id: 1, productId: "", quantity: 1, unitPrice: 0, total: 0 }]);
-    setExpectedDeliveryDate(undefined);
+
+    try {
+      const payload = {
+        supplierId: Number(selectedSupplierForNewPO),
+        expectedDeliveryDate: expectedDeliveryDate?.toISOString() || null,
+        items: newPOItems.map(i => ({ productId: Number(i.productId), quantity: Number(i.quantity), unitPrice: Number(i.unitPrice) }))
+      };
+      const res = await fetch('/api/purchase/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      if (!res.ok) throw new Error('Failed to create purchase order');
+      toast({ title: "Purchase order created", description: "Purchase order has been created successfully" });
+      setShowCreatePO(false);
+      setSelectedSupplierForNewPO("");
+      setNewPOItems([{ id: 1, productId: "", quantity: 1, unitPrice: 0, total: 0 }]);
+      setExpectedDeliveryDate(undefined);
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message || 'Failed to create purchase order', variant: 'destructive' });
+    }
   };
 
   // Mark as received

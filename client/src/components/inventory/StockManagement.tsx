@@ -579,21 +579,36 @@ const StockManagement = () => {
   // Fetch stock data
   const { data: stockData, isLoading, isError } = useQuery({
     queryKey: ["/api/inventory/stock"],
-    queryFn: () => {
-      // Mock data for now
-      return Promise.resolve(stockItems);
+    queryFn: async () => {
+      // Fetch products and compute stock view
+      const res = await fetch('/api/inventory/products?limit=500');
+      if (!res.ok) throw new Error('Failed to fetch stock');
+      const data = await res.json();
+      const products = data.products || [];
+      return products.map((p: any) => ({
+        id: p.id,
+        sku: p.sku,
+        name: p.name,
+        category: p.category || 'Uncategorized',
+        currentStock: p.stockQuantity || 0,
+        reorderLevel: p.reorderPoint || 0,
+        unitPrice: p.price || 0,
+        status: (p.stockQuantity || 0) === 0 ? 'Out of Stock' : (p.stockQuantity || 0) <= (p.reorderPoint || 0) ? 'Low Stock' : 'In Stock',
+        supplierName: p.supplierName || '-',
+      }));
     }
   });
 
   // Fetch stock movement history
   const { data: movementHistory, isLoading: isHistoryLoading } = useQuery({
-    queryKey: ["/api/inventory/stock/history", selectedStockId],
-    queryFn: () => {
-      // Filter by selected stock ID or return all if none selected
-      const filtered = selectedStockId
-        ? stockMovementHistory.filter(item => item.stockId === selectedStockId)
-        : stockMovementHistory;
-      return Promise.resolve(filtered);
+    queryKey: ["/api/inventory/stock-movements", selectedStockId],
+    queryFn: async () => {
+      const url = selectedStockId
+        ? `/api/inventory/stock-movements?productId=${selectedStockId}`
+        : '/api/inventory/stock-movements';
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('Failed to fetch stock movements');
+      return res.json();
     },
     enabled: currentTab === "history" || showStockHistoryDrawer
   });
@@ -891,14 +906,14 @@ const StockManagement = () => {
                                     </TooltipContent>
                                   </Tooltip>
                                 </TooltipProvider>
-                                {item.notifications.length > 0 && (
+                                {(item.notifications?.length ?? 0) > 0 && (
                                   <>
                                     <span>•</span>
                                     <Popover>
                                       <PopoverTrigger asChild>
                                         <div className="cursor-pointer flex items-center text-amber-600">
                                           <AlertCircle className="h-3.5 w-3.5 mr-1" />
-                                          <span>{item.notifications.length} {item.notifications.length === 1 ? "alert" : "alerts"}</span>
+                                          <span>{item.notifications?.length ?? 0} {(item.notifications?.length ?? 0) === 1 ? "alert" : "alerts"}</span>
                                         </div>
                                       </PopoverTrigger>
                                       <PopoverContent className="w-[300px] p-0">
@@ -909,7 +924,7 @@ const StockManagement = () => {
                                           </div>
                                         </div>
                                         <div className="max-h-[300px] overflow-y-auto">
-                                          {item.notifications.map((notification: any) => (
+                                          {(item.notifications ?? []).map((notification: any) => (
                                             <div key={notification.id} className="px-4 py-2 border-b last:border-0 flex items-start gap-2">
                                               <div className="text-amber-500 mt-0.5">
                                                 <AlertCircle className="h-4 w-4" />

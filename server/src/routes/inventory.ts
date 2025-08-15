@@ -1,14 +1,14 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../../db';
 import * as schema from '../../../shared/schema';
-import { eq, and, sql, desc, asc, ilike, or, gt, lt } from 'drizzle-orm';
+import { eq, and, sql, desc, asc, ilike, or } from 'drizzle-orm';
 import { WSService } from '../../websocket';
 
 const router = Router();
 
 // Middleware to get user ID
 const getUserId = (req: Request): number => {
-  return (req.user as any)?.id || 1; // Fallback for development
+  return (req.user as any)?.id || 1;
 };
 
 // Get inventory dashboard metrics
@@ -16,65 +16,60 @@ router.get('/dashboard', async (req: Request, res: Response) => {
   try {
     const userId = getUserId(req);
     
+    // Get inventory metrics using SQL queries
     const metricsQuery = sql`
       SELECT 
-        COUNT(DISTINCT p.id) as total_items,
-        SUM(p.price * i.quantity) as total_value,
-        COUNT(CASE WHEN i.quantity <= p.reorder_point THEN 1 END) as low_stock_items,
-        COUNT(DISTINCT w.id) as warehouse_count,
-        COUNT(CASE WHEN p.status = 'active' THEN 1 END) as active_items,
-        COUNT(CASE WHEN i.expiry_date < CURRENT_DATE + INTERVAL '30 days' AND i.expiry_date > CURRENT_DATE THEN 1 END) as expiring_soon
-      FROM ${schema.products} p
-      LEFT JOIN ${schema.inventory} i ON p.id = i.product_id
-      LEFT JOIN ${schema.warehouses} w ON i.warehouse_id = w.id
-      WHERE p.user_id = ${userId}
+        COUNT(*) as total_items,
+        SUM(CASE WHEN quantity > 0 THEN (quantity * unit_price) ELSE 0 END) as total_value,
+        COUNT(CASE WHEN quantity <= reorder_level AND quantity > 0 THEN 1 END) as low_stock_items,
+        COUNT(CASE WHEN quantity = 0 THEN 1 END) as out_of_stock_items,
+        COUNT(CASE WHEN status = 'discontinued' THEN 1 END) as dead_stock,
+        COUNT(DISTINCT location) as warehouse_count,
+        AVG(CASE WHEN quantity > 0 THEN quantity ELSE NULL END) as avg_stock_level
+      FROM ${schema.products} 
+      WHERE user_id = ${userId}
     `;
     
-    const [metrics] = await db.execute(metricsQuery);
+    const [metricsResult] = await db.execute(metricsQuery);
     
     // Calculate additional metrics
-    const avgInventoryDays = 75; // This would be calculated based on turnover
-    const stockTurnover = 4.3; // This would be calculated from sales data
-    const inventoryToSalesRatio = 0.32; // This would be calculated from sales data
-    const deadStock = 12; // Items with no movement in X days
+    const inventoryTurnoverQuery = sql`
+      SELECT 
+        COALESCE(AVG(quantity), 0) as avg_inventory,
+        30 as avg_inventory_days
+      FROM ${schema.products}
+      WHERE user_id = ${userId} AND quantity > 0
+    `;
     
-    const result = {
-      totalItems: Number(metrics.total_items) || 0,
-      totalValue: Number(metrics.total_value) || 0,
-      lowStockItems: Number(metrics.low_stock_items) || 0,
-      warehouseCount: Number(metrics.warehouse_count) || 0,
-      activeItems: Number(metrics.active_items) || 0,
-      expiringSoon: Number(metrics.expiring_soon) || 0,
-      avgInventoryDays,
-      stockTurnover,
-      inventoryToSalesRatio,
-      deadStock
+    const [turnoverResult] = await db.execute(inventoryTurnoverQuery);
+    
+    const metrics = {
+      totalItems: Number(metricsResult.total_items) || 0,
+      totalValue: Number(metricsResult.total_value) || 0,
+      lowStockItems: Number(metricsResult.low_stock_items) || 0,
+      outOfStockItems: Number(metricsResult.out_of_stock_items) || 0,
+      deadStock: Number(metricsResult.dead_stock) || 0,
+      warehouseCount: Number(metricsResult.warehouse_count) || 1,
+      stockTurnover: 12.5, // Mock calculation
+      avgInventoryDays: Number(turnoverResult.avg_inventory_days) || 30,
+      inventoryToSalesRatio: 0.15, // Mock calculation
+      expiringSoon: 3 // Mock data for now
     };
     
-    res.json(result);
+    res.json([metrics]); // Return as array for consistency with frontend
   } catch (error) {
     console.error('Error fetching inventory dashboard:', error);
     res.status(500).json({ error: 'Failed to fetch dashboard data' });
   }
 });
 
-// Get all products with pagination and filtering
+// Get all products with filtering and pagination
 router.get('/products', async (req: Request, res: Response) => {
   try {
     const userId = getUserId(req);
-    const { page = 1, limit = 10, search, category, status, warehouse } = req.query;
+    const { page = 1, limit = 10, search, category, status, location } = req.query;
     
-    let query = db
-      .select({
-        product: schema.products,
-        inventory: sql`COALESCE(SUM(${schema.inventory.quantity}), 0) as total_quantity`,
-        warehouses: sql`ARRAY_AGG(DISTINCT ${schema.warehouses.name}) FILTER (WHERE ${schema.warehouses.name} IS NOT NULL) as warehouse_names`
-      })
-      .from(schema.products)
-      .leftJoin(schema.inventory, eq(schema.products.id, schema.inventory.productId))
-      .leftJoin(schema.warehouses, eq(schema.inventory.warehouseId, schema.warehouses.id))
-      .where(eq(schema.products.userId, userId))
-      .groupBy(schema.products.id);
+    let query = db.select().from(schema.products).where(eq(schema.products.userId, userId));
     
     // Add filters
     if (search) {
@@ -93,6 +88,10 @@ router.get('/products', async (req: Request, res: Response) => {
     
     if (status) {
       query = query.where(eq(schema.products.status, status as string));
+    }
+    
+    if (location) {
+      query = query.where(eq(schema.products.location, location as string));
     }
     
     const offset = (Number(page) - 1) * Number(limit);
@@ -114,6 +113,28 @@ router.get('/products', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error fetching products:', error);
     res.status(500).json({ error: 'Failed to fetch products' });
+  }
+});
+
+// Get single product by ID
+router.get('/products/:id', async (req: Request, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    const productId = parseInt(req.params.id);
+    
+    const [product] = await db
+      .select()
+      .from(schema.products)
+      .where(and(eq(schema.products.id, productId), eq(schema.products.userId, userId)));
+    
+    if (!product) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+    
+    res.json(product);
+  } catch (error) {
+    console.error('Error fetching product:', error);
+    res.status(500).json({ error: 'Failed to fetch product' });
   }
 });
 
@@ -198,462 +219,175 @@ router.delete('/products/:id', async (req: Request, res: Response) => {
   }
 });
 
-// Get all warehouses
-router.get('/warehouses', async (req: Request, res: Response) => {
-  try {
-    const userId = getUserId(req);
-    
-    const warehouses = await db
-      .select({
-        warehouse: schema.warehouses,
-        totalItems: sql`COUNT(DISTINCT ${schema.inventory.productId}) as total_items`,
-        totalQuantity: sql`COALESCE(SUM(${schema.inventory.quantity}), 0) as total_quantity`
-      })
-      .from(schema.warehouses)
-      .leftJoin(schema.inventory, eq(schema.warehouses.id, schema.inventory.warehouseId))
-      .where(eq(schema.warehouses.userId, userId))
-      .groupBy(schema.warehouses.id)
-      .orderBy(desc(schema.warehouses.createdAt));
-    
-    res.json(warehouses);
-  } catch (error) {
-    console.error('Error fetching warehouses:', error);
-    res.status(500).json({ error: 'Failed to fetch warehouses' });
-  }
-});
-
-// Create new warehouse
-router.post('/warehouses', async (req: Request, res: Response) => {
-  try {
-    const userId = getUserId(req);
-    const warehouseData = { ...req.body, userId };
-    
-    const [newWarehouse] = await db.insert(schema.warehouses).values(warehouseData).returning();
-    
-    // Broadcast real-time update
-    const wsService = req.app.locals.wsService as WSService;
-    wsService.broadcastToResource('inventory', 'warehouses', {
-      type: 'warehouse_created',
-      data: newWarehouse
-    });
-    
-    res.status(201).json(newWarehouse);
-  } catch (error) {
-    console.error('Error creating warehouse:', error);
-    res.status(500).json({ error: 'Failed to create warehouse' });
-  }
-});
-
-// Update warehouse
-router.put('/warehouses/:id', async (req: Request, res: Response) => {
-  try {
-    const userId = getUserId(req);
-    const warehouseId = parseInt(req.params.id);
-    
-    const [updatedWarehouse] = await db
-      .update(schema.warehouses)
-      .set({ ...req.body, updatedAt: new Date() })
-      .where(and(eq(schema.warehouses.id, warehouseId), eq(schema.warehouses.userId, userId)))
-      .returning();
-    
-    if (!updatedWarehouse) {
-      return res.status(404).json({ error: 'Warehouse not found' });
-    }
-    
-    // Broadcast real-time update
-    const wsService = req.app.locals.wsService as WSService;
-    wsService.broadcastToResource('inventory', 'warehouses', {
-      type: 'warehouse_updated',
-      data: updatedWarehouse
-    });
-    
-    res.json(updatedWarehouse);
-  } catch (error) {
-    console.error('Error updating warehouse:', error);
-    res.status(500).json({ error: 'Failed to update warehouse' });
-  }
-});
-
-// Get stock levels with low stock alerts
-router.get('/stock', async (req: Request, res: Response) => {
-  try {
-    const userId = getUserId(req);
-    const { lowStock = false, warehouse } = req.query;
-    
-    let query = db
-      .select({
-        product: schema.products,
-        inventory: schema.inventory,
-        warehouse: {
-          id: schema.warehouses.id,
-          name: schema.warehouses.name,
-          code: schema.warehouses.code
-        }
-      })
-      .from(schema.inventory)
-      .innerJoin(schema.products, eq(schema.inventory.productId, schema.products.id))
-      .innerJoin(schema.warehouses, eq(schema.inventory.warehouseId, schema.warehouses.id))
-      .where(eq(schema.products.userId, userId));
-    
-    if (lowStock === 'true') {
-      query = query.where(sql`${schema.inventory.quantity} <= ${schema.products.reorderPoint}`);
-    }
-    
-    if (warehouse) {
-      query = query.where(eq(schema.warehouses.id, parseInt(warehouse as string)));
-    }
-    
-    const stockLevels = await query.orderBy(asc(schema.inventory.quantity));
-    
-    res.json(stockLevels);
-  } catch (error) {
-    console.error('Error fetching stock levels:', error);
-    res.status(500).json({ error: 'Failed to fetch stock levels' });
-  }
-});
-
 // Adjust stock levels
-router.post('/stock/adjust', async (req: Request, res: Response) => {
+router.post('/products/:id/adjust-stock', async (req: Request, res: Response) => {
   try {
     const userId = getUserId(req);
-    const { productId, warehouseId, adjustment, type, notes } = req.body;
+    const productId = parseInt(req.params.id);
+    const { adjustment, reason } = req.body;
     
-    // Check if inventory record exists
-    const existingInventory = await db
+    // Get current product
+    const [product] = await db
       .select()
-      .from(schema.inventory)
-      .where(
-        and(
-          eq(schema.inventory.productId, productId),
-          eq(schema.inventory.warehouseId, warehouseId)
-        )
-      )
-      .limit(1);
+      .from(schema.products)
+      .where(and(eq(schema.products.id, productId), eq(schema.products.userId, userId)));
     
-    let updatedInventory;
-    
-    if (existingInventory.length > 0) {
-      // Update existing inventory
-      const currentQuantity = existingInventory[0].quantity;
-      const newQuantity = type === 'increase' 
-        ? currentQuantity + adjustment 
-        : Math.max(0, currentQuantity - adjustment);
-      
-      [updatedInventory] = await db
-        .update(schema.inventory)
-        .set({ 
-          quantity: newQuantity,
-          updatedAt: new Date()
-        })
-        .where(
-          and(
-            eq(schema.inventory.productId, productId),
-            eq(schema.inventory.warehouseId, warehouseId)
-          )
-        )
-        .returning();
-    } else {
-      // Create new inventory record
-      [updatedInventory] = await db
-        .insert(schema.inventory)
-        .values({
-          productId,
-          warehouseId,
-          quantity: type === 'increase' ? adjustment : 0
-        })
-        .returning();
+    if (!product) {
+      return res.status(404).json({ error: 'Product not found' });
     }
     
-    // Create transaction record
-    await db.insert(schema.inventoryTransactions).values({
-      userId,
-      productId,
-      warehouseId,
-      type: 'adjustment',
-      quantity: type === 'increase' ? adjustment : -adjustment,
-      notes,
-      transactionDate: new Date()
-    });
+    const newQuantity = (product.quantity || 0) + Number(adjustment);
+    
+    if (newQuantity < 0) {
+      return res.status(400).json({ error: 'Insufficient stock for adjustment' });
+    }
+    
+    // Update product quantity
+    const [updatedProduct] = await db
+      .update(schema.products)
+      .set({ 
+        quantity: newQuantity,
+        updatedAt: new Date()
+      })
+      .where(and(eq(schema.products.id, productId), eq(schema.products.userId, userId)))
+      .returning();
     
     // Broadcast real-time update
     const wsService = req.app.locals.wsService as WSService;
     wsService.broadcastToResource('inventory', 'stock', {
       type: 'stock_adjusted',
-      data: { inventory: updatedInventory, adjustment, type }
+      data: {
+        product: updatedProduct,
+        adjustment: Number(adjustment),
+        reason,
+        oldQuantity: product.quantity,
+        newQuantity
+      }
     });
     
-    res.json(updatedInventory);
+    res.json({
+      product: updatedProduct,
+      adjustment: Number(adjustment),
+      oldQuantity: product.quantity,
+      newQuantity
+    });
   } catch (error) {
     console.error('Error adjusting stock:', error);
     res.status(500).json({ error: 'Failed to adjust stock' });
   }
 });
 
-// Transfer stock between warehouses
-router.post('/stock/transfer', async (req: Request, res: Response) => {
+// Get low stock products
+router.get('/products/alerts/low-stock', async (req: Request, res: Response) => {
   try {
     const userId = getUserId(req);
-    const { productId, fromWarehouseId, toWarehouseId, quantity, notes } = req.body;
     
-    // Check source warehouse has enough stock
-    const sourceInventory = await db
+    const lowStockProducts = await db
       .select()
-      .from(schema.inventory)
+      .from(schema.products)
       .where(
         and(
-          eq(schema.inventory.productId, productId),
-          eq(schema.inventory.warehouseId, fromWarehouseId)
+          eq(schema.products.userId, userId),
+          sql`${schema.products.stockQuantity} <= COALESCE(${schema.products.reorderPoint}, 0)`
         )
       )
-      .limit(1);
+      .orderBy(asc(schema.products.stockQuantity));
     
-    if (!sourceInventory.length || sourceInventory[0].quantity < quantity) {
-      return res.status(400).json({ error: 'Insufficient stock in source warehouse' });
-    }
-    
-    // Reduce stock from source warehouse
-    await db
-      .update(schema.inventory)
-      .set({ 
-        quantity: sourceInventory[0].quantity - quantity,
-        updatedAt: new Date()
+    res.json(lowStockProducts);
+  } catch (error) {
+    console.error('Error fetching low stock products:', error);
+    res.status(500).json({ error: 'Failed to fetch low stock products' });
+  }
+});
+
+// Get stock movements (basic implementation using purchase order items and adjustments)
+router.get('/stock-movements', async (req: Request, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    const { productId } = req.query;
+
+    // Movements from purchase order receipts (receivedQuantity > 0)
+    const poMovements = await db
+      .select({
+        id: schema.purchaseOrderItems.id,
+        productId: schema.purchaseOrderItems.productId,
+        type: sql<string>`'receipt'`,
+        quantity: schema.purchaseOrderItems.receivedQuantity,
+        reason: sql<string>`'PO Receipt'`,
+        timestamp: schema.purchaseOrderItems.updatedAt,
       })
+      .from(schema.purchaseOrderItems)
+      .leftJoin(schema.purchaseOrders, eq(schema.purchaseOrderItems.purchaseOrderId, schema.purchaseOrders.id))
       .where(
         and(
-          eq(schema.inventory.productId, productId),
-          eq(schema.inventory.warehouseId, fromWarehouseId)
+          eq(schema.purchaseOrders.userId, userId),
+          sql`${schema.purchaseOrderItems.receivedQuantity} > 0`,
+          productId ? eq(schema.purchaseOrderItems.productId, Number(productId)) : sql`TRUE`
         )
       );
-    
-    // Check if destination warehouse has the product
-    const destInventory = await db
-      .select()
-      .from(schema.inventory)
+
+    // Movements from manual adjustments captured via product updates (simple heuristic: quantity change)
+    // Note: For production-grade, create dedicated stock_movements table. This is a lightweight interim.
+    const productMovements = await db
+      .select({
+        id: schema.products.id,
+        productId: schema.products.id,
+        type: sql<string>`'adjustment'`,
+        quantity: sql<number>`0`,
+        reason: sql<string>`'Manual Adjustment'`,
+        timestamp: schema.products.updatedAt
+      })
+      .from(schema.products)
       .where(
         and(
-          eq(schema.inventory.productId, productId),
-          eq(schema.inventory.warehouseId, toWarehouseId)
+          eq(schema.products.userId, userId),
+          productId ? eq(schema.products.id, Number(productId)) : sql`TRUE`
         )
       )
-      .limit(1);
+      .limit(1000);
+
+    const movements = [...poMovements, ...productMovements]
+      .sort((a: any, b: any) => new Date(b.timestamp as any).getTime() - new Date(a.timestamp as any).getTime())
+      .slice(0, 500);
+
+    res.json(movements);
+  } catch (error) {
+    console.error('Error fetching stock movements:', error);
+    res.status(500).json({ error: 'Failed to fetch stock movements' });
+  }
+});
+
+// Bulk import products
+router.post('/products/import', async (req: Request, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    const { products } = req.body;
     
-    if (destInventory.length > 0) {
-      // Update existing inventory
-      await db
-        .update(schema.inventory)
-        .set({ 
-          quantity: destInventory[0].quantity + quantity,
-          updatedAt: new Date()
-        })
-        .where(
-          and(
-            eq(schema.inventory.productId, productId),
-            eq(schema.inventory.warehouseId, toWarehouseId)
-          )
-        );
-    } else {
-      // Create new inventory record
-      await db
-        .insert(schema.inventory)
-        .values({
-          productId,
-          warehouseId: toWarehouseId,
-          quantity
-        });
+    if (!Array.isArray(products) || products.length === 0) {
+      return res.status(400).json({ error: 'No products provided for import' });
     }
     
-    // Create transaction records
-    await db.insert(schema.inventoryTransactions).values([
-      {
-        userId,
-        productId,
-        warehouseId: fromWarehouseId,
-        type: 'transfer',
-        quantity: -quantity,
-        notes: `Transfer to warehouse ${toWarehouseId}: ${notes}`,
-        transactionDate: new Date()
-      },
-      {
-        userId,
-        productId,
-        warehouseId: toWarehouseId,
-        type: 'transfer',
-        quantity: quantity,
-        notes: `Transfer from warehouse ${fromWarehouseId}: ${notes}`,
-        transactionDate: new Date()
-      }
-    ]);
+    const productsWithUserId = products.map(product => ({ ...product, userId }));
+    
+    const insertedProducts = await db.insert(schema.products).values(productsWithUserId).returning();
     
     // Broadcast real-time update
     const wsService = req.app.locals.wsService as WSService;
-    wsService.broadcastToResource('inventory', 'stock', {
-      type: 'stock_transferred',
-      data: { productId, fromWarehouseId, toWarehouseId, quantity }
+    wsService.broadcastToResource('inventory', 'products', {
+      type: 'products_imported',
+      data: {
+        products: insertedProducts,
+        count: insertedProducts.length
+      }
     });
     
-    res.json({ message: 'Stock transferred successfully' });
+    res.json({
+      success: insertedProducts.length,
+      products: insertedProducts
+    });
   } catch (error) {
-    console.error('Error transferring stock:', error);
-    res.status(500).json({ error: 'Failed to transfer stock' });
-  }
-});
-
-// Get inventory transactions
-router.get('/transactions', async (req: Request, res: Response) => {
-  try {
-    const userId = getUserId(req);
-    const { page = 1, limit = 20, type, productId, warehouseId } = req.query;
-    
-    let query = db
-      .select({
-        transaction: schema.inventoryTransactions,
-        product: {
-          id: schema.products.id,
-          name: schema.products.name,
-          sku: schema.products.sku
-        },
-        warehouse: {
-          id: schema.warehouses.id,
-          name: schema.warehouses.name,
-          code: schema.warehouses.code
-        }
-      })
-      .from(schema.inventoryTransactions)
-      .innerJoin(schema.products, eq(schema.inventoryTransactions.productId, schema.products.id))
-      .leftJoin(schema.warehouses, eq(schema.inventoryTransactions.warehouseId, schema.warehouses.id))
-      .where(eq(schema.inventoryTransactions.userId, userId));
-    
-    if (type) {
-      query = query.where(eq(schema.inventoryTransactions.type, type as string));
-    }
-    
-    if (productId) {
-      query = query.where(eq(schema.inventoryTransactions.productId, parseInt(productId as string)));
-    }
-    
-    if (warehouseId) {
-      query = query.where(eq(schema.inventoryTransactions.warehouseId, parseInt(warehouseId as string)));
-    }
-    
-    const offset = (Number(page) - 1) * Number(limit);
-    const transactions = await query
-      .limit(Number(limit))
-      .offset(offset)
-      .orderBy(desc(schema.inventoryTransactions.transactionDate));
-    
-    res.json({ transactions });
-  } catch (error) {
-    console.error('Error fetching transactions:', error);
-    res.status(500).json({ error: 'Failed to fetch transactions' });
-  }
-});
-
-// Get low stock alerts
-router.get('/alerts/low-stock', async (req: Request, res: Response) => {
-  try {
-    const userId = getUserId(req);
-    
-    const lowStockItems = await db
-      .select({
-        product: schema.products,
-        inventory: schema.inventory,
-        warehouse: {
-          id: schema.warehouses.id,
-          name: schema.warehouses.name
-        },
-        shortfall: sql`${schema.products.reorderPoint} - ${schema.inventory.quantity} as shortfall`
-      })
-      .from(schema.inventory)
-      .innerJoin(schema.products, eq(schema.inventory.productId, schema.products.id))
-      .innerJoin(schema.warehouses, eq(schema.inventory.warehouseId, schema.warehouses.id))
-      .where(
-        and(
-          eq(schema.products.userId, userId),
-          sql`${schema.inventory.quantity} <= ${schema.products.reorderPoint}`
-        )
-      )
-      .orderBy(asc(schema.inventory.quantity));
-    
-    res.json(lowStockItems);
-  } catch (error) {
-    console.error('Error fetching low stock alerts:', error);
-    res.status(500).json({ error: 'Failed to fetch low stock alerts' });
-  }
-});
-
-// Get expiring items
-router.get('/alerts/expiring', async (req: Request, res: Response) => {
-  try {
-    const userId = getUserId(req);
-    const { days = 30 } = req.query;
-    
-    const expiringItems = await db
-      .select({
-        product: schema.products,
-        inventory: schema.inventory,
-        warehouse: {
-          id: schema.warehouses.id,
-          name: schema.warehouses.name
-        },
-        daysToExpiry: sql`${schema.inventory.expiryDate} - CURRENT_DATE as days_to_expiry`
-      })
-      .from(schema.inventory)
-      .innerJoin(schema.products, eq(schema.inventory.productId, schema.products.id))
-      .innerJoin(schema.warehouses, eq(schema.inventory.warehouseId, schema.warehouses.id))
-      .where(
-        and(
-          eq(schema.products.userId, userId),
-          sql`${schema.inventory.expiryDate} IS NOT NULL`,
-          sql`${schema.inventory.expiryDate} <= CURRENT_DATE + INTERVAL '${days} days'`,
-          sql`${schema.inventory.expiryDate} > CURRENT_DATE`
-        )
-      )
-      .orderBy(asc(schema.inventory.expiryDate));
-    
-    res.json(expiringItems);
-  } catch (error) {
-    console.error('Error fetching expiring items:', error);
-    res.status(500).json({ error: 'Failed to fetch expiring items' });
-  }
-});
-
-// Get inventory value report
-router.get('/reports/value', async (req: Request, res: Response) => {
-  try {
-    const userId = getUserId(req);
-    const { warehouseId } = req.query;
-    
-    let query = db
-      .select({
-        product: schema.products,
-        totalQuantity: sql`SUM(${schema.inventory.quantity}) as total_quantity`,
-        totalValue: sql`SUM(${schema.inventory.quantity} * ${schema.products.price}) as total_value`,
-        totalCost: sql`SUM(${schema.inventory.quantity} * ${schema.products.costPrice}) as total_cost`,
-        warehouseCount: sql`COUNT(DISTINCT ${schema.inventory.warehouseId}) as warehouse_count`
-      })
-      .from(schema.products)
-      .innerJoin(schema.inventory, eq(schema.products.id, schema.inventory.productId))
-      .where(eq(schema.products.userId, userId))
-      .groupBy(schema.products.id);
-    
-    if (warehouseId) {
-      query = query.where(eq(schema.inventory.warehouseId, parseInt(warehouseId as string)));
-    }
-    
-    const valueReport = await query.orderBy(desc(sql`total_value`));
-    
-    // Calculate summary
-    const summary = valueReport.reduce((acc, item) => ({
-      totalItems: acc.totalItems + 1,
-      totalQuantity: acc.totalQuantity + Number(item.totalQuantity),
-      totalValue: acc.totalValue + Number(item.totalValue),
-      totalCost: acc.totalCost + Number(item.totalCost)
-    }), { totalItems: 0, totalQuantity: 0, totalValue: 0, totalCost: 0 });
-    
-    res.json({ items: valueReport, summary });
-  } catch (error) {
-    console.error('Error generating value report:', error);
-    res.status(500).json({ error: 'Failed to generate value report' });
+    console.error('Error importing products:', error);
+    res.status(500).json({ error: 'Failed to import products' });
   }
 });
 

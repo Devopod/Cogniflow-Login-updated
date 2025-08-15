@@ -94,12 +94,12 @@ const navigationItems = [
     path: "/inventory",
     isActive: (path: string) => path.startsWith("/inventory"),
     subItems: [
-      { title: "Products", icon: <ShoppingCart className="h-4 w-4" />, path: "/inventory/products" },
-      { title: "Warehouses", icon: <Building2 className="h-4 w-4" />, path: "/inventory/warehouses" },
-      { title: "Stock Count", icon: <ClipboardList className="h-4 w-4" />, path: "/inventory/stock" },
+      { title: "Products", icon: <ShoppingCart className="h-4 w-4" />, path: "/inventory?tab=products" },
+      { title: "Warehouses", icon: <Building2 className="h-4 w-4" />, path: "/inventory?tab=warehouses" },
+      { title: "Stock Count", icon: <ClipboardList className="h-4 w-4" />, path: "/inventory?tab=stock" },
       { title: "Reorder Levels", icon: <TrendingUp className="h-4 w-4" />, path: "/inventory?tab=reorder" },
-      { title: "Purchase Orders", icon: <Truck className="h-4 w-4" />, path: "/inventory/purchase" },
-      { title: "Inventory Analysis", icon: <BarChart className="h-4 w-4" />, path: "/inventory/analysis" }
+      { title: "Purchase Orders", icon: <Truck className="h-4 w-4" />, path: "/inventory?tab=orders" },
+      { title: "Inventory Levels", icon: <BarChart className="h-4 w-4" />, path: "/inventory?tab=overview" }
     ]
   },
   {

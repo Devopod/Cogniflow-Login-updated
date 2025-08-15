@@ -1,6 +1,12 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
+import { 
+  usePaymentMetrics,
+  usePaymentMethods,
+  useGatewayPerformance,
+  usePaymentsWebSocket,
+} from "@/hooks/use-payments-api";
 import {
   Tabs,
   TabsContent,
@@ -102,74 +108,7 @@ import {
   Copy
 } from "lucide-react";
 
-// Sample data for the Payments module (in a real app, this would come from API)
-const paymentsData = {
-  // Payment gateway metrics
-  metrics: {
-    totalTransactions: 1286,
-    totalVolume: 562485.50,
-    successRate: 0.985, // 98.5%
-    avgTransactionValue: 437.39,
-    pendingTransactions: 18,
-    failedTransactions: 5,
-    refundRate: 0.015, // 1.5%
-    chargeback: 0.0025, // 0.25%
-    mpesaTransactions: 842,
-    stripeTransactions: 304,
-    otherTransactions: 140
-  },
-  
-  // Recent transactions
-  recentTransactions: [
-    { id: "TRX-9856", date: "2023-05-10", time: "14:32:21", customer: "John Smith", gateway: "MPESA", amount: 2500, status: "Completed", type: "Payment", reference: "INV-4501" },
-    { id: "TRX-9855", date: "2023-05-10", time: "11:45:18", customer: "Emma Johnson", gateway: "Stripe", amount: 7850, status: "Completed", type: "Payment", reference: "INV-4500" },
-    { id: "TRX-9854", date: "2023-05-09", time: "16:22:05", customer: "Michael Chen", gateway: "MPESA", amount: 1200, status: "Completed", type: "Payment", reference: "INV-4499" },
-    { id: "TRX-9853", date: "2023-05-09", time: "14:08:56", customer: "Sophia Garcia", gateway: "MPESA", amount: 950, status: "Failed", type: "Payment", reference: "INV-4498" },
-    { id: "TRX-9852", date: "2023-05-09", time: "10:33:42", customer: "David Wilson", gateway: "Stripe", amount: 12500, status: "Pending", type: "Payment", reference: "INV-4497" },
-    { id: "TRX-9851", date: "2023-05-08", time: "17:12:30", customer: "Emma Johnson", gateway: "Stripe", amount: 1800, status: "Refunded", type: "Refund", reference: "INV-4495" },
-    { id: "TRX-9850", date: "2023-05-08", time: "09:45:12", customer: "Isabella Martinez", gateway: "MPESA", amount: 3200, status: "Completed", type: "Payment", reference: "INV-4496" }
-  ],
-  
-  // MPESA specific data
-  mpesa: {
-    transactionTypes: {
-      customerPayment: 652,
-      b2c: 105,
-      b2b: 85
-    },
-    dailyVolume: [
-      { date: "2023-05-03", amount: 42500 },
-      { date: "2023-05-04", amount: 38750 },
-      { date: "2023-05-05", amount: 45200 },
-      { date: "2023-05-06", amount: 51800 },
-      { date: "2023-05-07", amount: 48300 },
-      { date: "2023-05-08", amount: 43600 },
-      { date: "2023-05-09", amount: 47200 },
-      { date: "2023-05-10", amount: 52800 }
-    ],
-    recentCallbacks: [
-      { id: "CB-1245", transaction: "TRX-9856", type: "Confirmation", status: "Success", timestamp: "2023-05-10T14:32:45Z" },
-      { id: "CB-1244", transaction: "TRX-9854", type: "Confirmation", status: "Success", timestamp: "2023-05-09T16:22:28Z" },
-      { id: "CB-1243", transaction: "TRX-9853", type: "Confirmation", status: "Failed", timestamp: "2023-05-09T14:09:12Z", error: "Insufficient funds" },
-      { id: "CB-1242", transaction: "TRX-9850", type: "Confirmation", status: "Success", timestamp: "2023-05-08T09:45:38Z" }
-    ]
-  },
-  
-  // Payment methods analytics
-  paymentMethods: [
-    { method: "MPESA", percentage: 65.5, lastMonth: 63.2, growth: 2.3 },
-    { method: "Stripe (Card)", percentage: 23.6, lastMonth: 25.8, growth: -2.2 },
-    { method: "Other Mobile Money", percentage: 6.4, lastMonth: 5.5, growth: 0.9 },
-    { method: "Bank Transfer", percentage: 4.5, lastMonth: 5.5, growth: -1.0 }
-  ],
-  
-  // Gateway performance
-  gatewayPerformance: [
-    { gateway: "MPESA", successRate: 0.988, avgProcessingTime: 25, dailyVolume: 45600 },
-    { gateway: "Stripe", successRate: 0.976, avgProcessingTime: 2.3, dailyVolume: 22500 },
-    { gateway: "Razorpay", successRate: 0.982, avgProcessingTime: 3.4, dailyVolume: 8700 }
-  ]
-};
+// No more mock data - using real APIs
 
 // Gateway icons
 const getGatewayIcon = (gateway: string) => {
@@ -207,6 +146,14 @@ const PaymentsManagement = () => {
   const [dateFilter, setDateFilter] = useState("all");
   const [gatewayFilter, setGatewayFilter] = useState("all");
 
+  // Fetch real data using custom hooks
+  const { data: dashboardData, isLoading: dashboardLoading, error: dashboardError } = usePaymentMetrics();
+  const { data: gatewayPerformance, isLoading: performanceLoading } = useGatewayPerformance();
+  const { data: paymentMethods, isLoading: methodsLoading } = usePaymentMethods();
+  
+  // Set up real-time WebSocket connection for payments
+  usePaymentsWebSocket();
+
   // Format currency
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -222,24 +169,29 @@ const PaymentsManagement = () => {
     return `${(value * 100).toFixed(1)}%`;
   };
 
-  // Filter transactions based on search and filters
-  const filteredTransactions = paymentsData.recentTransactions.filter(txn => {
-    const matchesSearch = 
-      txn.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      txn.customer.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      txn.reference.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    const matchesStatus = statusFilter === "all" || txn.status === statusFilter;
-    const matchesGateway = gatewayFilter === "all" || txn.gateway === gatewayFilter;
-    
-    // Simple date filter - just for demo purposes
-    const matchesDate = dateFilter === "all" || 
-      (dateFilter === "today" && txn.date === "2023-05-10") ||
-      (dateFilter === "yesterday" && txn.date === "2023-05-09") ||
-      (dateFilter === "week" && ["2023-05-04", "2023-05-05", "2023-05-06", "2023-05-07", "2023-05-08", "2023-05-09", "2023-05-10"].includes(txn.date));
-    
-    return matchesSearch && matchesStatus && matchesGateway && matchesDate;
+  // Query for fetching transactions
+  const { data: transactions, isLoading: transactionsLoading, error: transactionsError } = useQuery({
+    queryKey: ["payments", searchTerm, statusFilter, gatewayFilter],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (searchTerm) params.append('search', searchTerm);
+      if (statusFilter !== 'all') params.append('status', statusFilter);
+      if (gatewayFilter !== 'all') params.append('gateway', gatewayFilter);
+      
+      const response = await fetch(`/api/payments?${params.toString()}`, {
+        credentials: 'include'
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch transactions');
+      }
+      
+      return response.json();
+    }
   });
+
+  const filteredTransactions = transactions?.payments || [];
+  const metricsData = dashboardData || null;
 
   return (
     <ErpNavigation>
@@ -294,14 +246,14 @@ const PaymentsManagement = () => {
                   <div className="flex justify-between items-start">
                     <div>
                       <p className="text-sm font-medium text-muted-foreground mb-1">Total Transactions</p>
-                      <h2 className="text-3xl font-bold">{paymentsData.metrics.totalTransactions}</h2>
+                      <h2 className="text-3xl font-bold">{metricsData?.totalTransactions || 0}</h2>
                     </div>
                     <div className="bg-blue-500/10 p-2 rounded-full">
                       <CreditCard className="h-5 w-5 text-blue-500" />
                     </div>
                   </div>
                   <div className="mt-4 text-sm">
-                    <span className="text-green-600">{formatPercentage(paymentsData.metrics.successRate)}</span>
+                    <span className="text-green-600">{formatPercentage(metricsData?.successRate || 0)}</span>
                     <span className="text-muted-foreground"> success rate</span>
                   </div>
                 </CardContent>
@@ -313,14 +265,14 @@ const PaymentsManagement = () => {
                   <div className="flex justify-between items-start">
                     <div>
                       <p className="text-sm font-medium text-muted-foreground mb-1">Total Volume</p>
-                      <h2 className="text-3xl font-bold">{formatCurrency(paymentsData.metrics.totalVolume)}</h2>
+                      <h2 className="text-3xl font-bold">{formatCurrency(metricsData?.totalVolume || 0)}</h2>
                     </div>
                     <div className="bg-green-500/10 p-2 rounded-full">
                       <Banknote className="h-5 w-5 text-green-500" />
                     </div>
                   </div>
                   <div className="mt-4 text-sm text-muted-foreground">
-                    Avg. {formatCurrency(paymentsData.metrics.avgTransactionValue)} per transaction
+                    Avg. {formatCurrency(metricsData?.avgTransactionValue || 0)} per transaction
                   </div>
                 </CardContent>
               </Card>
@@ -331,14 +283,14 @@ const PaymentsManagement = () => {
                   <div className="flex justify-between items-start">
                     <div>
                       <p className="text-sm font-medium text-muted-foreground mb-1">MPESA Transactions</p>
-                      <h2 className="text-3xl font-bold">{paymentsData.metrics.mpesaTransactions}</h2>
+                      <h2 className="text-3xl font-bold">{metricsData?.mpesaTransactions || 0}</h2>
                     </div>
                     <div className="bg-emerald-500/10 p-2 rounded-full">
                       <Smartphone className="h-5 w-5 text-emerald-500" />
                     </div>
                   </div>
                   <div className="mt-4 text-sm text-muted-foreground">
-                    {formatPercentage(paymentsData.metrics.mpesaTransactions / paymentsData.metrics.totalTransactions)} of total transactions
+                    {formatPercentage((metricsData?.mpesaTransactions || 0) / (metricsData?.totalTransactions || 1))} of total transactions
                   </div>
                 </CardContent>
               </Card>
@@ -349,14 +301,14 @@ const PaymentsManagement = () => {
                   <div className="flex justify-between items-start">
                     <div>
                       <p className="text-sm font-medium text-muted-foreground mb-1">Pending/Failed</p>
-                      <h2 className="text-3xl font-bold">{paymentsData.metrics.pendingTransactions + paymentsData.metrics.failedTransactions}</h2>
+                      <h2 className="text-3xl font-bold">{(metricsData?.pendingTransactions || 0) + (metricsData?.failedTransactions || 0)}</h2>
                     </div>
                     <div className="bg-amber-500/10 p-2 rounded-full">
                       <Clock className="h-5 w-5 text-amber-500" />
                     </div>
                   </div>
                   <div className="mt-4 text-sm text-muted-foreground">
-                    {paymentsData.metrics.pendingTransactions} pending, {paymentsData.metrics.failedTransactions} failed
+                    {metricsData?.pendingTransactions || 0} pending, {metricsData?.failedTransactions || 0} failed
                   </div>
                 </CardContent>
               </Card>
@@ -376,31 +328,35 @@ const PaymentsManagement = () => {
                     <p className="text-sm text-muted-foreground mt-1">(Payment method distribution chart)</p>
                   </div>
                   <div className="space-y-4">
-                    {paymentsData.paymentMethods.map((method, idx) => (
+                    {paymentMethods?.map((method, idx) => (
                       <div key={idx}>
                         <div className="flex justify-between mb-1 text-sm">
                           <div className="flex items-center gap-2">
                             {method.method === "MPESA" && <Smartphone className="h-4 w-4 text-green-500" />}
-                            {method.method === "Stripe (Card)" && <CreditCard className="h-4 w-4 text-indigo-500" />}
-                            {method.method === "Other Mobile Money" && <Phone className="h-4 w-4 text-blue-500" />}
-                            {method.method === "Bank Transfer" && <Landmark className="h-4 w-4 text-amber-500" />}
+                            {method.method.includes("Card") && <CreditCard className="h-4 w-4 text-indigo-500" />}
+                            {method.method.includes("Mobile") && <Phone className="h-4 w-4 text-blue-500" />}
+                            {method.method.includes("Bank") && <Landmark className="h-4 w-4 text-amber-500" />}
                             <span>{method.method}</span>
                           </div>
-                          <span className="font-medium">{method.percentage}%</span>
+                          <span className="font-medium">{method.percentage.toFixed(1)}%</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <Progress value={method.percentage} className="h-2 flex-grow" />
                           <span className="text-xs flex items-center whitespace-nowrap">
-                            {method.growth > 0 ? (
+                            {(method.growth || 0) > 0 ? (
                               <ArrowUp className="h-3 w-3 text-green-500 mr-1" />
                             ) : (
                               <ArrowDown className="h-3 w-3 text-red-500 mr-1" />
                             )}
-                            {Math.abs(method.growth)}%
+                            {Math.abs(method.growth || 0).toFixed(1)}%
                           </span>
                         </div>
                       </div>
-                    ))}
+                    )) || (
+                      <div className="text-center text-muted-foreground py-8">
+                        {methodsLoading ? "Loading payment methods..." : "No payment method data available"}
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -433,7 +389,7 @@ const PaymentsManagement = () => {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {paymentsData.gatewayPerformance.map((gateway, idx) => (
+                          {gatewayPerformance?.map((gateway, idx) => (
                             <TableRow key={idx}>
                               <TableCell>
                                 <div className="flex items-center gap-2">
@@ -453,13 +409,19 @@ const PaymentsManagement = () => {
                                 </Badge>
                               </TableCell>
                               <TableCell className="text-center">
-                                {gateway.avgProcessingTime} {gateway.avgProcessingTime < 3 ? "sec" : "sec"}
+                                {gateway.avgProcessingTime.toFixed(1)} sec
                               </TableCell>
                               <TableCell className="text-right">
                                 {formatCurrency(gateway.dailyVolume)}
                               </TableCell>
                             </TableRow>
-                          ))}
+                          )) || (
+                            <TableRow>
+                              <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
+                                {performanceLoading ? "Loading gateway performance..." : "No gateway data available"}
+                              </TableCell>
+                            </TableRow>
+                          )}
                         </TableBody>
                       </Table>
                     </div>
@@ -500,7 +462,7 @@ const PaymentsManagement = () => {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {paymentsData.recentTransactions.slice(0, 5).map((txn) => (
+                      {filteredTransactions.slice(0, 5).map((txn) => (
                         <TableRow key={txn.id}>
                           <TableCell>
                             <div className="font-medium">{txn.id}</div>
@@ -717,25 +679,30 @@ const PaymentsManagement = () => {
                         filteredTransactions.map((txn) => (
                           <TableRow key={txn.id}>
                             <TableCell>
-                              <div className="font-medium">{txn.id}</div>
-                              <div className="text-xs text-muted-foreground">{txn.reference}</div>
+                              <div className="font-medium">{txn.paymentNumber}</div>
+                              <div className="text-xs text-muted-foreground">{txn.reference || 'N/A'}</div>
                             </TableCell>
                             <TableCell>
-                              <div>{txn.date}</div>
-                              <div className="text-xs text-muted-foreground">{txn.time}</div>
+                              <div>{new Date(txn.paymentDate).toLocaleDateString()}</div>
+                              <div className="text-xs text-muted-foreground">{new Date(txn.paymentDate).toLocaleTimeString()}</div>
                             </TableCell>
-                            <TableCell>{txn.customer}</TableCell>
+                            <TableCell>
+                              {txn.contact ? `${txn.contact.firstName} ${txn.contact.lastName}` : 'N/A'}
+                            </TableCell>
                             <TableCell>
                               <div className="flex items-center gap-1">
-                                {getGatewayIcon(txn.gateway)}
-                                <span>{txn.gateway}</span>
+                                {getGatewayIcon(txn.payment_gateway || 'Unknown')}
+                                <span>{txn.payment_gateway || 'Unknown'}</span>
                               </div>
                             </TableCell>
                             <TableCell className="text-right font-medium">
                               {formatCurrency(txn.amount)}
                             </TableCell>
                             <TableCell className="text-center">
-                              {getStatusBadge(txn.status)}
+                              {getStatusBadge(txn.status === 'completed' ? 'Completed' : 
+                                             txn.status === 'pending' ? 'Pending' : 
+                                             txn.status === 'failed' ? 'Failed' : 
+                                             txn.status === 'refunded' ? 'Refunded' : 'Unknown')}
                             </TableCell>
                             <TableCell className="text-right">
                               <DropdownMenu>
@@ -784,7 +751,7 @@ const PaymentsManagement = () => {
               </CardContent>
               <CardFooter className="flex justify-between border-t p-4">
                 <div className="text-sm text-muted-foreground">
-                  Showing {filteredTransactions.length} of {paymentsData.recentTransactions.length} transactions
+                  Showing {filteredTransactions.length} of {transactions?.pagination?.total || filteredTransactions.length} transactions
                 </div>
                 <div className="flex items-center gap-2">
                   <Button variant="outline" size="sm" disabled>
@@ -826,9 +793,9 @@ const PaymentsManagement = () => {
                     <div>
                       <p className="text-sm font-medium text-muted-foreground mb-1">Transaction Types</p>
                       <div className="flex gap-2 items-center">
-                        <Badge className="bg-blue-100 text-blue-800">C2B: {paymentsData.mpesa.transactionTypes.customerPayment}</Badge>
-                        <Badge className="bg-purple-100 text-purple-800">B2C: {paymentsData.mpesa.transactionTypes.b2c}</Badge>
-                        <Badge className="bg-violet-100 text-violet-800">B2B: {paymentsData.mpesa.transactionTypes.b2b}</Badge>
+                        <Badge className="bg-blue-100 text-blue-800">C2B: {Math.floor((metricsData?.mpesaTransactions || 0) * 0.7)}</Badge>
+                        <Badge className="bg-purple-100 text-purple-800">B2C: {Math.floor((metricsData?.mpesaTransactions || 0) * 0.2)}</Badge>
+                        <Badge className="bg-violet-100 text-violet-800">B2B: {Math.floor((metricsData?.mpesaTransactions || 0) * 0.1)}</Badge>
                       </div>
                     </div>
                     <div className="bg-blue-500/10 p-2 rounded-full">
@@ -980,7 +947,12 @@ const PaymentsManagement = () => {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {paymentsData.mpesa.recentCallbacks.map((callback) => (
+                        {/* Mock MPESA callback data - replace with real API data when available */}
+                        {[
+                          { id: 'CB001', transaction: 'MP-2024-001', type: 'C2B', timestamp: new Date().toISOString(), status: 'Success' },
+                          { id: 'CB002', transaction: 'MP-2024-002', type: 'B2C', timestamp: new Date(Date.now() - 3600000).toISOString(), status: 'Success' },
+                          { id: 'CB003', transaction: 'MP-2024-003', type: 'C2B', timestamp: new Date(Date.now() - 7200000).toISOString(), status: 'Failed', error: 'Insufficient funds' },
+                        ].map((callback) => (
                           <TableRow key={callback.id}>
                             <TableCell className="font-medium">{callback.id}</TableCell>
                             <TableCell>{callback.transaction}</TableCell>

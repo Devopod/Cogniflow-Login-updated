@@ -159,7 +159,7 @@ const ProductCatalog = () => {
   const { toast } = useToast();
   
   // Dynamic data hooks
-  const { data: products = [], isLoading: isLoadingProducts } = useProducts();
+  const { data: products = [], isLoading: isLoadingProducts } = useProducts({ limit: 100 });
   
   // Real-time updates via WebSocket for inventory changes
   useWebSocket({

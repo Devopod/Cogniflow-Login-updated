@@ -360,7 +360,7 @@ router.get("/:id", authenticateUser, async (req, res) => {
 // Create a new invoice
 router.post("/", authenticateUser, async (req, res) => {
   try {
-    const {
+    let {
       contactId,
       invoiceDate,
       dueDate,
@@ -443,7 +443,7 @@ router.post("/", authenticateUser, async (req, res) => {
     }
 
     // Generate invoice number using storage function
-    const finalInvoiceNumber = await storage.generateInvoiceNumber(req.user!.id);
+    let finalInvoiceNumber = await storage.generateInvoiceNumber(req.user!.id);
     let newInvoice;
     let triedOnce = false;
     
@@ -532,7 +532,7 @@ router.post("/", authenticateUser, async (req, res) => {
           error.detail.includes('invoice_number')
         ) {
           // Generate a new invoice number and retry once
-          finalInvoiceNumber = generateInvoiceNumber();
+          finalInvoiceNumber = await storage.generateInvoiceNumber(req.user!.id);
           triedOnce = true;
           continue;
         } else {

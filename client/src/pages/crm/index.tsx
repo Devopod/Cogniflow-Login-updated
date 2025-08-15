@@ -10,6 +10,7 @@ import ActivityManagement from "@/components/crm/ActivityManagement";
 import CompanyManagement from "@/components/crm/CompanyManagement";
 import PhoneCallManagement from "@/components/crm/PhoneCallManagement";
 import { useCrmApi } from "@/hooks/use-api";
+import { useCrmWebSocket } from "@/hooks/use-crm-websocket";
 import {
   useCrmDashboard,
   useGenerateReport,
@@ -85,8 +86,11 @@ export default function CrmManagement() {
   const [location, setLocation] = useLocation();
   const [currentTab, setCurrentTab] = useState("overview");
   
-  // Use dynamic API data instead of mock data
+  // Use dynamic API data with real-time updates
   const crmApi = useCrmApi();
+  
+  // Initialize WebSocket for real-time CRM updates
+  useCrmWebSocket();
   
   // Extract data from API hooks
   const { data: dashboardData, loading: dashboardLoading, error: dashboardError } = crmApi.dashboard;

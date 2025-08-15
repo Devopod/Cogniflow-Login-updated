@@ -50,6 +50,7 @@ import {
   LineChart,
   PieChart,
   Activity,
+  AlertCircle,
   PieChart as PieChartIcon,
   BarChart2,
   BarChart3,
@@ -111,77 +112,7 @@ import {
 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 
-// Sample data for the Reports module
-const reportsData = {
-  // Recent reports
-  recentReports: [
-    { id: 1, name: "Monthly Sales Report", category: "Sales", lastGenerated: "2023-05-01", format: "PDF", scheduleType: "Monthly", favorite: true },
-    { id: 2, name: "Product Performance Analysis", category: "Products", lastGenerated: "2023-05-05", format: "Excel", scheduleType: "Weekly", favorite: true },
-    { id: 3, name: "Customer Acquisition Cost", category: "Marketing", lastGenerated: "2023-05-03", format: "PDF", scheduleType: "Monthly", favorite: false },
-    { id: 4, name: "Employee Productivity", category: "HR", lastGenerated: "2023-05-02", format: "Excel", scheduleType: "Weekly", favorite: false },
-    { id: 5, name: "Inventory Turnover Rate", category: "Inventory", lastGenerated: "2023-05-04", format: "PDF", scheduleType: "Monthly", favorite: true },
-    { id: 6, name: "Cash Flow Projection", category: "Finance", lastGenerated: "2023-05-01", format: "Excel", scheduleType: "Monthly", favorite: true },
-    { id: 7, name: "Vendor Performance Analysis", category: "Procurement", lastGenerated: "2023-04-28", format: "PDF", scheduleType: "Quarterly", favorite: false },
-    { id: 8, name: "Customer Satisfaction Metrics", category: "Customer", lastGenerated: "2023-04-30", format: "Dashboard", scheduleType: "Weekly", favorite: false }
-  ],
-  
-  // Report categories
-  categories: [
-    { id: 1, name: "Sales", description: "Sales performance, pipeline, and forecasting reports", count: 18 },
-    { id: 2, name: "Finance", description: "Financial statements, cash flow, and tax reports", count: 24 },
-    { id: 3, name: "HR", description: "Employee performance, attendance, and payroll reports", count: 15 },
-    { id: 4, name: "Inventory", description: "Stock levels, movement, and valuation reports", count: 12 },
-    { id: 5, name: "Products", description: "Product performance, margins, and lifecycle reports", count: 8 },
-    { id: 6, name: "Marketing", description: "Campaign performance, ROI, and lead analysis", count: 14 },
-    { id: 7, name: "Customer", description: "Customer demographics, behavior, and satisfaction", count: 10 },
-    { id: 8, name: "Procurement", description: "Vendor analysis, purchasing, and cost reports", count: 9 }
-  ],
-  
-  // Report templates
-  templates: [
-    { id: 1, name: "Executive Dashboard", description: "High-level overview of key business metrics", category: "Executive", complexity: "Medium" },
-    { id: 2, name: "Sales Performance", description: "Detailed analysis of sales team performance", category: "Sales", complexity: "Complex" },
-    { id: 3, name: "Inventory Status", description: "Current inventory levels and valuation", category: "Inventory", complexity: "Simple" },
-    { id: 4, name: "Financial Statement", description: "Balance sheet, income statement, and cash flow", category: "Finance", complexity: "Complex" },
-    { id: 5, name: "Employee Metrics", description: "HR analytics and employee performance", category: "HR", complexity: "Medium" },
-    { id: 6, name: "Marketing ROI", description: "Campaign performance and return on investment", category: "Marketing", complexity: "Complex" },
-    { id: 7, name: "Customer Analysis", description: "Customer segmentation and purchase behavior", category: "Customer", complexity: "Complex" },
-    { id: 8, name: "Supplier Performance", description: "Vendor reliability, quality, and cost metrics", category: "Procurement", complexity: "Medium" }
-  ],
-  
-  // Scheduled reports
-  scheduled: [
-    { id: 1, name: "Weekly Sales Summary", frequency: "Weekly", day: "Monday", time: "08:00", recipients: ["sales@example.com"], lastRun: "2023-05-01", status: "Active" },
-    { id: 2, name: "Monthly Financial Report", frequency: "Monthly", day: "1", time: "07:00", recipients: ["finance@example.com", "ceo@example.com"], lastRun: "2023-05-01", status: "Active" },
-    { id: 3, name: "Inventory Stock Alert", frequency: "Daily", day: "Every Day", time: "07:30", recipients: ["inventory@example.com"], lastRun: "2023-05-05", status: "Active" },
-    { id: 4, name: "Quarterly Business Review", frequency: "Quarterly", day: "First day of quarter", time: "09:00", recipients: ["management@example.com"], lastRun: "2023-04-01", status: "Active" },
-    { id: 5, name: "Employee Attendance", frequency: "Weekly", day: "Friday", time: "17:00", recipients: ["hr@example.com"], lastRun: "2023-05-05", status: "Active" },
-    { id: 6, name: "Marketing Campaign Analysis", frequency: "Monthly", day: "Last day", time: "16:00", recipients: ["marketing@example.com"], lastRun: "2023-04-30", status: "Paused" }
-  ],
-  
-  // Example dashboards
-  dashboards: [
-    { id: 1, name: "Executive Overview", description: "High-level metrics for executive decision-making", owner: "CEO", lastViewed: "2023-05-05", shared: true },
-    { id: 2, name: "Sales Pipeline", description: "Deal stages and conversion metrics", owner: "Sales Director", lastViewed: "2023-05-05", shared: true },
-    { id: 3, name: "Financial Health", description: "Key financial ratios and trends", owner: "CFO", lastViewed: "2023-05-04", shared: true },
-    { id: 4, name: "Inventory Management", description: "Stock levels and replenishment indicators", owner: "Logistics Manager", lastViewed: "2023-05-05", shared: false },
-    { id: 5, name: "HR Analytics", description: "Workforce metrics and talent management", owner: "HR Director", lastViewed: "2023-05-03", shared: true }
-  ],
-  
-  // Report statistics
-  stats: {
-    totalReports: 128,
-    totalDashboards: 32,
-    reportsRunThisMonth: 246,
-    topViewed: [
-      { name: "Monthly Sales Report", views: 87 },
-      { name: "Inventory Status", views: 64 },
-      { name: "Financial Statement", views: 58 },
-      { name: "Customer Analysis", views: 45 },
-      { name: "Employee Metrics", views: 39 }
-    ]
-  }
-};
+// No more mock data - using real APIs
 
 // Get category icon
 const getCategoryIcon = (category: string) => {
@@ -245,6 +176,47 @@ const ReportsManagement = () => {
   const [viewMode, setViewMode] = useState("grid");
   const [selectedReport, setSelectedReport] = useState<number | null>(null);
 
+  // Fetch reports data
+  const { data: reportsData = {
+    stats: {
+      totalReports: 0,
+      totalDashboards: 0,
+      reportsRunThisMonth: 0
+    },
+    recentReports: [],
+    dashboards: [],
+    scheduled: [],
+    templates: []
+  }, isLoading: reportsLoading } = useQuery({
+    queryKey: ['reportsData'],
+    queryFn: async () => {
+      const response = await fetch('/api/reports/management-dashboard', {
+        credentials: 'include'
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch reports data');
+      }
+      return response.json();
+    },
+  });
+
+  // Fetch all reports data for categories
+  const { data: allReportsData = {
+    categories: [],
+    savedReports: []
+  } } = useQuery({
+    queryKey: ['allReportsData'],
+    queryFn: async () => {
+      const response = await fetch('/api/reports/all-reports', {
+        credentials: 'include'
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch all reports data');
+      }
+      return response.json();
+    },
+  });
+
   // Filter reports based on search and category
   const filteredReports = reportsData.recentReports.filter(report => {
     const matchesSearch = report.name.toLowerCase().includes(searchTerm.toLowerCase());
@@ -254,8 +226,10 @@ const ReportsManagement = () => {
   });
 
   // Format date in readable format
-  const formatDate = (dateString: string) => {
+  const formatDate = (dateString: string | null | undefined) => {
+    if (!dateString) return 'N/A';
     const date = new Date(dateString);
+    if (isNaN(date.getTime())) return 'Invalid Date';
     return new Intl.DateTimeFormat('en-US', {
       year: 'numeric',
       month: 'short',
@@ -323,7 +297,7 @@ const ReportsManagement = () => {
                     </div>
                   </div>
                   <div className="mt-4 text-sm text-muted-foreground">
-                    Across {reportsData.categories.length} categories
+                    Across {allReportsData?.categories?.length || 0} categories
                   </div>
                 </CardContent>
               </Card>
@@ -397,9 +371,9 @@ const ReportsManagement = () => {
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {reportsData.categories.map(category => (
+                    {allReportsData?.categories?.map((category, idx) => (
                       <div 
-                        key={category.id} 
+                        key={idx} 
                         className="p-4 border rounded-md hover:border-primary/50 hover:bg-muted/50 transition-colors cursor-pointer"
                         onClick={() => setCategoryFilter(category.name)}
                       >
@@ -409,40 +383,56 @@ const ReportsManagement = () => {
                           </div>
                           <div>
                             <div className="font-medium">{category.name}</div>
-                            <div className="text-xs text-muted-foreground">{category.description}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {category.name === 'Sales' && 'Sales performance, pipeline, and forecasting reports'}
+                              {category.name === 'Finance' && 'Financial statements, cash flow, and tax reports'}
+                              {category.name === 'CRM' && 'Customer demographics, behavior, and satisfaction'}
+                              {category.name === 'Inventory' && 'Stock levels, movement, and valuation reports'}
+                              {category.name === 'HR' && 'Employee performance, attendance, and payroll reports'}
+                            </div>
                             <div className="mt-2 text-sm">{category.count} reports</div>
                           </div>
                         </div>
                       </div>
-                    ))}
+                    )) || (
+                      <div className="col-span-full text-center text-muted-foreground py-8">
+                        {reportsLoading ? "Loading categories..." : "No categories available"}
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>
 
-              {/* Top Viewed Reports */}
+              {/* Recent Reports */}
               <Card>
                 <CardHeader>
-                  <CardTitle>Most Viewed Reports</CardTitle>
-                  <CardDescription>Top 5 reports by view count</CardDescription>
+                  <CardTitle>Recent Reports</CardTitle>
+                  <CardDescription>Recently generated reports</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    {reportsData.stats.topViewed.map((report, idx) => (
-                      <div key={idx} className="flex items-center justify-between">
+                    {allReportsData?.savedReports?.slice(0, 5).map((report, idx) => (
+                      <div key={report.id} className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
                           <div className="bg-muted w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium">
                             {idx + 1}
                           </div>
                           <div>
                             <div className="font-medium text-sm">{report.name}</div>
-                            <div className="text-xs text-muted-foreground">{report.views} views</div>
+                            <div className="text-xs text-muted-foreground">
+                              Generated {formatDate(report.createdAt)}
+                            </div>
                           </div>
                         </div>
                         <Button variant="ghost" size="icon" className="h-8 w-8">
                           <Eye className="h-4 w-4" />
                         </Button>
                       </div>
-                    ))}
+                    )) || (
+                      <div className="text-center text-muted-foreground py-8">
+                        {reportsLoading ? "Loading recent reports..." : "No recent reports available"}
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -564,9 +554,9 @@ const ReportsManagement = () => {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="all">All Categories</SelectItem>
-                        {reportsData.categories.map(category => (
-                          <SelectItem key={category.id} value={category.name}>{category.name}</SelectItem>
-                        ))}
+                        {allReportsData?.categories?.map((category, idx) => (
+                          <SelectItem key={idx} value={category.name}>{category.name}</SelectItem>
+                        )) || null}
                       </SelectContent>
                     </Select>
 
@@ -607,7 +597,7 @@ const ReportsManagement = () => {
                       <CardContent className="p-6">
                         <div className="flex items-start justify-between">
                           <div className="flex items-center gap-2">
-                            {getFormatIcon(report.format)}
+                            {getFormatIcon('PDF')}
                             <div className="font-medium">{report.name}</div>
                           </div>
                           <DropdownMenu>
@@ -651,15 +641,15 @@ const ReportsManagement = () => {
                           </DropdownMenu>
                         </div>
                         <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-                          {getCategoryIcon(report.category)}
-                          <span>{report.category}</span>
+                          {getCategoryIcon(report.reportType)}
+                          <span>{report.reportType}</span>
                         </div>
                         <div className="mt-4 text-xs text-muted-foreground">
-                          Last Generated: {formatDate(report.lastGenerated)}
+                          Generated: {formatDate(report.createdAt)}
                         </div>
                         <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-                          {getScheduleIcon(report.scheduleType)}
-                          <span>{report.scheduleType}</span>
+                          {getScheduleIcon('On Demand')}
+                          <span>On Demand</span>
                         </div>
                         <div className="mt-4 flex gap-2">
                           <Button size="sm" className="w-full">
@@ -679,25 +669,24 @@ const ReportsManagement = () => {
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3">
                             <div className="p-2 bg-primary/10 rounded-md">
-                              {getFormatIcon(report.format)}
+                              {getFormatIcon('PDF')}
                             </div>
                             <div>
                               <div className="font-medium flex items-center gap-2">
                                 {report.name}
-                                {report.favorite && <span className="text-amber-500">★</span>}
                               </div>
                               <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
                                 <div className="flex items-center gap-1">
-                                  {getCategoryIcon(report.category)}
-                                  <span>{report.category}</span>
+                                  {getCategoryIcon(report.reportType)}
+                                  <span>{report.reportType}</span>
                                 </div>
                                 <span>•</span>
                                 <div className="flex items-center gap-1">
-                                  {getScheduleIcon(report.scheduleType)}
-                                  <span>{report.scheduleType}</span>
+                                  {getScheduleIcon('On Demand')}
+                                  <span>On Demand</span>
                                 </div>
                                 <span>•</span>
-                                <span>Generated: {formatDate(report.lastGenerated)}</span>
+                                <span>Generated: {formatDate(report.createdAt)}</span>
                               </div>
                             </div>
                           </div>

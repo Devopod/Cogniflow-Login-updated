@@ -78,6 +78,16 @@ import {
   CheckCircle2
 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
+import { 
+  useHrmsDashboard,
+  useHrmsDepartments,
+  useHrmsEmployees,
+  useHrmsAttendance,
+  useHrmsAttendanceSummary,
+  useHrmsLeaveTypes,
+  useHrmsLeaveRequests,
+  useHrmsPayroll,
+} from "@/hooks/use-hrms-data";
 
 // Sample data for the HR module (would normally come from API)
 const hrData = {
@@ -191,6 +201,29 @@ const HRManagement = () => {
   const [departmentFilter, setDepartmentFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
 
+  // Fetch live HRMS data
+  const { data: dashboardData } = useHrmsDashboard();
+  const { data: departmentsData } = useHrmsDepartments();
+  const { data: attendanceSummary } = useHrmsAttendanceSummary();
+
+  // Safe access helpers
+  const totalEmployees = (dashboardData?.totalEmployees as number) || 0;
+  const presentToday = (dashboardData?.presentToday as number) || (attendanceSummary?.present as number) || 0;
+  const pendingLeaveRequests = (dashboardData?.pendingLeaveRequests as number) || 0;
+  const departmentCount = Array.isArray(departmentsData) ? departmentsData.length : (dashboardData?.totalDepartments as number) || 0;
+
+  // Payroll period and totals (current month)
+  const now = new Date();
+  const payPeriod = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const periodLabel = now.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+  const { data: payrollData } = useHrmsPayroll({ payPeriod });
+  const monthlyNetPayroll = Array.isArray(payrollData?.payrollRecords)
+    ? payrollData!.payrollRecords.reduce((sum: number, rec: any) => {
+        const net = rec?.payroll?.netPay ?? rec?.netPay ?? 0;
+        return sum + Number(net || 0);
+      }, 0)
+    : 0;
+
   // Format currency
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -201,16 +234,23 @@ const HRManagement = () => {
     }).format(amount);
   };
 
-  // Filter employees based on search and filters
-  const filteredEmployees = hrData.employees.filter(employee => {
-    const matchesSearch = 
-      employee.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      employee.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      employee.position.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    const matchesDepartment = departmentFilter === "all" || employee.department === departmentFilter;
-    const matchesStatus = statusFilter === "all" || employee.status === statusFilter;
-    
+  // Employees via API + client-side filtering for UI
+  const { data: employeeResp } = useHrmsEmployees({ search: searchTerm || undefined, limit: 50 });
+  const employees = Array.isArray(employeeResp?.employees) ? employeeResp!.employees : [];
+  const filteredEmployees = employees.filter((item: any) => {
+    const e = item.employee || item;
+    const depName = item.department?.name || e.department || "";
+    const posTitle = item.position?.title || e.position || "";
+    const fullName = `${e.firstName ?? ""} ${e.lastName ?? ""}`.trim();
+
+    const matchesSearch =
+      fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (e.email || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+      posTitle.toLowerCase().includes(searchTerm.toLowerCase());
+
+    const matchesDepartment = departmentFilter === "all" || depName === departmentFilter;
+    const matchesStatus = statusFilter === "all" || (e.status || "").toLowerCase() === statusFilter.toLowerCase();
+
     return matchesSearch && matchesDepartment && matchesStatus;
   });
 
@@ -290,14 +330,14 @@ const HRManagement = () => {
                   <div className="flex justify-between items-start">
                     <div>
                       <p className="text-sm font-medium text-muted-foreground mb-1">Total Employees</p>
-                      <h2 className="text-3xl font-bold">{hrData.organization.totalEmployees}</h2>
+                      <h2 className="text-3xl font-bold">{totalEmployees}</h2>
                     </div>
                     <div className="bg-blue-500/10 p-2 rounded-full">
                       <Users className="h-5 w-5 text-blue-500" />
                     </div>
                   </div>
                   <div className="mt-4 text-sm text-muted-foreground">
-                    Across {hrData.departments.length} departments
+                    Across {departmentCount} departments
                   </div>
                 </CardContent>
               </Card>
@@ -308,7 +348,7 @@ const HRManagement = () => {
                   <div className="flex justify-between items-start">
                     <div>
                       <p className="text-sm font-medium text-muted-foreground mb-1">Today's Attendance</p>
-                      <h2 className="text-3xl font-bold">{hrData.attendance.today.present}</h2>
+                      <h2 className="text-3xl font-bold">{presentToday}</h2>
                     </div>
                     <div className="bg-green-500/10 p-2 rounded-full">
                       <CheckCircle className="h-5 w-5 text-green-500" />
@@ -326,14 +366,14 @@ const HRManagement = () => {
                   <div className="flex justify-between items-start">
                     <div>
                       <p className="text-sm font-medium text-muted-foreground mb-1">Pending Leave</p>
-                      <h2 className="text-3xl font-bold">{hrData.leave.pending}</h2>
+                      <h2 className="text-3xl font-bold">{pendingLeaveRequests}</h2>
                     </div>
                     <div className="bg-amber-500/10 p-2 rounded-full">
                       <Calendar className="h-5 w-5 text-amber-500" />
                     </div>
                   </div>
                   <div className="mt-4 text-sm text-muted-foreground">
-                    {hrData.organization.onLeave} currently on leave
+                    {(attendanceSummary?.onLeave as number) || 0} currently on leave
                   </div>
                 </CardContent>
               </Card>
@@ -344,14 +384,14 @@ const HRManagement = () => {
                   <div className="flex justify-between items-start">
                     <div>
                       <p className="text-sm font-medium text-muted-foreground mb-1">Monthly Payroll</p>
-                      <h2 className="text-3xl font-bold">{formatCurrency(hrData.payroll.netPayroll)}</h2>
+                      <h2 className="text-3xl font-bold">{formatCurrency(monthlyNetPayroll)}</h2>
                     </div>
                     <div className="bg-purple-500/10 p-2 rounded-full">
                       <CreditCard className="h-5 w-5 text-purple-500" />
                     </div>
                   </div>
                   <div className="mt-4 text-sm text-muted-foreground">
-                    Next run: {hrData.payroll.nextRunDate}
+                    Period: {periodLabel}
                   </div>
                 </CardContent>
               </Card>
@@ -383,13 +423,18 @@ const HRManagement = () => {
                         <p className="text-sm text-muted-foreground">(Department distribution chart)</p>
                       </div>
                       <div className="mt-4 space-y-2">
-                        {hrData.departments.slice(0, 4).map(dept => (
-                          <div key={dept.id} className="flex justify-between items-center">
-                            <span className="text-sm">{dept.name}</span>
-                            <span className="text-sm font-medium">{dept.employeeCount}</span>
-                          </div>
-                        ))}
-                        {hrData.departments.length > 4 && (
+                        {(Array.isArray(departmentsData) ? departmentsData : [])
+                          .slice(0, 4)
+                          .map((d: any) => {
+                            const dept = d.department || d;
+                            return (
+                              <div key={dept.id} className="flex justify-between items-center">
+                                <span className="text-sm">{dept.name}</span>
+                                <span className="text-sm font-medium">{dept.employeeCount}</span>
+                              </div>
+                            );
+                          })}
+                        {Array.isArray(departmentsData) && departmentsData.length > 4 && (
                           <Button variant="link" size="sm" className="p-0">View all departments</Button>
                         )}
                       </div>
@@ -427,15 +472,15 @@ const HRManagement = () => {
                             <p className="text-lg font-bold">{hrData.organization.avgTenure} yrs</p>
                           </div>
                           <div className="p-3 border rounded-md">
-                            <p className="text-xs text-muted-foreground">Avg. Age</p>
-                            <p className="text-lg font-bold">{hrData.organization.avgAge} yrs</p>
+                            <p className="text-xs text-muted-foreground">Avg. Salary</p>
+                            <p className="text-lg font-bold">{formatCurrency(dashboardData?.averageSalary ?? 0)}</p>
                           </div>
                         </div>
 
                         <div className="grid grid-cols-2 gap-3">
                           <div className="p-3 border rounded-md">
                             <p className="text-xs text-muted-foreground">Open Positions</p>
-                            <p className="text-lg font-bold">{hrData.organization.openPositions}</p>
+                            <p className="text-lg font-bold">{Array.isArray(departmentsData) ? departmentsData.reduce((s: number, d: any) => s + (d?.department?.openPositions ?? d?.openPositions ?? 0), 0) : 0}</p>
                           </div>
                           <div className="p-3 border rounded-md">
                             <p className="text-xs text-muted-foreground">Turnover Rate</p>
@@ -665,9 +710,9 @@ const HRManagement = () => {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="all">All Departments</SelectItem>
-                        {hrData.departments.map(dept => (
+                        {(Array.isArray(departmentsData) ? departmentsData : []).map((d: any) => { const dept = d.department || d; return (
                           <SelectItem key={dept.id} value={dept.name}>{dept.name}</SelectItem>
-                        ))}
+                        );})}
                       </SelectContent>
                     </Select>
 
@@ -805,7 +850,7 @@ const HRManagement = () => {
               </CardContent>
               <CardFooter className="flex justify-between border-t p-4">
                 <div className="text-sm text-muted-foreground">
-                  Showing {filteredEmployees.length} of {hrData.employees.length} employees
+                  Showing {filteredEmployees.length} employees
                 </div>
                 <div className="flex items-center gap-2">
                   <Button variant="outline" size="sm" disabled>
@@ -874,7 +919,7 @@ const HRManagement = () => {
                   <div className="flex justify-between items-start">
                     <div>
                       <p className="text-sm font-medium text-muted-foreground mb-1">Pending Approvals</p>
-                      <h2 className="text-3xl font-bold">{hrData.leave.pending}</h2>
+                      <h2 className="text-3xl font-bold">{pendingLeaveRequests}</h2>
                     </div>
                     <div className="bg-amber-500/10 p-2 rounded-full">
                       <CalendarClock className="h-5 w-5 text-amber-500" />
@@ -905,14 +950,14 @@ const HRManagement = () => {
                   <div className="flex justify-between items-start">
                     <div>
                       <p className="text-sm font-medium text-muted-foreground mb-1">Currently on Leave</p>
-                      <h2 className="text-3xl font-bold">{hrData.organization.onLeave}</h2>
+                      <h2 className="text-3xl font-bold">{(attendanceSummary?.onLeave as number) || 0}</h2>
                     </div>
                     <div className="bg-blue-500/10 p-2 rounded-full">
                       <Calendar className="h-5 w-5 text-blue-500" />
                     </div>
                   </div>
                   <div className="mt-4 text-sm text-muted-foreground">
-                    <p className="mb-2">{hrData.organization.returningToday} returning today</p>
+                    <p className="mb-2">{dashboardData?.newHiresThisMonth ?? 0} new hires this month</p>
                     <div className="flex -space-x-2">
                       {/* Avatar placeholders for people on leave */}
                       <div className="w-8 h-8 rounded-full bg-slate-200 border-2 border-white flex items-center justify-center text-xs font-medium">JD</div>

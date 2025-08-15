@@ -384,6 +384,29 @@ router.put("/:id", authenticateUser, async (req, res) => {
       .where(eq(payments.id, parseInt(id)))
       .returning();
     
+    // Notify via WebSocket for payment update
+    if (wsService) {
+      wsService.broadcastToResource('payments', 'all', 'payment_updated', {
+        payment: updatedPayment
+      });
+      
+      // If status changed, send specific status change notification
+      if (isStatusChanging) {
+        wsService.broadcastToResource('payments', 'all', 'payment_status_changed', {
+          paymentId: parseInt(id),
+          previousStatus,
+          newStatus: status,
+          timestamp: new Date().toISOString()
+        });
+      }
+      
+      // Broadcast data update to reports module
+      wsService.broadcastToResource('reports', 'all', 'data_updated', {
+        type: 'payment_updated',
+        timestamp: new Date().toISOString()
+      });
+    }
+    
     // If status changed to 'failed' or 'refunded', update the invoice
     if (isStatusChanging && (status === 'failed' || status === 'refunded')) {
       if (existingPayment.invoiceId) {
