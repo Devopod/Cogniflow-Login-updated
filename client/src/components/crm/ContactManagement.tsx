@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Card,
   CardContent,
@@ -77,9 +77,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { useContacts } from "@/hooks/use-crm-data";
 
-// Sample contact data
-const contacts = [
+// Backend data
+// Replaced mock data with real API data via useContacts()
+/*
   {
     id: "CT-2023-001",
     firstName: "John",
@@ -185,7 +187,7 @@ const contacts = [
     createdAt: "2023-04-20",
     notes: "Interested in enterprise solution"
   }
-];
+*/
 
 // Sample companies (for selection in forms)
 const companies = [
@@ -221,8 +223,12 @@ const ContactManagement = () => {
   const [isImporting, setIsImporting] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
 
+  // Load backend contacts
+  const { data: contactsData, isLoading, error, refetch } = useContacts();
+
   // Filter contacts based on search term, type, and status
-  const filteredContacts = contacts.filter((contact) => {
+  const contacts = Array.isArray(contactsData) ? contactsData : [] as any[];
+  const filteredContacts = contacts.filter((contact: any) => {
     const fullName = `${contact.firstName} ${contact.lastName}`.toLowerCase();
     const matchesSearch = 
       fullName.includes(searchTerm.toLowerCase()) ||
@@ -277,6 +283,20 @@ const ContactManagement = () => {
       });
     }, 2000);
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[200px]">
+        <Loader2 className="h-6 w-6 animate-spin" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-4 text-red-600">Failed to load contacts</div>
+    );
+  }
 
   return (
     <div className="space-y-6">

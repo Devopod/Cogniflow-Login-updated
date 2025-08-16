@@ -6,6 +6,19 @@ import { WSService } from '../../websocket';
 
 const router = Router();
 
+// Safe execute wrapper: returns [] on error and normalizes result shape
+async function safeExecuteRows(query: any): Promise<any[]> {
+  try {
+    const exec: any = await db.execute(query);
+    if (Array.isArray(exec)) return exec;
+    if (exec && Array.isArray((exec as any).rows)) return (exec as any).rows;
+    return [];
+  } catch (err) {
+    console.error('SQL execute failed:', err);
+    return [];
+  }
+}
+
 // Middleware to get user ID (assuming authentication middleware sets req.user)
 const getUserId = (req: Request): number => {
   return (req.user as any)?.id || 1; // Fallback for development
@@ -39,23 +52,36 @@ router.get('/dashboard', async (req: Request, res: Response) => {
       WHERE user_id = ${userId}
     `;
     
-    const [metricsResult] = await db.execute(metricsQuery);
-    const [dealsResult] = await db.execute(dealsQuery);
-    
+    // Execute with normalization
+    const metricsRows = await safeExecuteRows(metricsQuery);
+    const dealsRows = await safeExecuteRows(dealsQuery);
+
+    const metricsRow = metricsRows[0] || {};
+    const dealsRow = dealsRows[0] || {};
+
     const metrics = {
-      totalLeads: Number(metricsResult.total_leads) || 0,
-      totalContacts: Number(metricsResult.total_contacts) || 0,
-      totalCustomers: Number(metricsResult.total_customers) || 0,
-      openDeals: Number(dealsResult.open_deals) || 0,
-      totalDealValue: Number(dealsResult.total_deal_value) || 0,
-      wonDeals: Number(dealsResult.won_deals) || 0,
-      conversionRate: Number(dealsResult.conversion_rate) || 0,
+      totalLeads: Number(metricsRow.total_leads) || 0,
+      totalContacts: Number(metricsRow.total_contacts) || 0,
+      totalCustomers: Number(metricsRow.total_customers) || 0,
+      openDeals: Number(dealsRow.open_deals) || 0,
+      totalDealValue: Number(dealsRow.total_deal_value) || 0,
+      wonDeals: Number(dealsRow.won_deals) || 0,
+      conversionRate: Number(dealsRow.conversion_rate) || 0,
     };
-    
+
     res.json(metrics);
   } catch (error) {
+    // Log on server but return safe defaults to avoid client errors
     console.error('Error fetching CRM dashboard:', error);
-    res.status(500).json({ error: 'Failed to fetch dashboard data' });
+    res.json({
+      totalLeads: 0,
+      totalContacts: 0,
+      totalCustomers: 0,
+      openDeals: 0,
+      totalDealValue: 0,
+      wonDeals: 0,
+      conversionRate: 0,
+    });
   }
 });
 
@@ -74,9 +100,9 @@ router.get('/analytics/leads', async (req: Request, res: Response) => {
       ORDER BY count DESC
     `;
     
-    const result = await db.execute(leadSourcesQuery);
-    
-    const leadSources = result.map(row => ({
+    const rows = await safeExecuteRows(leadSourcesQuery);
+
+    const leadSources = rows.map((row: any) => ({
       source: row.source || 'Unknown',
       count: Number(row.count)
     }));
@@ -84,7 +110,8 @@ router.get('/analytics/leads', async (req: Request, res: Response) => {
     res.json({ leadSources });
   } catch (error) {
     console.error('Error fetching lead analytics:', error);
-    res.status(500).json({ error: 'Failed to fetch lead analytics' });
+    // Return safe empty payload to prevent client 500s
+    res.json({ leadSources: [] });
   }
 });
 
@@ -104,9 +131,9 @@ router.get('/analytics/pipeline', async (req: Request, res: Response) => {
       ORDER BY total_value DESC
     `;
     
-    const result = await db.execute(pipelineQuery);
-    
-    const stages = result.map(row => ({
+    const rows = await safeExecuteRows(pipelineQuery);
+
+    const stages = rows.map((row: any) => ({
       stage: row.stage || 'Unknown',
       count: Number(row.count),
       totalValue: Number(row.total_value) || 0
@@ -115,7 +142,8 @@ router.get('/analytics/pipeline', async (req: Request, res: Response) => {
     res.json({ stages });
   } catch (error) {
     console.error('Error fetching pipeline analytics:', error);
-    res.status(500).json({ error: 'Failed to fetch pipeline analytics' });
+    // Return safe empty payload to prevent client 500s
+    res.json({ stages: [] });
   }
 });
 

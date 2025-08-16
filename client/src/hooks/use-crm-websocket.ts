@@ -542,6 +542,10 @@ export function useCrmWebSocket() {
         break;
       
       default:
+        if (type === 'connection_established' || type === 'ping' || type === 'pong') {
+          // benign control messages
+          break;
+        }
         console.log('Unknown CRM WebSocket message type:', type);
         break;
     }

@@ -62,7 +62,9 @@ export const useWebSocket = ({
     };
 
     return () => {
-      if (ws.readyState === WebSocket.OPEN) {
+      if (ws.readyState === WebSocket.CONNECTING) {
+        ws.addEventListener('open', () => ws.close(), { once: true });
+      } else {
         ws.close();
       }
     };

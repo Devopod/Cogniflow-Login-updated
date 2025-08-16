@@ -9,6 +9,7 @@ export class WebSocketClient {
   private resourceType: string;
   private resourceId: string | number;
   private isConnecting = false;
+  private manualClose = false; // prevent auto-reconnect on intentional close
 
   constructor(resourceType: string, resourceId: string | number) {
     this.resourceType = resourceType;
@@ -35,19 +36,16 @@ export class WebSocketClient {
     this.isConnecting = true;
     return new Promise((resolve, reject) => {
       try {
-        // Check if we're in development mode with Vite
-        const isDevMode = process.env.NODE_ENV === 'development';
-        
+        this.manualClose = false; // reset on connect
         // Create WebSocket connection
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        // In development, use a different port to avoid conflicts with Vite's WebSocket
         const wsUrl = `${protocol}//${window.location.host}/ws/${this.resourceType}/${this.resourceId}`;
         
         this.socket = new WebSocket(wsUrl);
 
         // Connection opened
         this.socket.addEventListener('open', () => {
-          console.log(`WebSocket connected to ${this.resourceType}/${this.resourceId}`);
+          console.debug(`WS connected ${this.resourceType}/${this.resourceId}`);
           this.reconnectAttempts = 0;
           this.isConnecting = false;
           resolve();
@@ -58,29 +56,28 @@ export class WebSocketClient {
           try {
             const message = JSON.parse(event.data);
             this.handleMessage(message);
-          } catch (error) {
-            console.error('Error parsing WebSocket message:', error);
+          } catch (_err) {
+            // Swallow parse errors to avoid console noise
           }
         });
 
         // Connection closed
         this.socket.addEventListener('close', () => {
           this.isConnecting = false;
-          console.log(`WebSocket disconnected from ${this.resourceType}/${this.resourceId}`);
-          this.attemptReconnect();
+          if (!this.manualClose) {
+            this.attemptReconnect();
+          }
         });
 
         // Connection error
-        this.socket.addEventListener('error', (error) => {
+        this.socket.addEventListener('error', () => {
           this.isConnecting = false;
-          console.error('WebSocket error:', error);
-          // Don't reject the promise, just log the error
-          // This prevents the error from crashing the application
-          resolve(); // Resolve anyway to prevent unhandled promise rejection
+          // Do not log to console to keep it clean; rely on reconnect logic
+          resolve(); // prevent unhandled rejection
         });
       } catch (error) {
         this.isConnecting = false;
-        console.error('Error creating WebSocket:', error);
+        // Avoid noisy console logs
         reject(error);
       }
     });
@@ -185,8 +182,14 @@ export class WebSocketClient {
       this.reconnectTimer = null;
     }
 
+    this.manualClose = true;
+
     if (this.socket) {
-      this.socket.close();
+      if (this.socket.readyState === WebSocket.CONNECTING) {
+        this.socket.addEventListener('open', () => this.socket?.close(), { once: true });
+      } else {
+        this.socket.close();
+      }
       this.socket = null;
     }
 

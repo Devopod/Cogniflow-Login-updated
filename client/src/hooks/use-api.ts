@@ -31,16 +31,16 @@ export function useApi<T = any>(
         options.websocket.resourceId || 'all'
       );
       
-      // Set up event listeners for real-time updates
-      client.addEventListener('message', (event) => {
-        const message = JSON.parse(event.data);
+      // Subscribe to all WebSocket messages via our client
+      const unsubscribe = client.on('*', (message) => {
         handleRealtimeUpdate(message);
       });
-      
+
       client.connect();
       setWsClient(client);
-      
+
       return () => {
+        unsubscribe();
         client.disconnect();
       };
     }
@@ -93,6 +93,8 @@ export function useApi<T = any>(
         break;
         
       default:
+        // Ignore connection and heartbeat events
+        if (type === 'connection_established' || type === 'ping' || type === 'pong') return;
         console.log('Unhandled real-time update:', type, updateData);
     }
   }, [endpoint]);
@@ -125,9 +127,10 @@ export function useApi<T = any>(
         setData(result);
       } else if (result.data || result.items) {
         setData(result.data || result.items);
-        if (result.pagination) {
-          setPagination(result.pagination);
-        }
+        if (result.pagination) setPagination(result.pagination);
+      } else if (result.contacts || result.deals || result.tasks || result.activities) {
+        setData(result.contacts || result.deals || result.tasks || result.activities);
+        if (result.pagination) setPagination(result.pagination);
       } else {
         setData([result]);
       }

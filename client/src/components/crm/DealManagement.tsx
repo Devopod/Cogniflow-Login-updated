@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Card,
   CardContent,
@@ -78,8 +78,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { useDeals } from "@/hooks/use-crm-data";
 
-// Sample deal data
+// Backend data via useDeals()
+/* Sample deal data (removed)
 const deals = [
   {
     id: "DEAL-2023-001",
@@ -228,6 +230,7 @@ const deals = [
     ]
   }
 ];
+*/
 
 // Deal stage options
 const dealStages = [
@@ -281,8 +284,12 @@ const DealManagement = () => {
   const [viewMode, setViewMode] = useState<"list" | "kanban">("list");
   const [isExporting, setIsExporting] = useState(false);
 
+  // Load backend deals
+  const { data: dealsData, isLoading, error } = useDeals();
+  const deals = Array.isArray(dealsData) ? dealsData : [] as any[];
+
   // Filter deals based on search term, stage, and owner
-  const filteredDeals = deals.filter((deal) => {
+  const filteredDeals = deals.filter((deal: any) => {
     const matchesSearch = 
       deal.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       deal.customer.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -364,6 +371,20 @@ const DealManagement = () => {
       });
     }, 1500);
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[200px]">
+        <Loader2 className="h-6 w-6 animate-spin" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-4 text-red-600">Failed to load deals</div>
+    );
+  }
 
   return (
     <div className="space-y-6">

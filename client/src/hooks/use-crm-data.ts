@@ -883,24 +883,38 @@ export function useActivityManagement() {
   };
 }
 
-// Contacts Hook (existing contacts, for compatibility)
-export function useContacts() {
+// Contacts Hook (CRM backend)
+export function useContacts(params?: { page?: number; limit?: number; search?: string; type?: string; status?: string }) {
   return useQuery({
-    queryKey: ["/api/contacts"],
+    queryKey: ["/api/crm/contacts", params],
     queryFn: async () => {
-      const response = await apiRequest("GET", "/api/contacts");
-      return response.json();
+      const searchParams = new URLSearchParams();
+      if (params) {
+        Object.entries(params).forEach(([k, v]) => {
+          if (v !== undefined && v !== null && v !== "") searchParams.append(k, String(v));
+        });
+      }
+      const response = await apiRequest("GET", `/api/crm/contacts${searchParams.toString() ? `?${searchParams.toString()}` : ""}`);
+      const json = await response.json();
+      return json.contacts || [];
     },
   });
 }
 
-// Deals Hook (existing deals, for compatibility)
-export function useDeals() {
+// Deals Hook (CRM backend)
+export function useDeals(params?: { page?: number; limit?: number; stage?: string; status?: string }) {
   return useQuery({
-    queryKey: ["/api/deals"],
+    queryKey: ["/api/crm/deals", params],
     queryFn: async () => {
-      const response = await apiRequest("GET", "/api/deals");
-      return response.json();
+      const searchParams = new URLSearchParams();
+      if (params) {
+        Object.entries(params).forEach(([k, v]) => {
+          if (v !== undefined && v !== null && v !== "") searchParams.append(k, String(v));
+        });
+      }
+      const response = await apiRequest("GET", `/api/crm/deals${searchParams.toString() ? `?${searchParams.toString()}` : ""}`);
+      const json = await response.json();
+      return json.deals || [];
     },
   });
 }
