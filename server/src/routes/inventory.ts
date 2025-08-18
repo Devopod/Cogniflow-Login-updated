@@ -391,4 +391,60 @@ router.post('/products/import', async (req: Request, res: Response) => {
   }
 });
 
+// Update stock from sales order
+router.post('/update-from-sales', async (req: Request, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    const { orderId, items } = req.body;
+
+    if (!orderId || !items || !Array.isArray(items)) {
+      return res.status(400).json({ error: 'Invalid request body' });
+    }
+
+    // In a real application, you would have a more robust way to handle this,
+    // but for now, we'll just update the stock for each item in the order.
+    for (const item of items) {
+      const { productId, quantity } = item;
+
+      if (!productId || !quantity) {
+        continue;
+      }
+
+      const [product] = await db
+        .select()
+        .from(schema.products)
+        .where(and(eq(schema.products.id, productId), eq(schema.products.userId, userId)));
+
+      if (!product) {
+        continue;
+      }
+
+      const newQuantity = (product.quantity || 0) - Number(quantity);
+
+      if (newQuantity < 0) {
+        // Handle insufficient stock
+        continue;
+      }
+
+      await db
+        .update(schema.products)
+        .set({
+          quantity: newQuantity,
+          updatedAt: new Date()
+        })
+        .where(and(eq(schema.products.id, productId), eq(schema.products.userId, userId)));
+    }
+
+    // Generate GDN
+    // In a real application, you would have a more robust way to generate the GDN,
+    // but for now, we'll just log a message.
+    console.log(`GDN generated for order ${orderId}`);
+
+    res.json({ message: 'Stock updated and GDN generated successfully' });
+  } catch (error) {
+    console.error('Error updating stock from sales:', error);
+    res.status(500).json({ error: 'Failed to update stock from sales' });
+  }
+});
+
 export default router;

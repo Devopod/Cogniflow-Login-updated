@@ -1,0 +1,314 @@
+Detailed Implementation Guides for Cross-Module Functionalities in CogniFlow ERP
+Below, I'll expand on each cross-module functionality with a more detailed, step-by-step implementation guide tailored to your existing project structure. These assume the modules are built (as you mentioned) and focus on enhancements for integration. I'll break it down into phases: Database Setup (using migrations and schema), Backend Implementation (API routes, services, websockets), Frontend Implementation (components, hooks), and Testing/Edge Cases. This ensures data consistency, real-time updates, and scalability. References to files are based on your project tree (e.g., drizzle.config.ts for migrations, routes.ts for APIs).
+I've drawn from standard ERP development practices (e.g., event-driven architecture, RESTful APIs, and WebSocket pub/sub patterns) to make these practical. If needed, you can extend with tools like QueryClient.ts for caching or scheduler.ts for automation.
+
+1. Sales to Inventory Integration
+
+Description Recap: When a sales order or quotation is converted (Sales module: OrderForm.tsx), it automatically updates stock levels (Inventory: StockManagement.tsx) and generates GDN (GoodsDeliveryNote.tsx).
+Detailed Implementation:
+
+Database Setup:
+
+Create a migration script (e.g., in migrations/add-sales-inventory-links.sql) to add foreign keys: Link sales_orders table (from add-sales-tables.ts) to inventory_items (e.g., ALTER TABLE sales_orders ADD COLUMN inventory_item_id UUID REFERENCES inventory_items(id);).
+Add triggers: Use PostgreSQL triggers (via drizzle.config.ts) to deduct stock on order confirmation: CREATE TRIGGER update_stock AFTER UPDATE ON sales_orders FOR EACH ROW WHEN (NEW.status = 'confirmed') EXECUTE PROCEDURE deduct_inventory_stock();. Define the procedure to update inventory_stock.quantity_available.
+Ensure GDN table (from GoodsDeliveryNote.tsx schema) has a foreign key to sales_orders: gdn.sales_order_id UUID REFERENCES sales_orders(id).
+
+Backend Implementation:
+
+In sales routes (server/routes/sales.ts or routes-dynamic.ts), add an endpoint for order confirmation: app.post('/sales/orders/:id/confirm', async (req, res) => { await confirmOrder(req.params.id); broadcastWebsocket('inventory-update', { itemId, quantity }); });.
+Use websocket.ts to broadcast: Integrate with websocket-finance.ts style—e.g., wsServer.broadcast('sales-to-inventory', orderData);.
+In inventory.ts route, add a listener endpoint: app.post('/inventory/update-from-sales', async (req, res) => { await updateStock(req.body); generateGDN(req.body.orderId); });. Call this from sales confirmation.
+Leverage services/pdf.ts to auto-generate GDN PDF on creation.
+
+Frontend Implementation:
+
+In OrderForm.tsx, on submit: Use use-sales-data.ts to post to sales API, then chain with use-inventory-data.ts: const handleSubmit = async () => { const order = await salesApi.createOrder(data); inventoryApi.updateStock(order.items); notifications.show('Stock updated and GDN generated'); };.
+Subscribe to websockets in StockManagement.tsx: useEffect(() => { websocket.on('sales-to-inventory', refreshStock); }, []); using use-websocket.ts.
+Display GDN link in OrderForm.tsx via a button that opens GoodsDeliveryNote.tsx in a dialog.
+
+Testing/Edge Cases:
+
+Use add-sample-sales-data.ts to seed test orders; verify stock deduction with a script like create-missing-tables.ts.
+Handle insufficient stock: Add validation in API (return 400 error), frontend toast (use-toast.ts).
+Edge case: Partial shipments—add logic to update stock incrementally.
+
+
+2. Sales to Finance Integration
+
+Description Recap: Completed sales orders generate invoices (Sales: OrderForm.tsx → Finance: new.tsx) and track payments/commissions (CommissionTracker.tsx → Payments module). Recurring invoices from sales contracts feed into finance reports.
+Detailed Implementation:
+
+Database Setup:
+
+Migration (e.g., add_recurring_invoice_columns.ts extension): Add sales_order_id UUID REFERENCES sales_orders(id) to invoices table.
+For commissions: Link commissions table (if not exists, create via migration) to sales_orders and payments: ALTER TABLE commissions ADD COLUMN sales_order_id UUID;.
+Triggers: Auto-create invoice on sales completion: CREATE TRIGGER generate_invoice AFTER UPDATE ON sales_orders FOR EACH ROW WHEN (NEW.status = 'completed') EXECUTE PROCEDURE create_invoice_from_order();.
+
+Backend Implementation:
+
+In sales routes: On order completion, call finance endpoint: await financeService.createInvoiceFromOrder(orderId); (add to finance.ts).
+Scheduler.ts for recurring: Use node-cron: cron.schedule('0 0 1 * *', async () => { await processRecurringInvoices(); }); querying sales contracts.
+Commissions: In payments.ts, on payment receipt: await updateCommission(orderId, paymentAmount * commissionRate);.
+Audit logs: Extend add_payment_link_and_audit_logs.ts to log sales-to-finance events.
+
+Frontend Implementation:
+
+In OrderForm.tsx: On completion, use use-sales-data.ts to trigger: financeApi.generateInvoice(orderId).then(() => navigate('/finance/invoices/new'));.
+Shared hooks: In use-finance-data.ts, fetch recurring data: useQuery(['recurring-invoices'], () => api.get('/sales/recurring'));.
+CommissionTracker.tsx: Subscribe to payment events via use-real-time-invoice.ts, update UI with charts (chart.tsx).
+
+Testing/Edge Cases:
+
+Seed with add-sample-sales-data.ts; check invoice creation via run-migration.ts.
+Handle duplicates: Add unique constraints in DB; frontend debounce (use-debounce.ts).
+Edge case: Currency conversions—integrate format.ts for multi-currency.
+
+
+3. Purchase to Inventory Integration
+
+Description Recap: Approved purchase orders update inventory upon receipt (Inventory: GoodsReceiptNote.tsx, PurchaseOrders.tsx). Supplier data links to inventory branding/setup.
+Detailed Implementation:
+
+Database Setup:
+
+Migration (fix-purchase-tables-schema.ts extension): Add purchase_order_id UUID REFERENCES purchase_orders(id) to goods_receipt_notes.
+Foreign keys for suppliers: ALTER TABLE inventory_items ADD COLUMN supplier_id UUID REFERENCES suppliers(id);.
+Triggers: On PO approval: CREATE TRIGGER update_inventory_on_receipt AFTER INSERT ON goods_receipt_notes FOR EACH ROW EXECUTE PROCEDURE add_to_stock();.
+
+Backend Implementation:
+
+In purchase.ts routes: On approval: app.post('/purchase/orders/:id/approve', async (req, res) => { await approvePO(req.params.id); inventoryService.updateFromPO(poData); });.
+Websocket-purchase.ts: Broadcast wsServer.send('purchase-to-inventory', { poId, items });.
+Inventory.ts: Endpoint /inventory/receive-goods to process GRN and update stock.
+
+Frontend Implementation:
+
+In PurchaseOrdersTab.tsx: On approve button click, use use-purchase.ts: purchaseApi.approve(poId).then(() => inventoryApi.createGRN(poItems));.
+GoodsReceiptNote.tsx: Auto-populate from supplier data via use-inventory-data.ts querying suppliers.
+Real-time: In InventoryTracker.tsx, listen with use-inventory-websocket.ts: websocket.on('purchase-update', refreshInventory);.
+
+Testing/Edge Cases:
+
+Use add-purchase-sample-data.ts for seeding; clear with clear-purchase-sample-data.ts.
+Validate quantities: API checks against PO; frontend form validation.
+Edge case: Supplier changes—cascade updates via DB constraints.
+
+
+4. CRM to Sales/Purchase Integration
+
+Description Recap: Leads/deals convert to sales quotations/orders or purchase requests. Contacts/companies populate fields across modules.
+Detailed Implementation:
+
+Database Setup:
+
+Migration: Add crm_deal_id UUID REFERENCES crm_deals(id) to sales_quotations and purchase_requests.
+Shared contacts: Ensure contacts table has company_id; foreign keys to sales_customers/suppliers.
+
+Backend Implementation:
+
+Crm.ts routes: Endpoint /crm/deals/:id/convert-to-sales: await salesService.createQuotationFromDeal(dealId);.
+Use-crm-websocket.ts: Broadcast on deal update: wsServer.broadcast('crm-to-sales', dealData);.
+Populate: In sales/purchase APIs, query crm contacts: await crmService.getContactsForCompany(companyId);.
+
+Frontend Implementation:
+
+DealManagement.tsx: Button Convert to Quotation: Use use-crm-data.ts: crmApi.convertDeal(dealId, 'sales').then(navigate('/sales/quotations'));.
+Shared hooks: Extend use-sales-data.ts to include contacts: useCrmContacts(companyId).
+Auto-complete in QuotationsManagement.tsx: Use select.tsx with CRM data.
+
+Testing/Edge Cases:
+
+Seed CRM data via add-comprehensive-erp-data.ts.
+Duplicates: Unique indexes on contacts.
+Edge case: Deal rejection—notify via email.ts.
+
+
+5. Finance to Reports/Payments Integration
+
+Description Recap: Financial data aggregates into reports and triggers payments. Payment reminders with audit logs.
+Detailed Implementation:
+
+Database Setup:
+
+Migration: Add views for reports: CREATE VIEW finance_reports AS SELECT * FROM invoices JOIN expenses;.
+Audit logs table with foreign keys to all financial tables.
+
+Backend Implementation:
+
+Finance.ts: On invoice create: await paymentsService.initiatePayment(invoiceId);.
+Scheduler.ts: Cron for reminders: cron.schedule('* * * * *', sendReminders); using payment-reminders.ts.
+Webhooks.ts: Stripe/Razorpay callbacks: app.post('/webhooks/stripe', async (req) => { await updateInvoiceStatus(event); logAudit(); });.
+
+Frontend Implementation:
+
+InvoicesList.tsx: Button Pay Now: Use use-payments.ts: paymentsApi.process(invoiceId);.
+Use-reports.ts: Query aggregated data: useQuery(['reports'], () => api.get('/reports/finance-agg'));
+RefundPaymentDialog.tsx: Trigger reports refresh on refund.
+
+Testing/Edge Cases:
+
+Test webhooks with Stripe sandbox.
+Overdue handling: Mock dates in scheduler.
+Edge case: Failed payments—retry logic in API.
+
+
+6. Inventory to Finance/Purchase Integration
+
+Description Recap: Low stock alerts trigger purchases and cost tracking. BOM/GRN/GDN generate financial entries.
+Detailed Implementation:
+
+Database Setup:
+
+Migration: Add inventory_event_id to expenses; triggers for cost entries: AFTER INSERT ON goods_receipt_notes EXECUTE PROCEDURE create_expense_entry();.
+
+Backend Implementation:
+
+Inventory.ts: On low stock: await purchaseService.createRequestFromAlert(itemId); financeService.logCost(itemCost);.
+Use-inventory-websocket.ts: Broadcast alerts: wsServer.send('inventory-alert', { item, threshold });.
+
+Frontend Implementation:
+
+ReorderLevelManagement.tsx: Alert button: purchaseApi.createRequest(item).then(financeApi.addExpense(cost));.
+Notifications.tsx: Subscribe: websocket.on('inventory-alert', showToast);.
+ChartOfAccounts.tsx: Auto-update from inventory events via use-finance-data.ts.
+
+Testing/Edge Cases:
+
+Seed low stock via add-comprehensive-erp-data.ts.
+Threshold validation: Frontend sliders (slider.tsx).
+Edge case: Bulk updates—batch API calls.
+
+
+7. CRM/HRMS to Finance Integration
+
+Description Recap: HRMS activities link to payroll/expenses. CRM deals influence commissions.
+Detailed Implementation:
+
+Database Setup:
+
+Use add-company-id-to-users.ts: Extend to expenses/payroll: ALTER TABLE expenses ADD COLUMN employee_id UUID REFERENCES users(id);.
+Links for commissions: Foreign key from crm_deals to commissions.
+
+Backend Implementation:
+
+Hrms.ts: On activity log: await financeService.addExpenseFromHR(activityId);.
+Crm.ts: On deal close: await financeService.calculateCommission(dealId);.
+
+Frontend Implementation:
+
+Use-hrms-data.ts: Chain to finance: hrmsApi.logActivity().then(financeApi.syncExpense);.
+CommissionTracker.tsx: Fetch from use-crm-data.ts: useQuery(['commissions'], crmApi.getDealsForCommissions);.
+
+Testing/Edge Cases:
+
+Seed HR data similarly to CRM.
+Privacy: Role-based access via auth.ts.
+Edge case: Retroactive changes—audit logs.
+
+
+8. Real-Time Notifications Across Modules
+
+Description Recap: Websockets for updates like stock changes affecting sales/purchase, or invoice payments notifying CRM. AI-assisted notifications.
+Detailed Implementation:
+
+Database Setup:
+
+Notifications table with module_type and event_id.
+
+Backend Implementation:
+
+Central websocket.ts: Channels e.g., ws.on('connection', (ws) => { ws.on('subscribe', channel => joinChannel(channel)); });.
+On events: broadcast('module-event', data); in all routes.
+AI: In ai-invoice-assistant.ts, trigger: if (anomaly) broadcast('ai-alert', details);.
+
+Frontend Implementation:
+
+RealtimeNotifications.tsx: useEffect(() => { websocket.connect(); websocket.on('any-event', addNotification); }, []);.
+Use-real-time-data.ts: Generic subscriber for all modules.
+
+Testing/Edge Cases:
+
+Simulate with websocket-finance.ts.
+Offline handling: Queue in localStorage.
+Edge case: High volume—throttle with use-debounce.ts.
+
+
+9. Payments Integration Across Modules
+
+Description Recap: Payments for invoices/orders via gateways. Refunds update inventory.
+Detailed Implementation:
+
+Database Setup:
+
+Payments table with refs to invoices/orders; triggers for updates.
+
+Backend Implementation:
+
+Payments.ts: Unified endpoint /payments/process: switch(gateway) { case 'stripe': stripeService.charge(); } then updateModule(moduleType);.
+Webhooks.ts: On success: if (refund) inventoryService.adjustStock(payment.orderId);.
+
+Frontend Implementation:
+
+PaymentForm.tsx: Use use-payment-processing.ts: processPayment(data, module);.
+Integration in InvoicesList.tsx/Sales: Button renders StripeButton.tsx.
+
+Testing/Edge Cases:
+
+Sandbox testing for gateways.
+Security: Env vars for keys.
+Edge case: Partial refunds—pro-rate inventory.
+
+
+10. Company-Wide Data Sharing
+
+Description Recap: Company registration sets shared data. Reports aggregate from all modules.
+Detailed Implementation:
+
+Database Setup:
+
+All tables with company_id via migrations.
+Views for aggregated reports.
+
+Backend Implementation:
+
+Company.ts: On registration: await propagateCompanyIdToModules(companyId);.
+Reports.ts: /reports/agg: Query joins across tables.
+
+Frontend Implementation:
+
+Use-company.ts: Global provider: const { companyId } = useCompany(); in all hooks.
+Use-dynamic-data.ts: useQuery(['agg-reports'], () => api.get('/reports/agg?companyId=' + companyId));.
+
+Testing/Edge Cases:
+
+Multi-company testing with seeds.
+Access control: Middleware auth.ts.
+Edge case: Data migration on company changes.
+
+
+11. AI and Analytics Across Modules
+
+Description Recap: AI processes multi-module data. Analytics combine insights.
+Detailed Implementation:
+
+Database Setup:
+
+AI logs table for processed data.
+
+Backend Implementation:
+
+Ai-invoice-assistant.ts: Query multi-APIs: const data = await Promise.all([salesApi.get(), financeApi.get()]); processWithOpenAI(data);.
+Analytics: In reports.ts, aggregate: await computeAnalytics(multiData);.
+
+Frontend Implementation:
+
+Use-ai-invoice-assistant.ts: Call from forms: aiApi.categorize(expenseData);.
+Shared hooks: Use-sales-analytics.ts fetches from use-finance-analytics.ts.
+
+Testing/Edge Cases:
+
+Mock OpenAI responses.
+Rate limits: Cache.ts.
+Edge case: Data privacy— anonymize inputs.
+
+To implement overall, start with database migrations (run via run-migration.ts), then backend APIs, frontend hooks, and test with sample scripts. This will make your ERP more integrated and robust!

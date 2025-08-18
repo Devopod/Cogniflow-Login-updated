@@ -56,6 +56,7 @@ import hrmsRoutes from './src/routes/hrms';
 import financeRoutes, { setFinanceWSService } from './src/routes/finance';
 import purchaseRoutes, { setPurchaseWSService } from './src/routes/purchase';
 import reportsRoutes, { setWSService as setReportsWSService } from './src/routes/reports';
+import salesRoutes, { setSalesWSService } from './src/routes/sales';
 import { registerDynamicRoutes } from './routes-dynamic';
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -73,6 +74,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   setFinanceWSService(wsService);
   setPurchaseWSService(wsService);
   setReportsWSService(wsService);
+  setSalesWSService(wsService);
   
   // Store WebSocket service in app.locals for access in routes
   app.locals.wsService = wsService;
@@ -138,6 +140,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Register Reports routes  
   app.use('/api/reports', isAuthenticated, reportsRoutes);
+  
+  // Register Sales routes
+  app.use('/api/sales', isAuthenticated, salesRoutes);
 
   // API routes with authentication
   
@@ -797,6 +802,70 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Order not found" });
       }
       
+      // Auto-generate invoice when order becomes completed
+      const statusBecameCompleted =
+        existingOrder.status !== 'completed' && req.body?.status === 'completed';
+
+      if (statusBecameCompleted) {
+        try {
+          const orderItemsList = await storage.getOrderItemsByOrderId(orderId);
+          const invoiceNumber = await storage.generateInvoiceNumber(existingOrder.userId);
+          const issueDate = new Date().toISOString().split('T')[0];
+          const dueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+            .toISOString()
+            .split('T')[0];
+
+          const [invoice] = await db
+            .insert(schema.invoices)
+            .values({
+              userId: existingOrder.userId,
+              contactId: existingOrder.contactId,
+              invoiceNumber,
+              issueDate,
+              dueDate,
+              subtotal: updatedOrder.subtotal || 0,
+              taxAmount: updatedOrder.taxAmount || 0,
+              discountAmount: updatedOrder.discountAmount || 0,
+              totalAmount: updatedOrder.totalAmount || 0,
+              amountPaid: 0,
+              status: 'draft',
+              payment_status: 'Unpaid',
+              notes: `Auto-generated from order ${updatedOrder.orderNumber}`,
+              currency: updatedOrder.currency || 'USD',
+            })
+            .returning();
+
+          if (orderItemsList && orderItemsList.length) {
+            await db.insert(schema.invoiceItems).values(
+              orderItemsList.map((it: any) => ({
+                invoiceId: invoice.id,
+                productId: it.productId,
+                description: it.description,
+                quantity: it.quantity,
+                unitPrice: it.unitPrice,
+                taxRate: it.taxRate,
+                taxAmount: it.taxAmount,
+                discountRate: it.discountRate,
+                discountAmount: it.discountAmount,
+                subtotal: it.subtotal,
+                totalAmount: it.totalAmount,
+              }))
+            );
+          }
+
+          const ws = req.app.locals.wsService;
+          if (ws) {
+            ws.broadcast('invoice_created', { invoice, fromOrderId: orderId });
+            ws.broadcast('dashboard_updated', {
+              type: 'invoice_created',
+              invoiceId: invoice.id,
+            });
+          }
+        } catch (err) {
+          console.error('Auto-invoice creation failed:', err);
+        }
+      }
+
       // Broadcast order update via WebSocket
       const wsService = req.app.locals.wsService;
       if (wsService) {

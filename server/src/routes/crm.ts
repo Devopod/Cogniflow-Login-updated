@@ -147,6 +147,73 @@ router.get('/analytics/pipeline', async (req: Request, res: Response) => {
   }
 });
 
+// Convert CRM deal -> quotation or purchase request (no new endpoint, reuse existing patterns)
+router.post('/deals/:id/convert', async (req: Request, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    const dealId = parseInt(req.params.id);
+    const { target } = req.body as { target: 'sales' | 'purchase' };
+
+    if (isNaN(dealId) || !target) {
+      return res.status(400).json({ error: 'Invalid payload' });
+    }
+
+    const [deal] = await db.select().from(schema.deals).where(and(
+      eq(schema.deals.id, dealId),
+      eq(schema.deals.userId, userId)
+    )).limit(1);
+
+    if (!deal) return res.status(404).json({ error: 'Deal not found' });
+
+    if (target === 'sales') {
+      // Create quotation shell from deal
+      const quotationNumber = `QUO-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
+      const [quo] = await db.insert(schema.quotations).values({
+        userId,
+        contactId: deal.contactId,
+        quotationNumber,
+        issueDate: new Date(),
+        subtotal: 0,
+        totalAmount: 0,
+        status: 'draft',
+        currency: 'USD',
+        notes: deal.description || null,
+        category: 'CRM',
+        updatedAt: new Date(),
+      }).returning();
+
+      // Link quotation to CRM deal
+      await db.execute(sql`UPDATE quotations SET crm_deal_id = ${dealId} WHERE id = ${quo.id}`);
+
+      return res.json({ quotationId: quo.id, message: 'Deal converted to quotation' });
+    }
+
+    if (target === 'purchase') {
+      // Create purchase request from deal
+      const requestNumber = `PR-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
+      const [pr] = await db.insert(schema.purchaseRequests).values({
+        userId,
+        requestNumber,
+        requestDate: new Date(),
+        status: 'draft',
+        notes: deal.description || null,
+        totalAmount: 0,
+        updatedAt: new Date(),
+      }).returning();
+
+      // Link PR to CRM deal
+      await db.execute(sql`UPDATE purchase_requests SET crm_deal_id = ${dealId} WHERE id = ${pr.id}`);
+
+      return res.json({ purchaseRequestId: pr.id, message: 'Deal converted to purchase request' });
+    }
+
+    return res.status(400).json({ error: 'Unsupported target' });
+  } catch (err) {
+    console.error('Error converting deal:', err);
+    res.status(500).json({ error: 'Failed to convert deal' });
+  }
+});
+
 // Get all contacts with pagination and filtering
 router.get('/contacts', async (req: Request, res: Response) => {
   try {

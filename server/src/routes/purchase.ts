@@ -927,6 +927,48 @@ router.put('/orders/:id/status', requireAuth, async (req: Request, res: Response
       ))
       .returning();
     
+    // If delivered, add received quantities to inventory products
+    if (currentOrder.status !== 'delivered' && status === 'delivered') {
+      const orderItems = await db
+        .select()
+        .from(schema.purchaseOrderItems)
+        .where(eq(schema.purchaseOrderItems.purchaseOrderId, orderId));
+
+      for (const item of orderItems) {
+        const { productId, quantity } = item as any;
+        if (!productId || !quantity) continue;
+
+        const [product] = await db
+          .select()
+          .from(schema.products)
+          .where(and(
+            eq(schema.products.id, productId),
+            eq(schema.products.userId, userId)
+          ));
+        if (!product) continue;
+
+        const currentQty = Number((product as any).stockQuantity || 0);
+        const newQuantity = currentQty + Number(quantity);
+        const [updatedProduct] = await db
+          .update(schema.products)
+          .set({ stockQuantity: newQuantity, updatedAt: new Date() })
+          .where(and(
+            eq(schema.products.id, productId),
+            eq(schema.products.userId, userId)
+          ))
+          .returning();
+
+        if (purchaseWS) {
+          purchaseWS.broadcastPurchaseUpdate(userId, {
+            type: 'purchase_to_inventory',
+            productId,
+            newQuantity,
+            purchaseOrderId: orderId,
+          });
+        }
+      }
+    }
+    
     // Broadcast real-time update
     if (purchaseWS) {
       purchaseWS.broadcastPurchaseOrderStatusChanged(userId, updatedOrder, currentOrder.status);
