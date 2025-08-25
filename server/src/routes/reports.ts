@@ -24,14 +24,14 @@ export const setWSService = (ws: WSService) => {
 
 const router = Router();
 
-// Get dashboard analytics data
+// Get dashboard analytics data with filters (date range, currency)
 router.get("/dashboard", authenticateUser, async (req, res) => {
   try {
     const userId = req.user!.id;
-    
-    // Get current date range
+    const { startDate, endDate, currency } = req.query as { startDate?: string; endDate?: string; currency?: string };
     const now = new Date();
-    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const from = startDate ? new Date(startDate) : new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const to = endDate ? new Date(endDate) : now;
     
     // Get sales metrics
     const salesMetrics = await db
@@ -42,12 +42,7 @@ router.get("/dashboard", authenticateUser, async (req, res) => {
         overdueInvoices: sql<number>`COUNT(CASE WHEN ${invoices.payment_status} = 'Overdue' THEN 1 END)`,
       })
       .from(invoices)
-      .where(
-        and(
-          eq(invoices.userId, userId),
-          gte(invoices.createdAt, thirtyDaysAgo)
-        )
-      );
+      .where(and(eq(invoices.userId, userId), between(invoices.createdAt, from, to)));
 
     // Get payment metrics
     const paymentMetrics = await db
@@ -58,12 +53,7 @@ router.get("/dashboard", authenticateUser, async (req, res) => {
         failedPayments: sql<number>`COUNT(CASE WHEN ${payments.status} = 'failed' THEN 1 END)`,
       })
       .from(payments)
-      .where(
-        and(
-          eq(payments.userId, userId),
-          gte(payments.paymentDate, thirtyDaysAgo)
-        )
-      );
+      .where(and(eq(payments.userId, userId), between(payments.paymentDate, from, to)));
 
     // Get top products
     const topProducts = await db
@@ -75,12 +65,7 @@ router.get("/dashboard", authenticateUser, async (req, res) => {
       .from(products)
       .leftJoin(sql`invoice_items`, sql`invoice_items.product_id = ${products.id}`)
       .leftJoin(invoices, sql`invoices.id = invoice_items.invoice_id`)
-      .where(
-        and(
-          eq(products.userId, userId),
-          gte(invoices.createdAt, thirtyDaysAgo)
-        )
-      )
+      .where(and(eq(products.userId, userId), between(invoices.createdAt, from, to)))
       .groupBy(products.id, products.name)
       .orderBy(desc(sql`total_revenue`))
       .limit(5);
@@ -93,12 +78,7 @@ router.get("/dashboard", authenticateUser, async (req, res) => {
         invoiceCount: sql<number>`COUNT(*)`,
       })
       .from(invoices)
-      .where(
-        and(
-          eq(invoices.userId, userId),
-          gte(invoices.createdAt, new Date(now.getFullYear() - 1, now.getMonth(), 1))
-        )
-      )
+      .where(and(eq(invoices.userId, userId), gte(invoices.createdAt, new Date(now.getFullYear() - 1, now.getMonth(), 1))))
       .groupBy(sql`TO_CHAR(${invoices.createdAt}, 'YYYY-MM')`)
       .orderBy(asc(sql`TO_CHAR(${invoices.createdAt}, 'YYYY-MM')`));
 

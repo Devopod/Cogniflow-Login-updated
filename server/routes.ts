@@ -1,4 +1,5 @@
 import type { Express, Request, Response, NextFunction } from "express";
+import jwt from "jsonwebtoken";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth } from "./auth";
@@ -23,13 +24,35 @@ const upload = multer({
   },
 });
 
-// Middleware to check if the user is authenticated
+// Middleware to check if the user is authenticated (supports Session or JWT)
 const isAuthenticated = (req: Request, res: Response, next: NextFunction) => {
-  if (req.isAuthenticated() && req.user) {
-    // TypeScript type assertion to ensure req.user is recognized as defined
-    return next();
+  try {
+    // Session-based
+    if (req.isAuthenticated && req.isAuthenticated() && req.user) {
+      return next();
+    }
+
+    // JWT-based (Authorization: Bearer <token>)
+    const authHeader = req.headers["authorization"];
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      const token = authHeader.substring("Bearer ".length);
+      const secret = process.env.JWT_SECRET;
+      if (!secret) {
+        return res.status(500).json({ message: "Server misconfiguration" });
+      }
+      const decoded = jwt.verify(token, secret) as any;
+      (req as any).user = {
+        id: decoded.id,
+        email: decoded.email,
+        role: decoded.role,
+      };
+      return next();
+    }
+
+    return res.status(401).json({ message: "Unauthorized" });
+  } catch (e) {
+    return res.status(401).json({ message: "Invalid or expired token" });
   }
-  res.status(401).json({ message: "Unauthorized" });
 };
 
 // Middleware to check if the user has admin role
@@ -56,6 +79,7 @@ import hrmsRoutes from './src/routes/hrms';
 import financeRoutes, { setFinanceWSService } from './src/routes/finance';
 import purchaseRoutes, { setPurchaseWSService } from './src/routes/purchase';
 import reportsRoutes, { setWSService as setReportsWSService } from './src/routes/reports';
+import { requireAnyRole, requireRole } from './src/middleware/rbac';
 import salesRoutes, { setSalesWSService } from './src/routes/sales';
 import { registerDynamicRoutes } from './routes-dynamic';
 
@@ -121,7 +145,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use('/webhooks', webhookRoutes);
   
   // Register admin routes
-  app.use('/api/admin', adminRoutes);
+  app.use('/api/admin', requireRole('admin'), adminRoutes);
   
   // Register CRM routes
   app.use('/api/crm', crmRoutes);
@@ -139,7 +163,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use('/api/finance', isAuthenticated, financeRoutes);
   
   // Register Reports routes  
-  app.use('/api/reports', isAuthenticated, reportsRoutes);
+  app.use('/api/reports', isAuthenticated, requireAnyRole(['manager','admin']), reportsRoutes);
   
   // Register Sales routes
   app.use('/api/sales', isAuthenticated, salesRoutes);
@@ -480,103 +504,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
-  // Finance Module Routes
-  app.get("/api/invoices", isAuthenticated, async (req, res) => {
-    try {
-      console.log("Fetching invoices...");
-      
-      // Use a direct SQL query to avoid schema issues
-      try {
-        // Make sure req.user is defined and use sql template literal for safe parameter handling
-        if (!req.user) {
-          return res.status(401).json({ message: "Unauthorized" });
-        }
-        
-        const result = await pool.query(
-          `SELECT * FROM invoices WHERE user_id = $1`,
-          [req.user.id]
-        );
-        
-        res.json(result.rows);
-      } catch (err) {
-        // Type check for PostgreSQL error object
-        if (typeof err === 'object' && err !== null && 'code' in err && err.code === '42P01') { // Table doesn't exist error code
-          console.log("Invoices table doesn't exist, creating it...");
-          
-          // Return empty array if table doesn't exist
-          res.json([]);
-        } else {
-          throw err; // Re-throw if it's a different error
-        }
-      }
-    } catch (error) {
-      console.error("Error fetching invoices:", error);
-      res.status(500).json({ message: "Failed to fetch invoices" });
-    }
-  });
-  
-  app.get("/api/invoices/:id", isAuthenticated, async (req, res) => {
-    try {
-      // Use direct SQL queries to avoid schema issues
-      const invoiceId = parseInt(req.params.id);
-      
-      // Get the invoice with contact information
-      const invoiceResult = await pool.query(`
-        SELECT i.*, c.first_name, c.last_name, c.email, c.phone, c.company, c.address, c.city, c.state, c.postal_code, c.country
-        FROM invoices i
-        LEFT JOIN contacts c ON i.contact_id = c.id
-        WHERE i.id = $1 AND i.user_id = $2
-      `, [invoiceId, req.user!.id]);
-      
-      if (invoiceResult.rows.length === 0) {
-        return res.status(404).json({ message: "Invoice not found" });
-      }
-      
-      const invoice = invoiceResult.rows[0];
-      
-      // Get the invoice items
-      const itemsResult = await pool.query(`
-        SELECT * FROM invoice_items 
-        WHERE invoice_id = $1
-      `, [invoiceId]);
-      
-      // Combine invoice with its items and contact data
-      const invoiceWithItems = {
-        ...invoice,
-        contact: invoice.contact_id ? {
-          id: invoice.contact_id,
-          firstName: invoice.first_name,
-          lastName: invoice.last_name,
-          email: invoice.email,
-          phone: invoice.phone,
-          company: invoice.company,
-          address: invoice.address,
-          city: invoice.city,
-          state: invoice.state,
-          postalCode: invoice.postal_code,
-          country: invoice.country
-        } : null,
-        items: itemsResult.rows || []
-      };
-      
-      // Debug log to see what contact data we have
-      console.log('Invoice contact data:', {
-        contactId: invoice.contact_id,
-        hasContact: !!invoice.contact_id,
-        contactData: invoice.contact_id ? {
-          firstName: invoice.first_name,
-          lastName: invoice.last_name,
-          email: invoice.email,
-          company: invoice.company
-        } : null
-      });
-      
-      res.json(invoiceWithItems);
-    } catch (error) {
-      console.error("Error fetching invoice:", error);
-      res.status(500).json({ message: "Failed to fetch invoice" });
-    }
-  });
+  // Finance Module Routes duplicated endpoints removed; use routes under /api/invoices mounted in invoiceRoutes
   
   // Get payments for a specific invoice
   app.get("/api/invoices/:id/payments", isAuthenticated, async (req, res) => {
@@ -977,7 +905,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const orders = await storage.getOrdersByUser(req.user!.id);
       const recentOrders = orders
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .sort((a, b) => {
+          const bTime = (b as any).createdAt ? new Date((b as any).createdAt as any).getTime() : 0;
+          const aTime = (a as any).createdAt ? new Date((a as any).createdAt as any).getTime() : 0;
+          return bTime - aTime;
+        })
         .slice(0, 5);
       
       res.json(recentOrders);
@@ -1209,7 +1141,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Quotation not found" });
       }
       
-      if (quotation.convertedToOrder) {
+      if ((quotation as any).convertedToOrder || (quotation as any).convertedOrderId) {
         return res.status(400).json({ message: "Quotation already converted to order" });
       }
       
@@ -1253,9 +1185,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Update quotation as converted
       await storage.updateQuotation(quotationId, {
-        convertedToOrder: true,
-        convertedOrderId: order.id
-      });
+        convertedOrderId: order.id,
+        updatedAt: new Date()
+      } as any);
       
       res.status(201).json({ order, message: "Quotation successfully converted to order" });
     } catch (error) {
@@ -1343,10 +1275,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (wsService) {
           // Broadcast to specific invoice
           wsService.broadcastToResource('invoices', req.body.relatedDocumentId, 'payment_added', {
-            amount: payment.amount,
-            paymentId: payment.id,
-            paymentDate: payment.paymentDate,
-            paymentMethod: payment.paymentMethod
+            amount: (payment as any).amount,
+            paymentId: (payment as any).id,
+            paymentDate: (payment as any).payment_date || (payment as any).paymentDate,
+            paymentMethod: (payment as any).payment_method || (payment as any).paymentMethod
           });
           
           // Also broadcast to global invoices channel

@@ -66,6 +66,9 @@ const invoiceSchema = z.object({
   lateFeeEnabled: z.boolean().default(false),
   lateFeeAmount: z.number().optional(),
   lateFeePercentage: z.number().optional(),
+  seriesPrefix: z.string().optional(),
+  hsnSeries: z.string().optional(),
+  logoUrl: z.string().url().optional(),
   items: z.array(z.object({
     description: z.string().min(1, "Description is required"),
     quantity: z.number().min(0.01, "Quantity must be greater than 0"),
@@ -156,6 +159,9 @@ export default function NewInvoice() {
       isRecurring: false,
       autoReminderEnabled: false,
       lateFeeEnabled: false,
+      seriesPrefix: "INV",
+      hsnSeries: "",
+      logoUrl: "",
       items: [
         {
           description: "",
@@ -238,6 +244,9 @@ export default function NewInvoice() {
         lateFeeEnabled: existingInvoice.lateFeeEnabled || false,
         lateFeeAmount: existingInvoice.lateFeeAmount,
         lateFeePercentage: existingInvoice.lateFeePercentage,
+        seriesPrefix: (existingInvoice as any).seriesPrefix,
+        hsnSeries: (existingInvoice as any).hsnSeries,
+        logoUrl: undefined,
         items: existingInvoice.items || [
           {
             description: "",
@@ -265,6 +274,10 @@ export default function NewInvoice() {
         status: action === "draft" ? "Draft" : action === "schedule" ? "Scheduled" : "Sent",
         paymentStatus: "Pending",
       };
+
+      // Debug: Log the seriesPrefix value being sent
+      console.log('Submitting invoice with seriesPrefix:', data.seriesPrefix);
+      console.log('Full invoice data:', invoiceData);
 
       let result;
       if (isEditing) {
@@ -387,6 +400,38 @@ export default function NewInvoice() {
       discountRate: 0,
     });
   };
+
+  // Render additional fields: series prefix, HSN series, logo URL
+  const renderSeriesAndLogo = () => (
+    <Card className="mt-4">
+      <CardHeader>
+        <CardTitle>Branding & Series</CardTitle>
+      </CardHeader>
+      <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div>
+          <Label>Invoice Series Prefix</Label>
+          <Input
+            placeholder="INV or GST or FY25"
+            {...form.register('seriesPrefix')}
+          />
+        </div>
+        <div>
+          <Label>HSN/SAC Series</Label>
+          <Input
+            placeholder="e.g., 998313"
+            {...form.register('hsnSeries')}
+          />
+        </div>
+        <div>
+          <Label>Logo URL (optional)</Label>
+          <Input
+            placeholder="/uploads/company/logo.png"
+            {...form.register('logoUrl')}
+          />
+        </div>
+      </CardContent>
+    </Card>
+  );
 
   // AI suggestion handlers
   const handleAISuggestion = async (index: number, type: "description" | "price") => {
@@ -617,6 +662,8 @@ export default function NewInvoice() {
                 </div>
               </CardContent>
             </Card>
+
+            {renderSeriesAndLogo()}
 
             {/* Line Items */}
             <Card>

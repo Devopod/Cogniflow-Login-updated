@@ -1,7 +1,8 @@
 
 import { Router } from "express";
 import { db } from "../../db";
-import { invoices, invoiceItems, payments, invoice_tokens, users, contacts, payment_reminders, payment_history, invoiceActivities } from "@shared/schema";
+import { invoices, invoiceItems, payments, invoice_tokens, users, contacts, payment_reminders, payment_history, invoiceActivities, companies } from "@shared/schema";
+import { CurrencyCode } from "@shared/types";
 import { eq, and, sql, desc, asc, inArray } from "drizzle-orm";
 import { authenticateUser } from "../middleware/auth";
 import { WSService } from "../../websocket";
@@ -28,40 +29,7 @@ const isAuthenticated = authenticateUser;
 // Get all invoices
 router.get("/", authenticateUser, async (req, res) => {
   try {
-    // Check if we have a real database connection
-    const dbUrl = process.env.DATABASE_URL;
-    if (!dbUrl || dbUrl.includes('dummy') || dbUrl.includes('localhost')) {
-      // Return mock data for development
-      return res.json([
-        {
-          id: 1,
-          userId: 1,
-          contactId: 1,
-          invoiceNumber: "INV-001",
-          issueDate: new Date().toISOString().split('T')[0],
-          dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-          subtotal: 1000,
-          taxAmount: 100,
-          discountAmount: 0,
-          totalAmount: 1100,
-          amountPaid: 0,
-          status: "draft",
-          notes: "Sample invoice for development",
-          terms: "Payment due within 30 days",
-          currency: "USD",
-          payment_terms: "Net 30",
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          contact: {
-            id: 1,
-            firstName: "John",
-            lastName: "Doe",
-            email: "john.doe@example.com",
-            company: "Example Corp"
-          }
-        }
-      ]);
-    }
+    // Always query real database in all environments
 
     // For production with real database, use enhanced query with complete customer data
     console.log('🔍 Fetching invoices with customer details...');
@@ -145,56 +113,7 @@ router.get("/", authenticateUser, async (req, res) => {
   }
 });
 
-// Debug route: Check current user info (development only)
-router.get("/debug/user-info", authenticateUser, async (req, res) => {
-  if (process.env.NODE_ENV === 'production') {
-    return res.status(404).json({ message: "Not found" });
-  }
-
-  try {
-    return res.json({
-      user: {
-        id: req.user!.id,
-        email: req.user!.email,
-        role: req.user!.role,
-        firstName: req.user!.firstName,
-        lastName: req.user!.lastName
-      }
-    });
-  } catch (error) {
-    console.error("Error fetching user info:", error);
-    return res.status(500).json({ message: "Failed to fetch user info" });
-  }
-});
-
-// Debug route: Make current user admin (development only)
-router.post("/debug/make-admin", authenticateUser, async (req, res) => {
-  if (process.env.NODE_ENV === 'production') {
-    return res.status(404).json({ message: "Not found" });
-  }
-
-  try {
-    // Update current user to admin
-    const [updatedUser] = await db.update(users)
-      .set({ role: 'admin' })
-      .where(eq(users.id, req.user!.id))
-      .returning();
-
-    return res.json({
-      message: "User role updated to admin",
-      user: {
-        id: updatedUser.id,
-        email: updatedUser.email,
-        role: updatedUser.role,
-        firstName: updatedUser.firstName,
-        lastName: updatedUser.lastName
-      }
-    });
-  } catch (error) {
-    console.error("Error updating user role:", error);
-    return res.status(500).json({ message: "Failed to update user role" });
-  }
-});
+ 
 
 // Get a single invoice by ID
 router.get("/:id", authenticateUser, async (req, res) => {
@@ -372,8 +291,14 @@ router.post("/", authenticateUser, async (req, res) => {
       taxAmount,
       discountAmount,
       totalAmount,
-      items
+      items,
+      seriesPrefix,
+      hsnSeries
     } = req.body;
+
+    // Debug: Log the received seriesPrefix
+    console.log('Received seriesPrefix:', seriesPrefix);
+    console.log('Received hsnSeries:', hsnSeries);
 
     // Validate contactId
     if (!contactId || contactId <= 0 || contactId === null) {
@@ -442,8 +367,8 @@ router.post("/", authenticateUser, async (req, res) => {
       return new Date();
     }
 
-    // Generate invoice number using storage function
-    let finalInvoiceNumber = await storage.generateInvoiceNumber(req.user!.id);
+    // Generate invoice number using storage function, honoring optional series prefix
+    let finalInvoiceNumber = await storage.generateInvoiceNumber(req.user!.id, seriesPrefix);
     let newInvoice;
     let triedOnce = false;
     
@@ -453,18 +378,7 @@ router.post("/", authenticateUser, async (req, res) => {
     });
     
     if (existingContacts.length === 0) {
-      console.log('No contacts found for user, creating a default contact...');
-      const [defaultContact] = await db.insert(contacts).values({
-        userId: req.user!.id,
-        firstName: 'Default',
-        lastName: 'Customer',
-        email: req.user!.email || 'customer@example.com',
-        phone: '+1234567890',
-        company: 'Default Company',
-        address: '123 Default St, Default City, DC 12345',
-        createdAt: new Date(),
-        updatedAt: new Date()
-      }).returning();
+      return res.status(400).json({ message: "No customers found. Please add a customer before creating an invoice." });
       
       console.log('Created default contact:', defaultContact);
       // Use the default contact if no specific contact was selected
@@ -514,9 +428,9 @@ router.post("/", authenticateUser, async (req, res) => {
             totalAmount: calculatedTotalAmount,
             amountPaid: 0,
             status: status || 'draft',
-            notes,
+            notes: hsnSeries ? `${notes ? notes + "\n" : ""}HSN: ${hsnSeries}` : notes,
             terms,
-            currency: currency || 'USD',
+            currency: (currency as CurrencyCode) || 'USD',
             createdAt: new Date(),
             updatedAt: new Date(),
           })
@@ -532,7 +446,7 @@ router.post("/", authenticateUser, async (req, res) => {
           error.detail.includes('invoice_number')
         ) {
           // Generate a new invoice number and retry once
-          finalInvoiceNumber = await storage.generateInvoiceNumber(req.user!.id);
+          finalInvoiceNumber = await storage.generateInvoiceNumber(req.user!.id, seriesPrefix);
           triedOnce = true;
           continue;
         } else {
@@ -1037,50 +951,8 @@ router.post("/:id/send", authenticateUser, async (req, res) => {
       return res.status(403).json({ message: "You don't have permission to send this invoice" });
     }
 
-    if (!invoice.contactId || !invoice.contact) {
-      console.log('❌ Invoice has no contact, attempting to fix...');
-      
-      // Try to fix the contact automatically
-      try {
-        // Get or create a contact for this user
-        let contact = await db.query.contacts.findFirst({
-          where: eq(contacts.userId, userId),
-        });
-
-        if (!contact) {
-          console.log('Creating default contact for user...');
-          const [newContact] = await db.insert(contacts).values({
-            userId: userId,
-            firstName: 'Default',
-            lastName: 'Customer',
-            email: req.user!.email || 'customer@example.com',
-            phone: '+1234567890',
-            company: 'Default Company',
-            address: '123 Default St, Default City, DC 12345',
-            createdAt: new Date(),
-            updatedAt: new Date()
-          }).returning();
-          contact = newContact;
-        }
-
-        // Update the invoice with the contact
-        await db
-          .update(invoices)
-          .set({
-            contactId: contact.id,
-            updatedAt: new Date()
-          })
-          .where(eq(invoices.id, invoiceId));
-
-        console.log('✅ Invoice contact fixed automatically');
-        
-        // Update the invoice object for the rest of the function
-        invoice.contactId = contact.id;
-        invoice.contact = contact;
-      } catch (fixError) {
-        console.error('Failed to fix invoice contact:', fixError);
-        return res.status(400).json({ message: "Invoice must have a customer with a valid email address to send emails" });
-      }
+    if (!invoice.contactId || !invoice.contact || !invoice.contact.email) {
+      return res.status(400).json({ message: "Invoice must have a customer with a valid email address to send emails" });
     }
 
     if (!invoice.contact.email) {
@@ -1412,72 +1284,7 @@ router.get("/statistics", authenticateUser, async (req, res) => {
 
 
 
-// Debug route: Get payment link for testing (development only)
-router.get("/:id/debug/payment-link", authenticateUser, async (req, res) => {
-  if (process.env.NODE_ENV === 'production') {
-    return res.status(404).json({ message: "Not found" });
-  }
-
-  try {
-    const { id } = req.params;
-    const userId = req.user?.id;
-
-    // Check if invoice exists and belongs to user
-    const invoice = await db.select()
-      .from(invoices)
-      .where(and(eq(invoices.id, parseInt(id)), eq(invoices.userId, userId)))
-      .limit(1);
-
-    if (invoice.length === 0) {
-      return res.status(404).json({ message: "Invoice not found" });
-    }
-
-    // Generate token directly
-    const tokenValue = crypto.randomBytes(32).toString('hex');
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 30); // 30 days from now
-
-    const permissions = { view: true, pay: true, download: true };
-
-    // Insert token into database
-    const [token] = await db.insert(invoice_tokens).values({
-      token: tokenValue,
-      invoiceId: parseInt(id),
-      expiresAt: expiresAt,
-      permissions: JSON.stringify(permissions),
-      createdAt: new Date(),
-    }).returning();
-
-    const publicLink = `${req.protocol}://${req.get('host')}/public/invoices/${token.token}`;
-
-    // Update invoice notes
-    await db.update(invoices)
-      .set({
-        notes: invoice[0].notes ?
-          `${invoice[0].notes}\n[${new Date().toISOString()}] Debug payment link generated (expires: ${expiresAt.toISOString()})` :
-          `[${new Date().toISOString()}] Debug payment link generated (expires: ${expiresAt.toISOString()})`,
-        updated_at: new Date(),
-      })
-      .where(eq(invoices.id, parseInt(id)));
-
-    return res.json({
-      message: "🔗 Payment link generated for testing",
-      paymentLink: publicLink,
-      token: token.token,
-      expiresAt: expiresAt,
-      instructions: [
-        "1. Copy the payment link below",
-        "2. Open it in a new browser tab/window",
-        "3. Test the payment flow as a client",
-        "4. No email required!"
-      ],
-      permissions
-    });
-  } catch (error) {
-    console.error("Error generating debug payment link:", error);
-    return res.status(500).json({ message: "Failed to generate debug link" });
-  }
-});
+ 
 
 
 router.post("/:id/ai/generate-description", authenticateUser, async (req, res) => {
@@ -1656,8 +1463,24 @@ router.post("/:id/ai/categorize-expenses", authenticateUser, async (req, res) =>
         return res.status(404).json({ message: 'Invoice not found' });
       }
       
-      // Generate PDF
-      const pdfBuffer = await invoicePDFService.generateInvoicePDF(invoiceId);
+      // Resolve company logo if available for customization
+      let logoUrl: string | undefined = undefined;
+      try {
+        const user = req.user ? await db.query.users.findFirst({ where: eq(users.id, req.user.id) }) : null;
+        if (user && user.companyId) {
+          const company = await db.query.companies.findFirst({ where: eq(companies.id, user.companyId) });
+          if (company && (company as any).logo) {
+            logoUrl = `/uploads/company/${(company as any).logo}`;
+          }
+        }
+      } catch (_) {
+        // non-fatal
+      }
+      // Generate PDF with optional logo
+      const pdfBuffer = await invoicePDFService.generateInvoicePDF(invoiceId, {
+        includeLogo: !!logoUrl,
+        customization: { logoUrl }
+      });
       
       // Set response headers
       res.setHeader('Content-Type', 'application/pdf');

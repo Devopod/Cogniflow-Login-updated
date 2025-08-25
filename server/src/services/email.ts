@@ -50,6 +50,19 @@ export class EmailService {
 
   private async initializeEmailProvider() {
     try {
+      // Try SendGrid via nodemailer transport
+      if (process.env.SENDGRID_API_KEY) {
+        console.log('🟢 Initializing SendGrid email service...');
+        // Use nodemailer with SendGrid transport
+        const sgTransport = await import('nodemailer-sendgrid');
+        this.transporter = (await import('nodemailer')).default.createTransport(
+          sgTransport.default({ apiKey: process.env.SENDGRID_API_KEY }) as any
+        );
+        await this.transporter.verify();
+        this.emailProvider = 'smtp';
+        console.log('✅ SendGrid email service initialized');
+        return;
+      }
       // Try Resend first (preferred for production)
       if (process.env.RESEND_API_KEY && process.env.RESEND_API_KEY !== 're_123456789_placeholder_get_real_key_from_resend_com') {
         console.log('🟢 Initializing Resend email service...');

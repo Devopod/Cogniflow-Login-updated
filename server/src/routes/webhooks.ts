@@ -1,5 +1,6 @@
 import express from "express";
 import Stripe from "stripe";
+import crypto from 'crypto';
 import { storage } from "../../storage";
 import { paymentService } from "../services/payment";
 import { wsService } from "../services/websocket";
@@ -437,3 +438,36 @@ async function handleRefundCreated(refund: Stripe.Refund) {
 }
 
 export default router;
+
+// Razorpay webhook (HMAC verification)
+router.post('/razorpay', express.raw({ type: 'application/json' }), async (req, res) => {
+  try {
+    const secret = process.env.RAZORPAY_WEBHOOK_SECRET || process.env.RAZORPAY_KEY_SECRET;
+    if (!secret) {
+      return res.status(500).json({ message: 'Razorpay secret not configured' });
+    }
+    const signature = req.headers['x-razorpay-signature'] as string;
+    const body = req.body instanceof Buffer ? req.body.toString('utf8') : JSON.stringify(req.body);
+    const expected = crypto.createHmac('sha256', secret).update(body).digest('hex');
+    if (expected !== signature) {
+      return res.status(400).json({ message: 'Invalid Razorpay webhook signature' });
+    }
+    const event = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+    const eventType = event?.event as string;
+    try {
+      if (eventType === 'payment.captured' || eventType === 'order.paid') {
+        const paymentEntity = event?.payload?.payment?.entity || event?.payload?.order?.entity;
+        const notes = paymentEntity?.notes || {};
+        const invoiceId = notes.invoiceId ? parseInt(notes.invoiceId) : undefined;
+        if (invoiceId) {
+          await paymentService.handlePaymentSuccess({ id: paymentEntity.id, amount: paymentEntity.amount, currency: paymentEntity.currency, metadata: { invoiceId: String(invoiceId) } } as any);
+        }
+      }
+    } catch (mapErr) {
+      console.error('Error mapping Razorpay event:', mapErr);
+    }
+    return res.json({ received: true });
+  } catch (e) {
+    return res.status(400).json({ message: 'Webhook processing failed' });
+  }
+});

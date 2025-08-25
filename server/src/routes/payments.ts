@@ -7,6 +7,7 @@ import { WSService } from "../../websocket";
 import { v4 as uuidv4 } from 'uuid';
 import { emailService } from "../services/email";
 import { paymentService } from "../services/payment";
+import Stripe from 'stripe';
 
 // Get the WebSocket service instance
 let wsService: WSService;
@@ -15,6 +16,26 @@ export const setWSService = (ws: WSService) => {
 };
 
 const router = Router();
+// Create subscription (Stripe)
+router.post('/subscriptions', authenticateUser, async (req, res) => {
+  try {
+    const { priceId, customerEmail } = req.body;
+    const key = process.env.STRIPE_SECRET_KEY;
+    if (!key) return res.status(500).json({ message: 'Stripe not configured' });
+    const stripe = new Stripe(key, { apiVersion: '2023-10-16' });
+    const customer = await stripe.customers.create({ email: customerEmail });
+    const sub = await stripe.subscriptions.create({
+      customer: customer.id,
+      items: [{ price: priceId }],
+      payment_behavior: 'default_incomplete',
+      expand: ['latest_invoice.payment_intent']
+    });
+    res.json({ subscriptionId: sub.id, clientSecret: (sub.latest_invoice as any)?.payment_intent?.client_secret });
+  } catch (e: any) {
+    res.status(400).json({ message: e.message || 'Failed to create subscription' });
+  }
+});
+
 
 // Get all payments
 router.get("/", authenticateUser, async (req, res) => {

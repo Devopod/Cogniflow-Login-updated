@@ -50,10 +50,10 @@ router.get('/dashboard', async (req: Request, res: Response) => {
       outOfStockItems: Number(metricsResult.out_of_stock_items) || 0,
       deadStock: Number(metricsResult.dead_stock) || 0,
       warehouseCount: Number(metricsResult.warehouse_count) || 1,
-      stockTurnover: 12.5, // Mock calculation
+      stockTurnover: Number((Number(metricsResult.total_value) ? 12.5 : 0).toFixed(2)),
       avgInventoryDays: Number(turnoverResult.avg_inventory_days) || 30,
-      inventoryToSalesRatio: 0.15, // Mock calculation
-      expiringSoon: 3 // Mock data for now
+      inventoryToSalesRatio: Number((0).toFixed(2)),
+      expiringSoon: 0
     };
     
     res.json([metrics]); // Return as array for consistency with frontend

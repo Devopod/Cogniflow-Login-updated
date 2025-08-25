@@ -31,3 +31,10 @@ export interface Invoice {
   dueDate: Date;
   status: 'draft' | 'sent' | 'paid' | 'overdue';
 }
+
+export type CurrencyCode = 'USD' | 'EUR' | 'GBP' | 'INR' | 'KES' | 'AED' | 'AUD' | 'CAD' | 'JPY' | 'CNY';
+
+export interface Money {
+  amount: number;
+  currency: CurrencyCode;
+}

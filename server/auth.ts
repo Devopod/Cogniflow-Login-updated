@@ -3,6 +3,7 @@ import { Strategy as LocalStrategy } from "passport-local";
 import { Express } from "express";
 import session from "express-session";
 import { scrypt, randomBytes, timingSafeEqual } from "crypto";
+import jwt from "jsonwebtoken";
 import { promisify } from "util";
 import { storage } from "./storage";
 import { User as UserType } from "@shared/schema";
@@ -163,25 +164,32 @@ export function setupAuth(app: Express) {
         if (err) {
           return next(err);
         }
-        // Return user without sensitive data
         const { password, ...userWithoutPassword } = user;
-        
-        // Check if user has a company
+        const payload = {
+          id: user.id,
+          email: user.email,
+          role: user.role,
+        };
+        const secret = process.env.JWT_SECRET || randomBytes(32).toString('hex');
+        const token = jwt.sign(payload, secret, { expiresIn: '2h' });
+
+        // Optional: include company name
         if (user.companyId) {
           try {
             const [company] = await db.select().from(companies).where(eq(companies.id, user.companyId));
             if (company) {
               return res.status(200).json({
                 ...userWithoutPassword,
-                companyName: company.legalName
+                companyName: company.legalName,
+                token,
               });
             }
           } catch (error) {
             console.error("Error fetching company:", error);
           }
         }
-        
-        return res.status(200).json(userWithoutPassword);
+
+        return res.status(200).json({ ...userWithoutPassword, token });
       });
     })(req, res, next);
   });
@@ -237,8 +245,18 @@ export function setupAuth(app: Express) {
           passwordResetExpires: expires
         });
         
-        // TODO: Send email with reset link
-        console.log(`Password reset requested for ${email}. Token: ${token}`);
+        try {
+          const baseUrl = process.env.APP_URL || 'http://localhost:5000';
+          const resetUrl = `${baseUrl}/reset-password?token=${token}`;
+          await emailService.sendEmail({
+            to: email,
+            subject: 'Password Reset Instructions',
+            html: `<p>You requested a password reset. Click the link below to reset your password:</p><p><a href="${resetUrl}">${resetUrl}</a></p><p>This link expires in 1 hour.</p>`,
+            text: `Reset your password: ${resetUrl} (expires in 1 hour)`
+          });
+        } catch (mailErr) {
+          console.error('Failed to send reset email:', mailErr);
+        }
       }
       
       // Always return success even if user doesn't exist to prevent email enumeration

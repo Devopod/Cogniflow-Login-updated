@@ -1,3 +1,4 @@
+
 import { pgTable, text, serial, integer, boolean, timestamp, varchar, real, date, jsonb, uuid, unique, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -266,6 +267,9 @@ export const accountGroups = pgTable("account_groups", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Duplicate invoices and invoice_settings definitions removed. See the comprehensive
+// invoices definition later in this file.
+
 // Add self-reference after creating the table
 export const accountGroupRelations = pgTable("account_group_relations", {
   id: serial("id").primaryKey(),
@@ -455,6 +459,26 @@ export const invoices = pgTable("invoices", {
   };
 });
 
+export const vendors = pgTable("vendors", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  name: varchar("name", { length: 100 }).notNull(),
+  contactPerson: varchar("contact_person", { length: 100 }),
+  email: varchar("email", { length: 255 }),
+  phone: varchar("phone", { length: 20 }),
+  address: text("address"),
+  city: varchar("city", { length: 100 }),
+  state: varchar("state", { length: 100 }),
+  country: varchar("country", { length: 100 }),
+  postalCode: varchar("postal_code", { length: 20 }),
+  taxId: varchar("tax_id", { length: 50 }),
+  paymentTerms: varchar("payment_terms", { length: 50 }),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Removed older malformed invoice_items definition
+
 export const invoiceItems = pgTable("invoice_items", {
   id: serial("id").primaryKey(),
   invoiceId: integer("invoice_id").notNull().references(() => invoices.id, { onDelete: 'cascade' }),
@@ -603,18 +627,12 @@ export const employees = pgTable("employees", {
   employmentType: varchar("employment_type", { length: 50 }),
   emergencyContactName: varchar("emergency_contact_name", { length: 100 }),
   emergencyContactPhone: varchar("emergency_contact_phone", { length: 20 }),
-  address: text("address"),
-  dateOfBirth: date("date_of_birth"),
-  nationality: varchar("nationality", { length: 50 }),
-  gender: varchar("gender", { length: 20 }),
-  maritalStatus: varchar("marital_status", { length: 20 }),
-  bankAccountNumber: varchar("bank_account_number", { length: 50 }),
-  bankName: varchar("bank_name", { length: 100 }),
-  taxIdentificationNumber: varchar("tax_identification_number", { length: 50 }),
-  faceRecognitionData: jsonb("face_recognition_data"),
+  type: varchar("type", { length: 10 }).notNull(), // debit or credit
+  amount: real("amount").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
 });
+
+// Removed malformed duplicate expenses definition; see the correct one in Accounting Module section below
 
 // Create a separate table for employee manager relationships
 export const employeeRelations = pgTable("employee_relations", {

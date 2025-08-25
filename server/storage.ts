@@ -843,6 +843,7 @@ export class DatabaseStorage implements IStorage {
   // Enhanced Invoice Methods
   async generateInvoiceNumber(userId: number, prefix?: string): Promise<string> {
     const invoicePrefix = prefix || 'INV';
+    console.log('generateInvoiceNumber called with prefix:', prefix, 'using invoicePrefix:', invoicePrefix);
     const year = new Date().getFullYear();
     const searchPattern = `${invoicePrefix}-${year}-%`;
     

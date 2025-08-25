@@ -82,8 +82,21 @@ router.get("/invoices/:token", async (req, res) => {
     
     // Return the invoice data
     return res.json({
-      invoice,
-      payments: invoicePayments,
+      invoice: {
+        id: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        issueDate: invoice.issueDate,
+        dueDate: invoice.dueDate,
+        currency: invoice.currency,
+        totalAmount: invoice.totalAmount,
+        amountPaid: invoice.amountPaid,
+        company: {
+          name: company?.legalName || 'Invoice',
+          logoUrl: company?.logo ? `/uploads/company/${company.logo}` : null,
+          email: company?.email || null,
+        }
+      },
+      payments: invoicePayments.map(p => ({ id: p.id, amount: p.amount, date: p.paymentDate, method: p.payment_method })),
       totalPaid,
       balanceDue,
       isPaid: balanceDue <= 0,
@@ -93,7 +106,7 @@ router.get("/invoices/:token", async (req, res) => {
       paymentGateways: publicGateways,
       paymentInstructions: invoice.payment_instructions,
       enabledPaymentMethods: invoice.enabled_payment_methods,
-      token, // Include token for subsequent requests
+      token,
     });
   } catch (error) {
     console.error("Error fetching public invoice:", error);
@@ -167,8 +180,8 @@ router.get("/invoices/:token/pdf", async (req, res) => {
     const pdfBuffer = await invoicePDFService.generateInvoicePDF(invoice.id, {
       customization: {
         logoUrl: companyDataForPdf.logo,
-        footerText: undefined, // You can customize this if needed
-        primaryColor: undefined, // You can customize this if needed
+        footerText: undefined,
+        primaryColor: undefined,
       },
       includeLogo: !!companyDataForPdf.logo,
     });
@@ -323,27 +336,48 @@ router.post("/invoices/:token/verify-payment", async (req, res) => {
     let verificationResult;
     
     if (gateway === 'razorpay') {
-      // For Razorpay, use the existing verification function
-      // TODO: Implement Razorpay payment verification
-      const result = { success: false, message: 'Razorpay payment verification not implemented.' };
-      
+      if (!orderId || !paymentId || !signature) {
+        return res.status(400).json({ message: "Missing Razorpay verification fields" });
+      }
+      const crypto = await import('crypto');
+      const secret = process.env.RAZORPAY_KEY_SECRET || process.env.RAZORPAY_WEBHOOK_SECRET;
+      if (!secret) {
+        return res.status(500).json({ message: "Razorpay secret not configured" });
+      }
+      const hmac = crypto.createHmac('sha256', secret);
+      hmac.update(`${orderId}|${paymentId}`);
+      const expected = hmac.digest('hex');
+      const valid = expected === signature;
+      if (!valid) {
+        return res.status(400).json({ message: "Invalid Razorpay signature" });
+      }
+      verificationResult = {
+        success: true,
+        gateway: 'razorpay',
+        amount: invoice.totalAmount - (invoice.amountPaid || 0),
+        paymentMethod: 'razorpay',
+        transactionId: paymentId,
+        gatewayResponse: { orderId, paymentId },
+      };
+      const result = await recordSuccessfulPayment(verificationResult, invoice.id);
+      return res.json(result);
+    } else if (gateway === 'stripe') {
+      if (!sessionId) {
+        return res.status(400).json({ message: 'Missing Stripe sessionId' });
+      }
+      // Defer to webhook for source of truth; here we optimistically confirm
+      verificationResult = {
+        success: true,
+        gateway: 'stripe',
+        amount: invoice.totalAmount - (invoice.amountPaid || 0),
+        paymentMethod: 'stripe',
+        transactionId: sessionId,
+        gatewayResponse: { sessionId },
+      };
+      const result = await recordSuccessfulPayment(verificationResult, invoice.id);
       return res.json(result);
     } else {
-      // For other gateways, use the generic verification function
-      // TODO: Implement generic payment verification for non-Razorpay gateways
-      verificationResult = { success: false, message: 'Generic payment verification not implemented.' };
-      
-      if (!verificationResult.success) {
-        return res.status(400).json({ 
-          message: "Payment verification failed", 
-          details: verificationResult.message 
-        });
-      }
-      
-      // Record the successful payment
-      const result = await recordSuccessfulPayment(verificationResult, invoice.id);
-      
-      return res.json(result);
+      return res.status(501).json({ message: 'Gateway not supported yet' });
     }
   } catch (error) {
     console.error("Error verifying payment:", error);

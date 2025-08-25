@@ -19,6 +19,163 @@ const requireAuth = (req: Request, res: Response, next: any) => {
   next();
 };
 
+// Create a new sales order
+router.post('/orders', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user.id;
+    const { customerId, orderDate, status, items } = req.body;
+
+    // Validate request body
+    if (!customerId || !orderDate || !status || !items) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // Create the order and order items in a transaction
+    const [newOrder] = await db.transaction(async (tx) => {
+      const [order] = await tx
+        .insert(schema.orders)
+        .values({ customerId, orderDate: new Date(orderDate), status, userId })
+        .returning();
+
+      const orderItems = items.map((item: any) => ({
+        orderId: order.id,
+        productId: item.productId,
+        quantity: item.quantity,
+        price: item.price,
+      }));
+
+      await tx.insert(schema.orderItems).values(orderItems);
+
+      return [order];
+    });
+
+    res.status(201).json(newOrder);
+  } catch (error) {
+    console.error('Error creating sales order:', error);
+    res.status(500).json({ error: 'Failed to create sales order' });
+  }
+});
+
+// Delete a sales order
+router.delete('/orders/:id', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user.id;
+    const orderId = parseInt(req.params.id);
+
+    if (isNaN(orderId)) {
+      return res.status(400).json({ error: 'Invalid order ID' });
+    }
+
+    const [deletedOrder] = await db
+      .delete(schema.orders)
+      .where(and(eq(schema.orders.id, orderId), eq(schema.orders.userId, userId)))
+      .returning();
+
+    if (!deletedOrder) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    res.status(204).end();
+  } catch (error) {
+    console.error('Error deleting sales order:', error);
+    res.status(500).json({ error: 'Failed to delete sales order' });
+  }
+});
+
+// Update a sales order
+router.put('/orders/:id', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user.id;
+    const orderId = parseInt(req.params.id);
+    const { customerId, orderDate, status, items } = req.body;
+
+    if (isNaN(orderId)) {
+      return res.status(400).json({ error: 'Invalid order ID' });
+    }
+
+    // Validate request body
+    if (!customerId || !orderDate || !status || !items) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // Update the order and order items in a transaction
+    const [updatedOrder] = await db.transaction(async (tx) => {
+      const [order] = await tx
+        .update(schema.orders)
+        .set({ customerId, orderDate: new Date(orderDate), status, updatedAt: new Date() })
+        .where(and(eq(schema.orders.id, orderId), eq(schema.orders.userId, userId)))
+        .returning();
+
+      // Clear existing items and add new ones
+      await tx.delete(schema.orderItems).where(eq(schema.orderItems.orderId, orderId));
+      const orderItems = items.map((item: any) => ({
+        orderId: order.id,
+        productId: item.productId,
+        quantity: item.quantity,
+        price: item.price,
+      }));
+      await tx.insert(schema.orderItems).values(orderItems);
+
+      return [order];
+    });
+
+    if (!updatedOrder) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    res.json(updatedOrder);
+  } catch (error) {
+    console.error('Error updating sales order:', error);
+    res.status(500).json({ error: 'Failed to update sales order' });
+  }
+});
+
+// Get a single sales order by ID
+router.get('/orders/:id', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user.id;
+    const orderId = parseInt(req.params.id);
+
+    if (isNaN(orderId)) {
+      return res.status(400).json({ error: 'Invalid order ID' });
+    }
+
+    const [order] = await db
+      .select()
+      .from(schema.orders)
+      .where(and(eq(schema.orders.id, orderId), eq(schema.orders.userId, userId)));
+
+    if (!order) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    const items = await db
+      .select()
+      .from(schema.orderItems)
+      .where(eq(schema.orderItems.orderId, orderId));
+
+    res.json({ ...order, items });
+  } catch (error) {
+    console.error('Error fetching sales order:', error);
+    res.status(500).json({ error: 'Failed to fetch sales order' });
+  }
+});
+
+// Get all sales orders
+router.get('/orders', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user.id;
+    const orders = await db
+      .select()
+      .from(schema.orders)
+      .where(eq(schema.orders.userId, userId));
+    res.json(orders);
+  } catch (error) {
+    console.error('Error fetching sales orders:', error);
+    res.status(500).json({ error: 'Failed to fetch sales orders' });
+  }
+});
+
 // Confirm a sales order
 router.post('/orders/:id/confirm', requireAuth, async (req: Request, res: Response) => {
   try {
