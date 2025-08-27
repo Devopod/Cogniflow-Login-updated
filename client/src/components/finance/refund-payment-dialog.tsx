@@ -76,7 +76,7 @@ export function RefundPaymentDialog({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <Label className="text-muted-foreground">Payment Date</Label>
-              <p>{formatDate(payment.paymentDate)}</p>
+              <p>{formatDate(payment.payment_date)}</p>
             </div>
             <div>
               <Label className="text-muted-foreground">Payment Method</Label>
@@ -87,7 +87,7 @@ export function RefundPaymentDialog({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <Label className="text-muted-foreground">Original Amount</Label>
-              <p className="font-medium">{formatCurrency(payment.amount, payment.currency)}</p>
+              <p className="font-medium">{formatCurrency(payment.amount)}</p>
             </div>
             <div>
               <Label className="text-muted-foreground">Transaction ID</Label>
@@ -123,7 +123,7 @@ export function RefundPaymentDialog({
                 />
               </div>
               <p className="text-sm text-muted-foreground">
-                Maximum refund amount: {formatCurrency(payment.amount, payment.currency)}
+                Maximum refund amount: {formatCurrency(payment.amount)}
               </p>
             </div>
           )}

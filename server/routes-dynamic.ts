@@ -1,5 +1,5 @@
 import { Express, Request, Response, NextFunction } from "express";
-import { extendedStorage } from "./storage-extensions";
+import * as extendedStorage from "./storage-extensions";
 
 // Authentication middleware
 const isAuthenticated = (req: Request, res: Response, next: NextFunction) => {
@@ -558,9 +558,8 @@ export function registerDynamicRoutes(app: Express, wsService: any) {
   // Dynamic dashboard data endpoints
   app.get("/api/dashboard/low-stock-items", isAuthenticated, async (req, res) => {
     try {
-      // This would integrate with inventory system
-      // For now, return dynamic data structure
-      res.json([]);
+      const items = await extendedStorage.getLowStockItems?.(req.user!.id);
+      res.json(items || []);
     } catch (error) {
       console.error("Error fetching low stock items:", error);
       res.status(500).json({ message: "Failed to fetch low stock items" });
@@ -569,9 +568,8 @@ export function registerDynamicRoutes(app: Express, wsService: any) {
 
   app.get("/api/dashboard/upcoming-leaves", isAuthenticated, async (req, res) => {
     try {
-      // This would integrate with HR system
-      // For now, return dynamic data structure
-      res.json([]);
+      const leaves = await extendedStorage.getUpcomingLeaves?.(req.user!.id);
+      res.json(leaves || []);
     } catch (error) {
       console.error("Error fetching upcoming leaves:", error);
       res.status(500).json({ message: "Failed to fetch upcoming leaves" });
@@ -580,9 +578,8 @@ export function registerDynamicRoutes(app: Express, wsService: any) {
 
   app.get("/api/dashboard/warehouse-capacity", isAuthenticated, async (req, res) => {
     try {
-      // This would integrate with warehouse system
-      // For now, return dynamic data structure
-      res.json([]);
+      // Proxy to inventory route for capacity
+      res.redirect(307, '/api/inventory/warehouse-capacity');
     } catch (error) {
       console.error("Error fetching warehouse capacity:", error);
       res.status(500).json({ message: "Failed to fetch warehouse capacity" });
@@ -591,12 +588,33 @@ export function registerDynamicRoutes(app: Express, wsService: any) {
 
   app.get("/api/dashboard/delivery-performance", isAuthenticated, async (req, res) => {
     try {
-      // This would integrate with delivery tracking system
-      // For now, return dynamic data structure
-      res.json([]);
+      const data = await extendedStorage.getDeliveryPerformance?.(req.user!.id);
+      res.json(data || []);
     } catch (error) {
       console.error("Error fetching delivery performance:", error);
       res.status(500).json({ message: "Failed to fetch delivery performance" });
+    }
+  });
+
+  // Alerts for dashboard
+  app.get('/api/alerts', isAuthenticated, async (req, res) => {
+    try {
+      const alerts = await extendedStorage.getDashboardAlerts?.(req.user!.id);
+      res.json(alerts || []);
+    } catch (error) {
+      console.error('Error fetching alerts:', error);
+      res.status(500).json({ message: 'Failed to fetch alerts' });
+    }
+  });
+
+  // Recent activity for dashboard
+  app.get('/api/activity/recent', isAuthenticated, async (req, res) => {
+    try {
+      const activity = await extendedStorage.getRecentActivity?.(req.user!.id);
+      res.json(activity || []);
+    } catch (error) {
+      console.error('Error fetching recent activity:', error);
+      res.status(500).json({ message: 'Failed to fetch recent activity' });
     }
   });
 }

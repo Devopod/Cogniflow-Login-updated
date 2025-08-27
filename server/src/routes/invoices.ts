@@ -1897,37 +1897,43 @@ router.post("/:id/ai/categorize-expenses", authenticateUser, async (req, res) =>
       // Notify other modules about the deletion via WebSocket
       if (wsService) {
         // Notify finance module
-        wsService.broadcastToResource('finance', 'invoices', {
-          type: 'invoice_deleted',
-          data: {
+        wsService.broadcastToResource(
+          'finance',
+          'invoices',
+          'invoice_deleted',
+          {
             invoiceId: invoice.id,
             invoiceNumber: invoice.invoice_number,
             totalAmount: invoice.total_amount,
             userId: req.user!.id
           }
-        });
+        );
 
         // Notify sales module
-        wsService.broadcastToResource('sales', 'orders', {
-          type: 'invoice_deleted',
-          data: {
+        wsService.broadcastToResource(
+          'sales',
+          'orders',
+          'invoice_deleted',
+          {
             invoiceId: invoice.id,
             invoiceNumber: invoice.invoice_number,
             totalAmount: invoice.total_amount,
             userId: req.user!.id
           }
-        });
+        );
 
         // Notify dashboard
-        wsService.broadcastToResource('dashboard', 'all', {
-          type: 'invoice_deleted',
-          data: {
+        wsService.broadcastToResource(
+          'dashboard',
+          'all',
+          'invoice_deleted',
+          {
             invoiceId: invoice.id,
             invoiceNumber: invoice.invoice_number,
             totalAmount: invoice.total_amount,
             userId: req.user!.id
           }
-        });
+        );
       }
 
       res.json({

@@ -34,7 +34,7 @@ router.post('/orders', requireAuth, async (req: Request, res: Response) => {
     const [newOrder] = await db.transaction(async (tx) => {
       const [order] = await tx
         .insert(schema.orders)
-        .values({ customerId, orderDate: new Date(orderDate), status, userId })
+        .values({ customerId, orderDate: orderDate, status, userId })
         .returning();
 
       const orderItems = items.map((item: any) => ({
@@ -102,7 +102,7 @@ router.put('/orders/:id', requireAuth, async (req: Request, res: Response) => {
     const [updatedOrder] = await db.transaction(async (tx) => {
       const [order] = await tx
         .update(schema.orders)
-        .set({ customerId, orderDate: new Date(orderDate), status, updatedAt: new Date() })
+        .set({ customerId, orderDate: orderDate, status, updatedAt: new Date() })
         .where(and(eq(schema.orders.id, orderId), eq(schema.orders.userId, userId)))
         .returning();
 

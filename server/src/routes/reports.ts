@@ -134,7 +134,7 @@ router.get("/sales", authenticateUser, async (req, res) => {
     }
 
     if (status) {
-      conditions.push(eq(invoices.payment_status, status as string));
+      conditions.push(eq(invoices.payment_status, status as any));
     }
 
     // Sales overview
@@ -466,7 +466,7 @@ router.get("/", authenticateUser, async (req, res) => {
       stats: {
         totalReports: savedReports.length,
         generatedThisMonth: savedReports.filter(r => {
-          const reportDate = new Date(r.generatedAt);
+          const reportDate = new Date(r.generatedAt || new Date());
           const now = new Date();
           return reportDate.getMonth() === now.getMonth() && reportDate.getFullYear() === now.getFullYear();
         }).length

@@ -471,7 +471,7 @@ const CompanyManagement = () => {
   const totalCompanies = companiesData?.length || 0;
   const activeCompanies = companiesData?.filter(c => c.status === "Active").length || 0;
   const totalRevenue = companiesData?.reduce((sum, c) => sum + c.revenue, 0) || 0;
-  const avgDealValue = companiesData?.reduce((sum, c) => sum + c.dealValue, 0) / totalCompanies || 0;
+  const avgDealValue = totalCompanies > 0 ? (companiesData?.reduce((sum, c) => sum + c.dealValue, 0) || 0) / totalCompanies : 0;
 
   if (isLoading) {
     return (

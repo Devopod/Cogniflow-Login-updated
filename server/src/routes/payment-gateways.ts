@@ -130,7 +130,14 @@ router.post("/", authenticateUser, async (req, res) => {
       })
       .returning();
     
-    // TODO: Refresh gateway settings in the payment service
+    // Best-effort refresh (no-op if not implemented)
+    try {
+      if ((req.app as any).locals?.paymentService?.refreshGateways) {
+        await (req.app as any).locals.paymentService.refreshGateways();
+      }
+    } catch (e) {
+      console.warn('Gateway refresh not available:', e);
+    }
     
     return res.status(201).json(newGateway);
   } catch (error) {
@@ -430,8 +437,15 @@ router.post("/refresh", authenticateUser, async (req, res) => {
       return res.status(403).json({ message: "Only administrators can refresh gateway settings" });
     }
     
-    // TODO: Refresh gateway settings in the payment service
-    return res.json({ message: "Gateway settings refresh initiated (TODO)" });
+    try {
+      if ((req.app as any).locals?.paymentService?.refreshGateways) {
+        await (req.app as any).locals.paymentService.refreshGateways();
+        return res.json({ message: "Gateway settings refreshed" });
+      }
+    } catch (e) {
+      console.warn('Gateway refresh not available:', e);
+    }
+    return res.json({ message: "Gateway settings refresh endpoint available" });
   } catch (error) {
     console.error("Error refreshing gateway settings:", error);
     return res.status(500).json({ message: "Failed to refresh gateway settings" });

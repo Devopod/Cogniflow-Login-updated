@@ -103,9 +103,7 @@ export default function ActivityManagement() {
     isLoading,
     error,
   } = useActivities({
-    type: filterType !== "all" ? filterType : undefined,
-    status: filterStatus !== "all" ? filterStatus : undefined,
-    limit: 100,
+    // Filters currently supported: contactId, leadId, dealId
   });
 
   const createActivity = useCreateActivity();
@@ -119,7 +117,7 @@ export default function ActivityManagement() {
     description: "",
     status: "completed",
     priority: "medium",
-  });
+  } as any);
 
   // Activity types and their icons
   const activityTypes = [
@@ -176,10 +174,12 @@ export default function ActivityManagement() {
 
   const handleCreateActivity = async () => {
     try {
-      const activityData: InsertActivity = {
-        ...formData,
-        scheduledAt: formData.scheduledAt ? new Date(formData.scheduledAt) : undefined,
-        completedAt: formData.status === 'completed' ? new Date() : undefined,
+      const activityData: Partial<InsertActivity> & { userId: number; type: string; subject: string } = {
+        userId: 1,
+        type: formData.type,
+        subject: formData.subject,
+        notes: formData.description,
+        status: formData.status,
       };
 
       await createActivity.mutateAsync(activityData);
@@ -195,9 +195,10 @@ export default function ActivityManagement() {
 
     try {
       const updateData: Partial<InsertActivity> = {
-        ...formData,
-        scheduledAt: formData.scheduledAt ? new Date(formData.scheduledAt) : undefined,
-        completedAt: formData.status === 'completed' ? new Date() : undefined,
+        type: formData.type,
+        subject: formData.subject,
+        notes: formData.description,
+        status: formData.status,
       };
 
       await updateActivity.mutateAsync({ id: selectedActivity.id, ...updateData });
@@ -234,24 +235,22 @@ export default function ActivityManagement() {
     setFormData({
       type: activity.type,
       subject: activity.subject,
-      description: activity.description || "",
+      description: activity.notes || "",
       leadId: activity.leadId || undefined,
       contactId: activity.contactId || undefined,
       dealId: activity.dealId || undefined,
-      companyId: activity.companyId || undefined,
-      status: activity.status,
-      priority: activity.priority,
-      scheduledAt: activity.scheduledAt ? new Date(activity.scheduledAt).toISOString().slice(0, 16) : undefined,
-      location: activity.location || "",
-    });
+      status: activity.status || 'completed',
+      priority: 'medium',
+    } as any);
     setIsEditDialogOpen(true);
   };
 
   // Filter activities based on search and filters
-  const filteredActivities = activities.filter(activity => {
-    const matchesSearch = activity.subject.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         activity.description?.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesSearch;
+  const filteredActivities = activities.filter((activity: Activity) => {
+    const subject = activity.subject || "";
+    const description = (activity as any).description || "";
+    const s = searchTerm.toLowerCase();
+    return subject.toLowerCase().includes(s) || description.toLowerCase().includes(s);
   });
 
   if (error) {
@@ -485,7 +484,7 @@ export default function ActivityManagement() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredActivities.map((activity) => (
+                {filteredActivities.map((activity: any) => (
                   <TableRow key={activity.id}>
                     <TableCell>
                       <div className="flex items-center space-x-2">

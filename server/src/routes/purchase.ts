@@ -150,7 +150,11 @@ router.get('/dashboard', requireAuth, async (req: Request, res: Response) => {
     
     // Broadcast metrics update if WebSocket service is available
     if (purchaseWS) {
-      purchaseWS.broadcastPurchaseMetricsUpdated(userId, result);
+      if (typeof (purchaseWS as any).broadcastPurchaseMetricsUpdated === 'function') {
+        (purchaseWS as any).broadcastPurchaseMetricsUpdated(userId, result);
+      } else if (typeof (purchaseWS as any).broadcastPurchaseUpdate === 'function') {
+        (purchaseWS as any).broadcastPurchaseUpdate('dashboard_metrics_updated', { userId, metrics: result });
+      }
     }
     
     res.json(result);

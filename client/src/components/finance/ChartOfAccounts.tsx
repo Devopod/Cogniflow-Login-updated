@@ -40,7 +40,7 @@ import AccountForm from "./AccountForm";
 export default function ChartOfAccounts() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedType, setSelectedType] = useState<string>("");
-  const [expandedGroups, setExpandedGroups] = useState<number[]>([]);
+  const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
   const [selectedAccount, setSelectedAccount] = useState<any>(null);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);

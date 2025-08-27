@@ -375,10 +375,11 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: number | null }) {
     if (!invoice || !invoice.contactId) return "No Customer Assigned";
     
     // If invoice has direct contact data from backend
-    if (invoice.contact) {
-      return invoice.contact.firstName && invoice.contact.lastName 
-        ? `${invoice.contact.firstName} ${invoice.contact.lastName}` 
-        : invoice.contact.company || "Customer";
+    if ((invoice as any).contact) {
+      const contact = (invoice as any).contact as { firstName?: string; lastName?: string; company?: string };
+      return contact.firstName && contact.lastName 
+        ? `${contact.firstName} ${contact.lastName}` 
+        : contact.company || "Customer";
     }
     
     // Fallback to contacts array
@@ -401,7 +402,7 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: number | null }) {
     }
     
     // Show loading state while contacts are being fetched
-    if (contacts.length === 0 && !invoice.contact) {
+    if (contacts.length === 0 && !(invoice as any).contact) {
       return (
         <div className="space-y-1">
           <p className="text-muted-foreground">Loading customer details...</p>
@@ -410,8 +411,8 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: number | null }) {
     }
     
     // If invoice has contact data directly (from backend enhancement)
-    if (invoice.contact) {
-      const contact = invoice.contact;
+    if ((invoice as any).contact) {
+      const contact = (invoice as any).contact as any;
       return (
         <div className="space-y-1">
           <p className="font-medium text-green-700">
@@ -665,9 +666,9 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: number | null }) {
                 <Button
                   variant="outline"
                   onClick={() => setIsEmailDialogOpen(true)}
-                  disabled={sendInvoice.isLoading}
+                  disabled={(sendInvoice as any).isPending}
                 >
-                  {sendInvoice.isLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
+                  {(sendInvoice as any).isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
                   Send Email
                 </Button>
               )}
@@ -941,8 +942,8 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: number | null }) {
                         <div key={payment.id} className="border rounded-md p-4">
                           <div className="flex justify-between">
                             <div>
-                              <p className="font-medium">{payment.paymentMethod.replace('_', ' ')}</p>
-                              <p className="text-sm text-muted-foreground">{formatDate(payment.paymentDate)}</p>
+                              <p className="font-medium">{(payment as any).paymentMethod ? (payment as any).paymentMethod.replace('_', ' ') : (payment as any).payment_method?.replace('_', ' ')}</p>
+                              <p className="text-sm text-muted-foreground">{formatDate((payment as any).paymentDate || (payment as any).payment_date)}</p>
                               {payment.reference && (
                                 <p className="text-sm text-muted-foreground">Ref: {payment.reference}</p>
                               )}
@@ -1165,7 +1166,7 @@ export function InvoiceDetailPage({ invoiceId }: { invoiceId: number | null }) {
                   <Button 
                     variant="outline" 
                     size="sm"
-                    onClick={() => setEmailTo(invoice.contact.email)}
+                    onClick={() => setEmailTo(invoice?.contact?.email ?? "")}
                   >
                     Use: {invoice.contact.email}
                   </Button>

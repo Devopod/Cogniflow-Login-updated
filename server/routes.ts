@@ -73,6 +73,9 @@ import paymentRoutes from './src/routes/payments';
 import paymentReminderRoutes from './src/routes/payment-reminders';
 import crmRoutes from './src/routes/crm';
 import inventoryRoutes from './src/routes/inventory';
+import operationsRoutes from './src/routes/operations';
+import alertsRoutes from './src/routes/alerts';
+import activityRoutes from './src/routes/activity';
 import paymentGatewayRoutes from './src/routes/payment-gateways';
 import emailTestRoutes from './src/routes/email-test';
 import hrmsRoutes from './src/routes/hrms';
@@ -102,14 +105,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Store WebSocket service in app.locals for access in routes
   app.locals.wsService = wsService;
+  // Expose payment service for gateway refresh hooks
+  try {
+    const { paymentService } = await import('./src/services/payment');
+    (app as any).locals.paymentService = paymentService;
+  } catch (e) {
+    console.warn('Payment service not available to attach to app.locals');
+  }
   
   // Register all dynamic data routes
   registerDynamicRoutes(app, wsService);
   
   // Initialize the scheduler
   console.log('Starting task scheduler...');
-  const scheduledTasks = scheduler.getTasks();
+  const scheduledTasks = scheduler.getAllTasks();
   console.log(`${scheduledTasks.length} tasks registered`);
+  scheduler.start();
   
   // Set up authentication
   setupAuth(app);
@@ -118,6 +129,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/test', (req, res) => {
     console.log('Test endpoint called');
     res.json({ message: 'API is working!' });
+  });
+  // Health check endpoint
+  app.get('/healthz', (_req, res) => {
+    res.status(200).json({ status: 'ok' });
   });
 
   // Register company routes
@@ -152,9 +167,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Register Inventory routes
   app.use('/api/inventory', inventoryRoutes);
+  // Operations dashboard routes
+  app.use('/api/operations', operationsRoutes);
+  // Global alerts
+  app.use('/api/alerts', alertsRoutes);
+  // Activity feed
+  app.use('/api/activity', activityRoutes);
   
   // Register HRMS routes
   app.use('/api/hrms', hrmsRoutes);
+  // Alias for dashboard expectations
+  app.use('/api/hr', hrmsRoutes);
   
   // Register Purchase routes  
   app.use('/api/purchase', isAuthenticated, purchaseRoutes);

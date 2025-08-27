@@ -274,10 +274,7 @@ router.post('/contacts', async (req: Request, res: Response) => {
     
     // Broadcast real-time update
     const wsService = req.app.locals.wsService as WSService;
-    wsService.broadcastToResource('crm', 'contacts', {
-      type: 'contact_created',
-      data: newContact
-    });
+    wsService.broadcastToResource('crm', 'contacts', 'contact_created', newContact);
     
     res.status(201).json(newContact);
   } catch (error) {
@@ -304,10 +301,7 @@ router.put('/contacts/:id', async (req: Request, res: Response) => {
     
     // Broadcast real-time update
     const wsService = req.app.locals.wsService as WSService;
-    wsService.broadcastToResource('crm', 'contacts', {
-      type: 'contact_updated',
-      data: updatedContact
-    });
+    wsService.broadcastToResource('crm', 'contacts', 'contact_updated', updatedContact);
     
     res.json(updatedContact);
   } catch (error) {
@@ -333,10 +327,7 @@ router.delete('/contacts/:id', async (req: Request, res: Response) => {
     
     // Broadcast real-time update
     const wsService = req.app.locals.wsService as WSService;
-    wsService.broadcastToResource('crm', 'contacts', {
-      type: 'contact_deleted',
-      data: { id: contactId }
-    });
+    wsService.broadcastToResource('crm', 'contacts', 'contact_deleted', { id: contactId });
     
     res.json({ message: 'Contact deleted successfully' });
   } catch (error) {
@@ -393,10 +384,7 @@ router.post('/deals', async (req: Request, res: Response) => {
     
     // Broadcast real-time update
     const wsService = req.app.locals.wsService as WSService;
-    wsService.broadcastToResource('crm', 'deals', {
-      type: 'deal_created',
-      data: newDeal
-    });
+    wsService.broadcastToResource('crm', 'deals', 'deal_created', newDeal);
     
     res.status(201).json(newDeal);
   } catch (error) {
@@ -423,15 +411,38 @@ router.put('/deals/:id', async (req: Request, res: Response) => {
     
     // Broadcast real-time update
     const wsService = req.app.locals.wsService as WSService;
-    wsService.broadcastToResource('crm', 'deals', {
-      type: 'deal_updated',
-      data: updatedDeal
-    });
+    wsService.broadcastToResource('crm', 'deals', 'deal_updated', updatedDeal);
     
     res.json(updatedDeal);
   } catch (error) {
     console.error('Error updating deal:', error);
     res.status(500).json({ error: 'Failed to update deal' });
+  }
+});
+
+// Update deal stage (for Kanban interactions)
+router.put('/deals/:id/stage', async (req: Request, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    const dealId = parseInt(req.params.id);
+    const { stage } = req.body as { stage: string };
+    if (!stage) {
+      return res.status(400).json({ error: 'stage is required' });
+    }
+    const [updated] = await db
+      .update(schema.deals)
+      .set({ stage, updatedAt: new Date() })
+      .where(and(eq(schema.deals.id, dealId), eq(schema.deals.userId, userId)))
+      .returning();
+    if (!updated) {
+      return res.status(404).json({ error: 'Deal not found' });
+    }
+    const wsService = req.app.locals.wsService as WSService;
+    wsService.broadcastToResource('crm', 'deals', 'deal_stage_updated', { id: dealId, stage });
+    res.json(updated);
+  } catch (error) {
+    console.error('Error updating deal stage:', error);
+    res.status(500).json({ error: 'Failed to update deal stage' });
   }
 });
 

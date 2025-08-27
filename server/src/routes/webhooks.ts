@@ -1,93 +1,59 @@
-import express from "express";
-import Stripe from "stripe";
-import crypto from 'crypto';
-import { storage } from "../../storage";
-import { paymentService } from "../services/payment";
-import { wsService } from "../services/websocket";
-import { emailService } from "../services/email";
+import express from 'express';
+import Stripe from 'stripe';
+import { storage } from '../../storage';
+import { paymentService } from '../services/payment';
+import { emailService } from '../services/email';
+import { db } from '../../db';
+import { invoices, contacts, payment_history } from '@shared/schema';
+import { eq } from 'drizzle-orm';
 
 const router = express.Router();
 
-// Initialize Stripe (only if API key is provided and not a dummy key)
-const stripeKey = process.env.STRIPE_SECRET_KEY;
-const stripe = stripeKey && !stripeKey.includes('dummy') ? new Stripe(stripeKey, {
-  apiVersion: "2023-10-16",
-}) : null;
+// Initialize Stripe
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
+  apiVersion: "2023-10-16" as any,
+});
 
-// Stripe webhook endpoint signature verification
-const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
-
-// Raw body parser for Stripe webhooks
-router.use('/stripe', express.raw({ type: 'application/json' }));
-
-// Stripe webhook handler
-router.post('/stripe', async (req, res) => {
-  // Check if Stripe is configured
-  if (!stripe) {
-    console.log('Stripe webhook received but Stripe is not configured');
-    return res.status(200).json({ received: true, message: 'Stripe not configured' });
-  }
-
+// Stripe webhook endpoint
+router.post('/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
   const sig = req.headers['stripe-signature'];
+  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
   let event: Stripe.Event;
 
   try {
+    if (!endpointSecret) {
+      throw new Error('Stripe webhook secret not configured');
+    }
     event = stripe.webhooks.constructEvent(req.body, sig as string, endpointSecret);
-  } catch (err: any) {
-    console.error(`Webhook signature verification failed:`, err.message);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
+  } catch (err) {
+    console.error('Webhook signature verification failed:', err);
+    return res.status(400).send(`Webhook Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
   }
 
-  console.log(`Received Stripe webhook: ${event.type}`);
-
   try {
-    // Handle the event
     switch (event.type) {
       case 'payment_intent.succeeded':
         await handlePaymentIntentSucceeded(event.data.object as Stripe.PaymentIntent);
         break;
-
       case 'payment_intent.payment_failed':
         await handlePaymentIntentFailed(event.data.object as Stripe.PaymentIntent);
         break;
-
-      case 'payment_intent.canceled':
-        await handlePaymentIntentCanceled(event.data.object as Stripe.PaymentIntent);
-        break;
-
-      case 'payment_method.attached':
-        await handlePaymentMethodAttached(event.data.object as Stripe.PaymentMethod);
-        break;
-
       case 'invoice.payment_succeeded':
         await handleInvoicePaymentSucceeded(event.data.object as Stripe.Invoice);
         break;
-
       case 'invoice.payment_failed':
         await handleInvoicePaymentFailed(event.data.object as Stripe.Invoice);
         break;
-
       case 'customer.subscription.created':
         await handleSubscriptionCreated(event.data.object as Stripe.Subscription);
         break;
-
       case 'customer.subscription.updated':
         await handleSubscriptionUpdated(event.data.object as Stripe.Subscription);
         break;
-
       case 'customer.subscription.deleted':
         await handleSubscriptionDeleted(event.data.object as Stripe.Subscription);
         break;
-
-      case 'charge.dispute.created':
-        await handleChargeDisputeCreated(event.data.object as Stripe.Dispute);
-        break;
-
-      case 'refund.created':
-        await handleRefundCreated(event.data.object as Stripe.Refund);
-        break;
-
       default:
         console.log(`Unhandled event type: ${event.type}`);
     }
@@ -95,379 +61,399 @@ router.post('/stripe', async (req, res) => {
     res.json({ received: true });
   } catch (error) {
     console.error('Error processing webhook:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Webhook processing failed' });
   }
 });
 
-// Handle successful payment intent
 async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent) {
-  console.log('Payment succeeded:', paymentIntent.id);
-  
   try {
-    await paymentService.handlePaymentSuccess(paymentIntent);
-    
-    // Send payment confirmation email
     const invoiceId = paymentIntent.metadata?.invoiceId;
-    if (invoiceId) {
-      const invoice = await storage.getInvoice(parseInt(invoiceId));
-      if (invoice) {
-        await emailService.sendEmail({
-          to: invoice.contact?.email || '',
-          subject: `Payment Confirmation - Invoice ${invoice.invoiceNumber}`,
-          html: `
-            <h2>Payment Received</h2>
-            <p>Thank you for your payment of ${(paymentIntent.amount / 100).toFixed(2)} ${paymentIntent.currency.toUpperCase()}.</p>
-            <p>Invoice: ${invoice.invoiceNumber}</p>
-            <p>Payment Method: ${paymentIntent.payment_method_types.join(', ')}</p>
-            <p>Transaction ID: ${paymentIntent.id}</p>
-          `,
-          text: `Payment Received - Thank you for your payment of ${(paymentIntent.amount / 100).toFixed(2)} ${paymentIntent.currency.toUpperCase()} for invoice ${invoice.invoiceNumber}.`
-        });
+    if (!invoiceId) {
+      console.log('No invoice ID in payment intent metadata');
+      return;
+    }
+
+    // Get invoice details
+    const [invoice] = await db.select().from(invoices).where(eq(invoices.id, parseInt(invoiceId)));
+    if (!invoice) {
+      console.log('Invoice not found:', invoiceId);
+      return;
+    }
+
+    // Process payment
+    const result = await paymentService.processInvoicePayment(parseInt(invoiceId), {
+      amount: paymentIntent.amount / 100, // Convert from cents
+      payment_method: 'stripe',
+      paymentNumber: paymentIntent.id,
+      description: `Stripe payment for invoice ${invoice.invoiceNumber}`,
+      metadata: {
+        payment_intent_id: paymentIntent.id,
+        customer_id: paymentIntent.customer as string,
+      },
+    });
+
+    if (result.success) {
+      // Send confirmation email
+      if (invoice.contactId) {
+        const [contact] = await db.select().from(contacts).where(eq(contacts.id, invoice.contactId));
+        if (contact?.email) {
+          await emailService.sendEmail({
+            to: contact.email,
+            subject: `Payment Confirmed - Invoice ${invoice.invoiceNumber}`,
+            html: `
+              <h2>Payment Confirmed</h2>
+              <p>Your payment of ${result.amount} ${result.currency} for invoice ${invoice.invoiceNumber} has been processed successfully.</p>
+              <p>Thank you for your business!</p>
+            `,
+          });
+        }
       }
+
+      // Log activity
+      await db.insert(payment_history).values({
+        invoiceId: parseInt(invoiceId),
+        event_type: 'payment_processed',
+        event_timestamp: new Date(),
+        details: {
+          amount: result.amount,
+          payment_method: 'stripe',
+          payment_intent_id: paymentIntent.id,
+        },
+        user_id: invoice.userId,
+        created_at: new Date(),
+      });
     }
   } catch (error) {
-    console.error('Error handling payment success:', error);
+    console.error('Error handling payment intent succeeded:', error);
   }
 }
 
-// Handle failed payment intent
 async function handlePaymentIntentFailed(paymentIntent: Stripe.PaymentIntent) {
-  console.log('Payment failed:', paymentIntent.id);
-  
   try {
-    await paymentService.handlePaymentFailure(paymentIntent);
-    
-    // Send payment failure notification
     const invoiceId = paymentIntent.metadata?.invoiceId;
-    if (invoiceId) {
-      const invoice = await storage.getInvoice(parseInt(invoiceId));
-      if (invoice) {
+    if (!invoiceId) return;
+
+    const [invoice] = await db.select().from(invoices).where(eq(invoices.id, parseInt(invoiceId)));
+    if (!invoice) return;
+
+    // Send failure notification
+    if (invoice.contactId) {
+      const [contact] = await db.select().from(contacts).where(eq(contacts.id, invoice.contactId));
+      if (contact?.email) {
         await emailService.sendEmail({
-          to: invoice.contact?.email || '',
+          to: contact.email,
           subject: `Payment Failed - Invoice ${invoice.invoiceNumber}`,
           html: `
             <h2>Payment Failed</h2>
-            <p>Your payment of ${(paymentIntent.amount / 100).toFixed(2)} ${paymentIntent.currency.toUpperCase()} could not be processed.</p>
-            <p>Invoice: ${invoice.invoiceNumber}</p>
-            <p>Reason: ${paymentIntent.last_payment_error?.message || 'Unknown error'}</p>
+            <p>We were unable to process your payment for invoice ${invoice.invoiceNumber}.</p>
             <p>Please try again or contact us for assistance.</p>
           `,
-          text: `Payment Failed - Your payment for invoice ${invoice.invoiceNumber} could not be processed. Please try again.`
         });
       }
     }
+
+    // Log activity
+    await db.insert(payment_history).values({
+      invoiceId: parseInt(invoiceId),
+      event_type: 'payment_failed',
+      event_timestamp: new Date(),
+      details: {
+        payment_intent_id: paymentIntent.id,
+        error: paymentIntent.last_payment_error?.message || 'Payment failed',
+      },
+      user_id: invoice.userId,
+      created_at: new Date(),
+    });
   } catch (error) {
-    console.error('Error handling payment failure:', error);
+    console.error('Error handling payment intent failed:', error);
   }
 }
 
-// Handle canceled payment intent
-async function handlePaymentIntentCanceled(paymentIntent: Stripe.PaymentIntent) {
-  console.log('Payment canceled:', paymentIntent.id);
-  
-  try {
-    // Log the cancellation
-    const invoiceId = paymentIntent.metadata?.invoiceId;
-    if (invoiceId) {
-      await storage.createInvoiceActivity({
-        invoiceId: parseInt(invoiceId),
-        userId: 0, // System user
-        activityType: 'payment_canceled',
-        description: `Payment intent ${paymentIntent.id} was canceled`,
-        metadata: { paymentIntentId: paymentIntent.id }
-      });
-
-      // Broadcast the cancellation
-      wsService.broadcastToResource('invoice', parseInt(invoiceId), {
-        type: 'payment_canceled',
-        data: { paymentIntentId: paymentIntent.id }
-      });
-    }
-  } catch (error) {
-    console.error('Error handling payment cancellation:', error);
-  }
-}
-
-// Handle payment method attached
-async function handlePaymentMethodAttached(paymentMethod: Stripe.PaymentMethod) {
-  console.log('Payment method attached:', paymentMethod.id);
-  
-  try {
-    // Find the contact associated with this customer
-    if (paymentMethod.customer) {
-      const customerId = paymentMethod.customer as string;
-      // Note: You might want to store Stripe customer ID in your contacts table
-      // to easily find the associated contact
-      
-      // Log the attachment
-      console.log(`Payment method ${paymentMethod.id} attached to customer ${customerId}`);
-    }
-  } catch (error) {
-    console.error('Error handling payment method attachment:', error);
-  }
-}
-
-// Handle Stripe invoice payment succeeded (for recurring payments)
 async function handleInvoicePaymentSucceeded(stripeInvoice: Stripe.Invoice) {
-  console.log('Stripe invoice payment succeeded:', stripeInvoice.id);
-  
   try {
-    // Check if this is for a recurring invoice in our system
-    const subscriptionId = stripeInvoice.subscription as string;
-    if (subscriptionId) {
-      // Find the invoice associated with this subscription
-      // Note: You would need to store subscription IDs in your invoices table
-      
-      // Create a new payment record
-      const paymentData = {
-        invoiceId: 0, // You'd need to find the actual invoice ID
-        amount: stripeInvoice.amount_paid / 100, // Convert from cents
-        paymentMethod: 'Stripe Subscription',
-        transactionId: stripeInvoice.payment_intent as string,
-        status: 'completed' as const,
-        metadata: {
-          stripeInvoiceId: stripeInvoice.id,
-          subscriptionId: subscriptionId
-        }
-      };
-      
-      // await storage.createPayment(paymentData);
-    }
-  } catch (error) {
-    console.error('Error handling Stripe invoice payment:', error);
-  }
-}
+    const invoiceId = stripeInvoice.metadata?.invoiceId;
+    if (!invoiceId) return;
 
-// Handle Stripe invoice payment failed (for recurring payments)
-async function handleInvoicePaymentFailed(stripeInvoice: Stripe.Invoice) {
-  console.log('Stripe invoice payment failed:', stripeInvoice.id);
-  
-  try {
-    // Handle recurring payment failure
-    // You might want to notify the customer and pause the subscription
-    
-    // Send notification email about failed recurring payment
-    if (stripeInvoice.customer_email) {
-      await emailService.sendEmail({
-        to: stripeInvoice.customer_email,
-        subject: 'Recurring Payment Failed',
-        html: `
-          <h2>Payment Failed</h2>
-          <p>Your recurring payment of ${(stripeInvoice.amount_due / 100).toFixed(2)} ${stripeInvoice.currency.toUpperCase()} could not be processed.</p>
-          <p>Please update your payment method to continue your subscription.</p>
-        `,
-        text: `Your recurring payment could not be processed. Please update your payment method.`
-      });
-    }
-  } catch (error) {
-    console.error('Error handling Stripe invoice payment failure:', error);
-  }
-}
+    const [invoice] = await db.select().from(invoices).where(eq(invoices.id, parseInt(invoiceId)));
+    if (!invoice) return;
 
-// Handle subscription created
-async function handleSubscriptionCreated(subscription: Stripe.Subscription) {
-  console.log('Subscription created:', subscription.id);
-  
-  try {
-    // Update the associated invoice with subscription details
-    const invoiceId = subscription.metadata?.invoiceId;
-    if (invoiceId) {
-      await storage.updateInvoice(parseInt(invoiceId), {
-        metadata: {
-          stripeSubscriptionId: subscription.id,
-          subscriptionStatus: subscription.status
-        }
-      });
-
-      // Log the activity
-      await storage.createInvoiceActivity({
-        invoiceId: parseInt(invoiceId),
-        userId: 0, // System user
-        activityType: 'subscription_created',
-        description: `Stripe subscription ${subscription.id} created for recurring invoice`,
-        metadata: { subscriptionId: subscription.id }
-      });
-    }
-  } catch (error) {
-    console.error('Error handling subscription creation:', error);
-  }
-}
-
-// Handle subscription updated
-async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
-  console.log('Subscription updated:', subscription.id);
-  
-  try {
-    // Update subscription status in your system
-    const invoiceId = subscription.metadata?.invoiceId;
-    if (invoiceId) {
-      await storage.createInvoiceActivity({
-        invoiceId: parseInt(invoiceId),
-        userId: 0, // System user
-        activityType: 'subscription_updated',
-        description: `Stripe subscription ${subscription.id} status changed to ${subscription.status}`,
-        metadata: { 
-          subscriptionId: subscription.id,
-          status: subscription.status,
-          currentPeriodEnd: subscription.current_period_end
-        }
-      });
-
-      // Broadcast the update
-      wsService.broadcastToResource('invoice', parseInt(invoiceId), {
-        type: 'subscription_updated',
-        data: { 
-          subscriptionId: subscription.id,
-          status: subscription.status
-        }
-      });
-    }
-  } catch (error) {
-    console.error('Error handling subscription update:', error);
-  }
-}
-
-// Handle subscription deleted
-async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
-  console.log('Subscription deleted:', subscription.id);
-  
-  try {
-    // Handle subscription cancellation
-    const invoiceId = subscription.metadata?.invoiceId;
-    if (invoiceId) {
-      // Update the recurring invoice to mark it as inactive
-      await storage.updateInvoice(parseInt(invoiceId), {
-        isRecurring: false,
-        metadata: {
-          subscriptionCanceledAt: new Date().toISOString(),
-          subscriptionCancelReason: 'stripe_subscription_deleted'
-        }
-      });
-
-      // Log the activity
-      await storage.createInvoiceActivity({
-        invoiceId: parseInt(invoiceId),
-        userId: 0, // System user
-        activityType: 'subscription_canceled',
-        description: `Stripe subscription ${subscription.id} was canceled`,
-        metadata: { subscriptionId: subscription.id }
-      });
-
-      // Broadcast the cancellation
-      wsService.broadcastToResource('invoice', parseInt(invoiceId), {
-        type: 'subscription_canceled',
-        data: { subscriptionId: subscription.id }
-      });
-    }
-  } catch (error) {
-    console.error('Error handling subscription deletion:', error);
-  }
-}
-
-// Handle charge dispute created
-async function handleChargeDisputeCreated(dispute: Stripe.Dispute) {
-  console.log('Charge dispute created:', dispute.id);
-  
-  try {
-    // Find the payment associated with this charge
-    const chargeId = dispute.charge as string;
-    
-    // Log the dispute
-    console.log(`Dispute ${dispute.id} created for charge ${chargeId}. Reason: ${dispute.reason}`);
-    
-    // You might want to:
-    // 1. Notify relevant staff about the dispute
-    // 2. Update the payment status
-    // 3. Create a task for handling the dispute
-    
-    // Send notification email about dispute
-    if (process.env.ADMIN_EMAIL) {
-      await emailService.sendEmail({
-        to: process.env.ADMIN_EMAIL,
-        subject: `Payment Dispute Created - ${dispute.id}`,
-        html: `
-          <h2>Payment Dispute Alert</h2>
-          <p>A dispute has been created for charge ${chargeId}.</p>
-          <p>Dispute ID: ${dispute.id}</p>
-          <p>Amount: ${(dispute.amount / 100).toFixed(2)} ${dispute.currency.toUpperCase()}</p>
-          <p>Reason: ${dispute.reason}</p>
-          <p>Status: ${dispute.status}</p>
-          <p>Please review and respond in your Stripe Dashboard.</p>
-        `,
-        text: `Payment dispute created: ${dispute.id} for charge ${chargeId}. Amount: ${(dispute.amount / 100).toFixed(2)} ${dispute.currency.toUpperCase()}. Reason: ${dispute.reason}`
-      });
-    }
-  } catch (error) {
-    console.error('Error handling charge dispute:', error);
-  }
-}
-
-// Handle refund created
-async function handleRefundCreated(refund: Stripe.Refund) {
-  console.log('Refund created:', refund.id);
-  
-  try {
-    // Update the associated payment record
-    const chargeId = refund.charge as string;
-    
-    // Log the refund
-    console.log(`Refund ${refund.id} created for charge ${chargeId}. Amount: ${refund.amount / 100}`);
-    
-    // You might want to:
-    // 1. Update the payment status in your database
-    // 2. Update the invoice payment status if fully refunded
-    // 3. Send confirmation email to the customer
-    
-    // Create refund record in your system
-    const refundData = {
-      paymentId: 0, // You'd need to find the payment ID from the charge
-      amount: refund.amount / 100,
-      reason: refund.reason || 'requested_by_customer',
-      status: refund.status,
-      transactionId: refund.id,
+    // Process the payment
+    const result = await paymentService.processInvoicePayment(parseInt(invoiceId), {
+      amount: stripeInvoice.amount_paid / 100,
+      payment_method: 'stripe_invoice',
+      paymentNumber: stripeInvoice.id || '',
+      description: `Stripe invoice payment for ${invoice.invoiceNumber}`,
       metadata: {
-        chargeId: chargeId,
-        stripeRefundId: refund.id
+        stripe_invoice_id: stripeInvoice.id,
+        subscription_id: (stripeInvoice.subscription as string) || '',
+      },
+    });
+
+    if (result.success) {
+      // Send confirmation email
+      if (invoice.contactId) {
+        const [contact] = await db.select().from(contacts).where(eq(contacts.id, invoice.contactId));
+        if (contact?.email) {
+          await emailService.sendEmail({
+            to: contact.email,
+            subject: `Payment Confirmed - Invoice ${invoice.invoiceNumber}`,
+            html: `
+              <h2>Payment Confirmed</h2>
+              <p>Your payment of ${result.amount} ${result.currency} for invoice ${invoice.invoiceNumber} has been processed successfully.</p>
+            `,
+          });
+        }
       }
-    };
-    
-    // await storage.createRefund(refundData);
+    }
   } catch (error) {
-    console.error('Error handling refund creation:', error);
+    console.error('Error handling invoice payment succeeded:', error);
+  }
+}
+
+async function handleInvoicePaymentFailed(stripeInvoice: Stripe.Invoice) {
+  try {
+    const invoiceId = stripeInvoice.metadata?.invoiceId;
+    if (!invoiceId) return;
+
+    const [invoice] = await db.select().from(invoices).where(eq(invoices.id, parseInt(invoiceId)));
+    if (!invoice) return;
+
+    // Send failure notification
+    if (invoice.contactId) {
+      const [contact] = await db.select().from(contacts).where(eq(contacts.id, invoice.contactId));
+      if (contact?.email) {
+        await emailService.sendEmail({
+          to: contact.email,
+          subject: `Payment Failed - Invoice ${invoice.invoiceNumber}`,
+          html: `
+            <h2>Payment Failed</h2>
+            <p>We were unable to process your payment for invoice ${invoice.invoiceNumber}.</p>
+          `,
+        });
+      }
+    }
+
+    // Log activity
+    await db.insert(payment_history).values({
+      invoiceId: parseInt(invoiceId),
+      event_type: 'payment_failed',
+      event_timestamp: new Date(),
+      details: {
+        stripe_invoice_id: stripeInvoice.id,
+        error: 'Invoice payment failed',
+      },
+      user_id: invoice.userId,
+      created_at: new Date(),
+    });
+  } catch (error) {
+    console.error('Error handling invoice payment failed:', error);
+  }
+}
+
+async function handleSubscriptionCreated(subscription: Stripe.Subscription) {
+  try {
+    const invoiceId = subscription.metadata?.invoiceId;
+    if (!invoiceId) return;
+
+    // Update invoice with subscription details
+    await db.update(invoices)
+      .set({
+        is_recurring: true,
+        recurring_schedule: {
+          subscription_id: subscription.id,
+          interval: subscription.items.data[0]?.price.recurring?.interval || 'month',
+          interval_count: subscription.items.data[0]?.price.recurring?.interval_count || 1,
+          current_period_start: new Date(subscription.current_period_start * 1000),
+          current_period_end: new Date(subscription.current_period_end * 1000),
+        } as any,
+      })
+      .where(eq(invoices.id, parseInt(invoiceId)));
+
+    // Log activity
+    await db.insert(payment_history).values({
+      invoiceId: parseInt(invoiceId),
+      event_type: 'subscription_created',
+      event_timestamp: new Date(),
+      details: {
+        subscription_id: subscription.id,
+        status: subscription.status,
+      },
+      user_id: parseInt(subscription.metadata?.userId || '0'),
+      created_at: new Date(),
+    });
+  } catch (error) {
+    console.error('Error handling subscription created:', error);
+  }
+}
+
+async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
+  try {
+    const invoiceId = subscription.metadata?.invoiceId;
+    if (!invoiceId) return;
+
+    // Update invoice with new subscription details
+    await db.update(invoices)
+      .set({
+        recurring_schedule: {
+          subscription_id: subscription.id,
+          interval: subscription.items.data[0]?.price.recurring?.interval || 'month',
+          interval_count: subscription.items.data[0]?.price.recurring?.interval_count || 1,
+          current_period_start: new Date(subscription.current_period_start * 1000),
+          current_period_end: new Date(subscription.current_period_end * 1000),
+        } as any,
+      })
+      .where(eq(invoices.id, parseInt(invoiceId)));
+
+    // Log activity
+    await db.insert(payment_history).values({
+      invoiceId: parseInt(invoiceId),
+      event_type: 'subscription_updated',
+      event_timestamp: new Date(),
+      details: {
+        subscription_id: subscription.id,
+        status: subscription.status,
+        current_period_end: new Date(subscription.current_period_end * 1000),
+      },
+      user_id: parseInt(subscription.metadata?.userId || '0'),
+      created_at: new Date(),
+    });
+  } catch (error) {
+    console.error('Error handling subscription updated:', error);
+  }
+}
+
+async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
+  try {
+    const invoiceId = subscription.metadata?.invoiceId;
+    if (!invoiceId) return;
+
+    // Update invoice to mark subscription as cancelled
+    await db.update(invoices)
+      .set({
+        is_recurring: false,
+        recurring_schedule: null,
+      })
+      .where(eq(invoices.id, parseInt(invoiceId)));
+
+    // Log activity
+    await db.insert(payment_history).values({
+      invoiceId: parseInt(invoiceId),
+      event_type: 'subscription_cancelled',
+      event_timestamp: new Date(),
+      details: {
+        subscription_id: subscription.id,
+        status: subscription.status,
+      },
+      user_id: parseInt(subscription.metadata?.userId || '0'),
+      created_at: new Date(),
+    });
+  } catch (error) {
+    console.error('Error handling subscription deleted:', error);
+  }
+}
+
+// Razorpay webhook endpoint
+router.post('/razorpay', express.json(), async (req, res) => {
+  try {
+    const { event, payload } = req.body;
+
+    switch (event) {
+      case 'payment.captured':
+        await handleRazorpayPaymentCaptured(payload);
+        break;
+      case 'payment.failed':
+        await handleRazorpayPaymentFailed(payload);
+        break;
+      default:
+        console.log(`Unhandled Razorpay event: ${event}`);
+    }
+
+    res.json({ received: true });
+  } catch (error) {
+    console.error('Error processing Razorpay webhook:', error);
+    res.status(500).json({ error: 'Webhook processing failed' });
+  }
+});
+
+async function handleRazorpayPaymentCaptured(payload: any) {
+  try {
+    const invoiceId = payload.notes?.invoiceId;
+    if (!invoiceId) return;
+
+    const [invoice] = await db.select().from(invoices).where(eq(invoices.id, parseInt(invoiceId)));
+    if (!invoice) return;
+
+    // Process the payment
+    const result = await paymentService.processInvoicePayment(parseInt(invoiceId), {
+      amount: payload.amount / 100, // Convert from paise
+      payment_method: 'razorpay',
+      paymentNumber: payload.id,
+      description: `Razorpay payment for invoice ${invoice.invoiceNumber}`,
+      metadata: {
+        razorpay_payment_id: payload.id,
+        razorpay_order_id: payload.order_id,
+      },
+    });
+
+    if (result.success) {
+      // Send confirmation email
+      if (invoice.contactId) {
+        const [contact] = await db.select().from(contacts).where(eq(contacts.id, invoice.contactId));
+        if (contact?.email) {
+          await emailService.sendEmail({
+            to: contact.email,
+            subject: `Payment Confirmed - Invoice ${invoice.invoiceNumber}`,
+            html: `
+              <h2>Payment Confirmed</h2>
+              <p>Your payment of ${result.amount} ${result.currency} for invoice ${invoice.invoiceNumber} has been processed successfully.</p>
+            `,
+          });
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Error handling Razorpay payment captured:', error);
+  }
+}
+
+async function handleRazorpayPaymentFailed(payload: any) {
+  try {
+    const invoiceId = payload.notes?.invoiceId;
+    if (!invoiceId) return;
+
+    const [invoice] = await db.select().from(invoices).where(eq(invoices.id, parseInt(invoiceId)));
+    if (!invoice) return;
+
+    // Send failure notification
+    if (invoice.contactId) {
+      const [contact] = await db.select().from(contacts).where(eq(contacts.id, invoice.contactId));
+      if (contact?.email) {
+        await emailService.sendEmail({
+          to: contact.email,
+          subject: `Payment Failed - Invoice ${invoice.invoiceNumber}`,
+          html: `
+            <h2>Payment Failed</h2>
+            <p>We were unable to process your payment for invoice ${invoice.invoiceNumber}.</p>
+          `,
+        });
+      }
+    }
+
+    // Log activity
+    await db.insert(payment_history).values({
+      invoiceId: parseInt(invoiceId),
+      event_type: 'payment_failed',
+      event_timestamp: new Date(),
+      details: {
+        razorpay_payment_id: payload.id,
+        error: payload.error_description || 'Payment failed',
+      },
+      user_id: invoice.userId,
+      created_at: new Date(),
+    });
+  } catch (error) {
+    console.error('Error handling Razorpay payment failed:', error);
   }
 }
 
 export default router;
-
-// Razorpay webhook (HMAC verification)
-router.post('/razorpay', express.raw({ type: 'application/json' }), async (req, res) => {
-  try {
-    const secret = process.env.RAZORPAY_WEBHOOK_SECRET || process.env.RAZORPAY_KEY_SECRET;
-    if (!secret) {
-      return res.status(500).json({ message: 'Razorpay secret not configured' });
-    }
-    const signature = req.headers['x-razorpay-signature'] as string;
-    const body = req.body instanceof Buffer ? req.body.toString('utf8') : JSON.stringify(req.body);
-    const expected = crypto.createHmac('sha256', secret).update(body).digest('hex');
-    if (expected !== signature) {
-      return res.status(400).json({ message: 'Invalid Razorpay webhook signature' });
-    }
-    const event = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-    const eventType = event?.event as string;
-    try {
-      if (eventType === 'payment.captured' || eventType === 'order.paid') {
-        const paymentEntity = event?.payload?.payment?.entity || event?.payload?.order?.entity;
-        const notes = paymentEntity?.notes || {};
-        const invoiceId = notes.invoiceId ? parseInt(notes.invoiceId) : undefined;
-        if (invoiceId) {
-          await paymentService.handlePaymentSuccess({ id: paymentEntity.id, amount: paymentEntity.amount, currency: paymentEntity.currency, metadata: { invoiceId: String(invoiceId) } } as any);
-        }
-      }
-    } catch (mapErr) {
-      console.error('Error mapping Razorpay event:', mapErr);
-    }
-    return res.json({ received: true });
-  } catch (e) {
-    return res.status(400).json({ message: 'Webhook processing failed' });
-  }
-});

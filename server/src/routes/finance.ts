@@ -925,3 +925,39 @@ router.get("/journal-entries", requireAuth, async (req: Request, res: Response) 
 });
 
 export default router;
+
+// Dashboard finance cards for main dashboard
+router.get('/dashboard-cards', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user.id;
+
+    // Totals
+    const [invoiceAgg] = await db
+      .select({
+        total: sql`COALESCE(SUM(${schema.invoices.totalAmount}), 0)`,
+        paid: sql`COALESCE(SUM(CASE WHEN ${schema.invoices.payment_status} = 'Paid' THEN ${schema.invoices.totalAmount} ELSE 0 END), 0)`,
+        overdue: sql`COALESCE(SUM(CASE WHEN ${schema.invoices.payment_status} = 'Overdue' THEN ${schema.invoices.totalAmount} - COALESCE(${schema.invoices.amountPaid}, 0) ELSE 0 END), 0)`
+      })
+      .from(schema.invoices)
+      .where(eq(schema.invoices.userId, userId));
+
+    const [paymentsAgg] = await db
+      .select({
+        total: sql`COALESCE(SUM(${schema.payments.amount}), 0)`
+      })
+      .from(schema.payments)
+      .where(eq(schema.payments.userId, userId));
+
+    const data = {
+      totalRevenue: Number(invoiceAgg?.total || 0),
+      totalCollected: Number(paymentsAgg?.total || 0),
+      totalOutstanding: Math.max(0, Number(invoiceAgg?.total || 0) - Number(paymentsAgg?.total || 0)),
+      overdueAmount: Number(invoiceAgg?.overdue || 0)
+    };
+
+    res.json(data);
+  } catch (error) {
+    console.error('Error fetching finance dashboard cards:', error);
+    res.status(500).json({ message: 'Failed to fetch finance cards' });
+  }
+});

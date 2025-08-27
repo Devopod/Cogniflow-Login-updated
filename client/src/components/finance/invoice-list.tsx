@@ -30,7 +30,7 @@ export function InvoiceList() {
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
-  const { mutate: deleteInvoice, isLoading: isDeleting } = useDeleteInvoice();
+  const { mutate: deleteInvoice, isPending: isDeleting } = useDeleteInvoice();
   
   // Fetch invoices
   const { data: invoices = [], isLoading, refetch } = useInvoices();
@@ -78,11 +78,11 @@ export function InvoiceList() {
       const matchesSearch = 
         invoice.invoiceNumber.toLowerCase().includes(searchLower) ||
         contactName.toLowerCase().includes(searchLower) ||
-        invoice.status.toLowerCase().includes(searchLower) ||
+        (invoice.status ?? "").toLowerCase().includes(searchLower) ||
         formatCurrency(invoice.totalAmount).toLowerCase().includes(searchLower);
       
       // Status filter
-      const matchesStatus = !statusFilter || invoice.status === statusFilter;
+      const matchesStatus = !statusFilter || (invoice.status ?? "") === statusFilter;
       
       return matchesSearch && matchesStatus;
     })
@@ -107,7 +107,7 @@ export function InvoiceList() {
           comparison = a.totalAmount - b.totalAmount;
           break;
         case "status":
-          comparison = a.status.localeCompare(b.status);
+          comparison = (a.status ?? "").localeCompare(b.status ?? "");
           break;
         default:
           comparison = 0;
@@ -335,7 +335,7 @@ export function InvoiceList() {
                   <TableCell>{formatDate(invoice.issueDate)}</TableCell>
                   <TableCell>{formatDate(invoice.dueDate)}</TableCell>
                   <TableCell className="text-right">{formatCurrency(invoice.totalAmount)}</TableCell>
-                  <TableCell>{getStatusBadge(invoice.status)}</TableCell>
+                  <TableCell>{getStatusBadge(invoice.status ?? "")}</TableCell>
                   <TableCell className="text-right flex gap-2 justify-end">
                     <Button
                       variant="ghost"

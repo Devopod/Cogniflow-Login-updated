@@ -36,6 +36,46 @@ router.post('/subscriptions', authenticateUser, async (req, res) => {
   }
 });
 
+// Refund a payment
+router.post('/:id/refund', authenticateUser, async (req, res) => {
+  try {
+    const userId = req.user!.id;
+    const paymentId = parseInt(req.params.id);
+    const { amount, reason } = req.body as { amount: number; reason?: string };
+
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ message: 'Refund amount must be greater than zero' });
+    }
+
+    // Ensure payment belongs to user or admin
+    const [payment] = await db.select().from(payments).where(eq(payments.id, paymentId));
+    if (!payment || (payment.userId !== userId && req.user!.role !== 'admin')) {
+      return res.status(404).json({ message: 'Payment not found' });
+    }
+
+    const result = await paymentService.processRefund(paymentId, {
+      amount,
+      reason: reason || 'customer_request',
+    });
+
+    if (!result.success) {
+      return res.status(400).json({ message: result.error || 'Refund failed' });
+    }
+
+    // Broadcast refund event
+    if (wsService) {
+      wsService.broadcastToResource('finance', payment.invoiceId?.toString() || 'all', 'refund_processed', {
+        paymentId,
+        amount,
+      });
+    }
+
+    res.json(result);
+  } catch (e: any) {
+    res.status(500).json({ message: e.message || 'Failed to process refund' });
+  }
+});
+
 
 // Get all payments
 router.get("/", authenticateUser, async (req, res) => {

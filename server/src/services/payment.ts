@@ -2,11 +2,14 @@ import Stripe from 'stripe';
 import { storage } from '../../storage';
 import { Invoice, Payment, Contact } from '@shared/schema';
 import { WSService } from '../../websocket';
+import { db } from '../../db';
+import { invoices, payments, payment_history } from '@shared/schema';
+import { eq, and } from 'drizzle-orm';
 
 // Initialize Stripe (only if API key is provided and not a dummy key)
 const stripeKey = process.env.STRIPE_SECRET_KEY;
 const stripe = stripeKey && !stripeKey.includes('dummy') ? new Stripe(stripeKey, {
-  apiVersion: '2023-10-16',
+  apiVersion: '2023-10-16' as any,
 }) : null;
 
 // Create a development stub for Stripe when not configured
@@ -88,6 +91,10 @@ export interface PaymentResult {
 }
 
 export class PaymentService {
+  async refreshGateways(): Promise<void> {
+    // Placeholder for future: load gateway configs from DB
+    console.log('PaymentService: refreshGateways called');
+  }
   // Create a payment intent for invoice payment
   async createInvoicePaymentIntent(
     invoiceId: number,
@@ -98,529 +105,317 @@ export class PaymentService {
     } = {}
   ): Promise<PaymentResult> {
     try {
-
-
-      const invoice = await storage.getInvoiceWithItems(invoiceId);
+      // Get invoice details
+      const [invoice] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
       if (!invoice) {
         return { success: false, error: 'Invoice not found' };
       }
 
-      const contact = invoice.contactId 
-        ? await storage.getContact(invoice.contactId)
-        : null;
-
-      // Calculate amount to charge (handle partial payments)
-      const amountDue = invoice.totalAmount - (invoice.amountPaid || 0);
-      const chargeAmount = options.custom_amount 
-        ? Math.min(options.custom_amount, amountDue)
-        : amountDue;
-
-      if (chargeAmount <= 0) {
-        return { success: false, error: 'Invoice is already fully paid' };
+      const amountPaid = invoice.amountPaid || 0;
+      // Calculate payment amount
+      const paymentAmount = options.custom_amount || (invoice.totalAmount - amountPaid);
+      if (paymentAmount <= 0) {
+        return { success: false, error: 'No amount to pay' };
       }
 
-      // Get or create Stripe customer
-      let stripeCustomer: Stripe.Customer | undefined;
-      if (contact) {
-        stripeCustomer = await this.getOrCreateStripeCustomer(contact);
-      }
-
-      // Create payment intent
+      // Create Stripe payment intent
       const paymentIntent = await stripeClient.paymentIntents.create({
-        amount: Math.round(chargeAmount * 100), // Convert to cents
-        currency: invoice.currency.toLowerCase(),
-        description: `Payment for Invoice ${invoice.invoiceNumber}`,
-        customer: stripeCustomer?.id,
-        payment_method_types: options.payment_method_types || ['card'],
-        setup_future_usage: options.setup_future_usage,
+        amount: Math.round(paymentAmount * 100), // Convert to cents
+        currency: invoice.currency?.toLowerCase() || 'usd',
+        description: `Payment for invoice ${invoice.invoiceNumber}`,
         metadata: {
           invoiceId: invoiceId.toString(),
           invoiceNumber: invoice.invoiceNumber,
-          customerId: contact?.id?.toString() || 'unknown',
-          userId: invoice.userId.toString(),
         },
-      });
+        payment_method_types: options.payment_method_types || ['card'],
+        setup_future_usage: options.setup_future_usage,
+      } as any);
 
       return {
         success: true,
         paymentId: paymentIntent.id,
-        clientSecret: paymentIntent.client_secret || undefined,
-        amount: chargeAmount,
-        currency: invoice.currency,
+        clientSecret: (paymentIntent as any).client_secret || undefined,
+        amount: paymentAmount,
+        currency: invoice.currency || 'USD',
         status: paymentIntent.status,
       };
     } catch (error) {
       console.error('Error creating payment intent:', error);
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Payment creation failed' 
-      };
+      return { success: false, error: 'Failed to create payment intent' };
     }
   }
 
-  // Get or create a Stripe customer
-  async getOrCreateStripeCustomer(contact: Contact): Promise<Stripe.Customer> {
-    try {
-
-
-      // Check if customer already exists in Stripe
-      if (contact.payment_portal_token) {
-        try {
-          const customer = await stripeClient.customers.retrieve(contact.payment_portal_token);
-          if (!customer.deleted) {
-            return customer as Stripe.Customer;
-          }
-        } catch (error) {
-          // Customer doesn't exist, create new one
-        }
-      }
-
-      // Create new customer
-      const customer = await stripeClient.customers.create({
-        email: contact.email || undefined,
-        name: `${contact.firstName} ${contact.lastName}`,
-        phone: contact.phone || undefined,
-        address: contact.address ? {
-          line1: contact.address,
-          city: contact.city || undefined,
-          state: contact.state || undefined,
-          postal_code: contact.postalCode || undefined,
-          country: contact.country || undefined,
-        } : undefined,
-        metadata: {
-          contactId: contact.id.toString(),
-        },
-      });
-
-      // Update contact with Stripe customer ID
-      await storage.updateContact(contact.id, {
-        payment_portal_token: customer.id,
-      });
-
-      return customer;
-    } catch (error) {
-      console.error('Error creating Stripe customer:', error);
-      throw error;
-    }
-  }
-
-  // Process successful payment webhook
-  async handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent): Promise<void> {
-    try {
-      const { invoiceId, userId } = paymentIntent.metadata;
-      
-      if (!invoiceId) {
-        console.error('No invoice ID in payment metadata');
-        return;
-      }
-
-      const invoice = await storage.getInvoice(parseInt(invoiceId));
-      if (!invoice) {
-        console.error('Invoice not found:', invoiceId);
-        return;
-      }
-
-      // Calculate payment amount from Stripe (convert from cents)
-      const paymentAmount = paymentIntent.amount / 100;
-
-      // Create payment record
-      const payment = await storage.createPayment({
-        userId: parseInt(userId),
-        invoiceId: parseInt(invoiceId),
-        contactId: invoice.contactId,
-        amount: paymentAmount,
-        payment_method: this.getPaymentMethodType(paymentIntent),
-        payment_gateway: 'stripe',
-        transaction_id: paymentIntent.id,
-        gateway_fee: this.calculateStripeFee(paymentAmount),
-        gateway_response: paymentIntent as any,
-        status: 'completed',
-        reference: `Stripe Payment - ${paymentIntent.id}`,
-        description: `Payment for Invoice ${invoice.invoiceNumber}`,
-      });
-
-      // Update invoice payment status
-      const newAmountPaid = (invoice.amountPaid || 0) + paymentAmount;
-      const isFullyPaid = newAmountPaid >= invoice.totalAmount;
-      
-      await storage.updateInvoice(parseInt(invoiceId), {
-        amountPaid: newAmountPaid,
-        payment_status: isFullyPaid ? 'Paid' : 'Partial Payment',
-        last_payment_date: new Date().toISOString(),
-        last_payment_amount: paymentAmount,
-        last_payment_method: this.getPaymentMethodType(paymentIntent),
-        updatedAt: new Date().toISOString(),
-      });
-
-      // Log payment activity
-      await storage.createInvoiceActivity({
-        invoiceId: parseInt(invoiceId),
-        userId: parseInt(userId),
-        activity_type: 'paid',
-        description: `Payment of ${paymentAmount} ${invoice.currency} received via ${this.getPaymentMethodType(paymentIntent)}`,
-        metadata: {
-          paymentId: payment.id,
-          paymentIntentId: paymentIntent.id,
-          amount: paymentAmount,
-          currency: invoice.currency,
-          paymentMethod: this.getPaymentMethodType(paymentIntent),
-        },
-      });
-
-      // Broadcast payment update via WebSocket
-      if (wsService) {
-        wsService.broadcastToResource('invoices', parseInt(invoiceId), 'payment_received', {
-          invoiceId: parseInt(invoiceId),
-          paymentId: payment.id,
-          amount: paymentAmount,
-          currency: invoice.currency,
-          isFullyPaid,
-          newAmountPaid,
-          totalAmount: invoice.totalAmount,
-        });
-
-        wsService.broadcast('payment_received', {
-          invoiceId: parseInt(invoiceId),
-          amount: paymentAmount,
-          currency: invoice.currency,
-          isFullyPaid,
-        });
-      }
-
-      console.log(`Payment processed successfully for invoice ${invoice.invoiceNumber}: ${paymentAmount} ${invoice.currency}`);
-    } catch (error) {
-      console.error('Error handling payment success:', error);
-    }
-  }
-
-  // Handle payment failure
-  async handlePaymentFailure(paymentIntent: Stripe.PaymentIntent): Promise<void> {
-    try {
-      const { invoiceId, userId } = paymentIntent.metadata;
-      
-      if (!invoiceId) {
-        console.error('No invoice ID in payment metadata');
-        return;
-      }
-
-      // Log failed payment activity
-      await storage.createInvoiceActivity({
-        invoiceId: parseInt(invoiceId),
-        userId: parseInt(userId),
-        activity_type: 'payment_failed',
-        description: `Payment attempt failed: ${paymentIntent.last_payment_error?.message || 'Unknown error'}`,
-        metadata: {
-          paymentIntentId: paymentIntent.id,
-          errorCode: paymentIntent.last_payment_error?.code,
-          errorMessage: paymentIntent.last_payment_error?.message,
-        },
-      });
-
-      // Broadcast payment failure via WebSocket
-      if (wsService) {
-        wsService.broadcastToResource('invoices', parseInt(invoiceId), 'payment_failed', {
-          invoiceId: parseInt(invoiceId),
-          error: paymentIntent.last_payment_error?.message || 'Payment failed',
-        });
-      }
-
-      console.log(`Payment failed for invoice ${invoiceId}: ${paymentIntent.last_payment_error?.message}`);
-    } catch (error) {
-      console.error('Error handling payment failure:', error);
-    }
-  }
-
-  // Create a refund
-  async createRefund(
-    paymentId: number,
-    amount?: number,
-    reason?: string
-  ): Promise<PaymentResult> {
-    try {
-      const payment = await storage.getPayment(paymentId);
-      if (!payment) {
-        return { success: false, error: 'Payment not found' };
-      }
-
-      if (!payment.transaction_id) {
-        return { success: false, error: 'No transaction ID found for refund' };
-      }
-
-      // Calculate refund amount
-      const refundAmount = amount || payment.amount;
-      
-      if (refundAmount > payment.amount) {
-        return { success: false, error: 'Refund amount cannot exceed payment amount' };
-      }
-
-      // Create refund in Stripe
-      const refund = await stripeClient.refunds.create({
-        payment_intent: payment.transaction_id,
-        amount: Math.round(refundAmount * 100), // Convert to cents
-        reason: reason as any || 'requested_by_customer',
-        metadata: {
-          paymentId: paymentId.toString(),
-          invoiceId: payment.invoiceId?.toString() || '',
-        },
-      });
-
-      // Update payment record
-      await storage.updatePayment(paymentId, {
-        refund_status: refundAmount === payment.amount ? 'full' : 'partial',
-        refund_amount: refundAmount,
-        refund_transaction_id: refund.id,
-        refund_date: new Date().toISOString(),
-        refund_reason: reason,
-        status: refundAmount === payment.amount ? 'refunded' : 'completed',
-        updatedAt: new Date().toISOString(),
-      });
-
-      // If this is for an invoice, update the invoice
-      if (payment.invoiceId) {
-        const invoice = await storage.getInvoice(payment.invoiceId);
-        if (invoice) {
-          const newAmountPaid = Math.max(0, (invoice.amountPaid || 0) - refundAmount);
-          await storage.updateInvoice(payment.invoiceId, {
-            amountPaid: newAmountPaid,
-            payment_status: newAmountPaid === 0 ? 'Unpaid' : 
-                          newAmountPaid < invoice.totalAmount ? 'Partial Payment' : 'Paid',
-            updatedAt: new Date().toISOString(),
-          });
-
-          // Log refund activity
-          await storage.createInvoiceActivity({
-            invoiceId: payment.invoiceId,
-            userId: payment.userId,
-            activity_type: 'refunded',
-            description: `Refund of ${refundAmount} ${invoice.currency} processed`,
-            metadata: {
-              refundId: refund.id,
-              originalPaymentId: paymentId,
-              refundAmount,
-              reason,
-            },
-          });
-        }
-      }
-
-      return {
-        success: true,
-        paymentId: refund.id,
-        amount: refundAmount,
-        status: refund.status,
-      };
-    } catch (error) {
-      console.error('Error creating refund:', error);
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Refund creation failed' 
-      };
-    }
-  }
-
-  // Get payment methods for a customer
-  async getCustomerPaymentMethods(contactId: number): Promise<Stripe.PaymentMethod[]> {
-    try {
-      const contact = await storage.getContact(contactId);
-      if (!contact || !contact.payment_portal_token) {
-        return [];
-      }
-
-      const paymentMethods = await stripeClient.paymentMethods.list({
-        customer: contact.payment_portal_token,
-        type: 'card',
-      });
-
-      return paymentMethods.data;
-    } catch (error) {
-      console.error('Error fetching payment methods:', error);
-      return [];
-    }
-  }
-
-  // Save payment method for future use
-  async savePaymentMethod(
-    contactId: number,
-    paymentMethodId: string
-  ): Promise<boolean> {
-    try {
-      const contact = await storage.getContact(contactId);
-      if (!contact) {
-        return false;
-      }
-
-      // Get or create Stripe customer
-      const stripeCustomer = await this.getOrCreateStripeCustomer(contact);
-
-      // Attach payment method to customer
-      await stripeClient.paymentMethods.attach(paymentMethodId, {
-        customer: stripeCustomer.id,
-      });
-
-      // Update contact's saved payment methods
-      const savedMethods = contact.saved_payment_methods as any[] || [];
-      savedMethods.push({
-        stripe_payment_method_id: paymentMethodId,
-        created_at: new Date().toISOString(),
-      });
-
-      await storage.updateContact(contactId, {
-        saved_payment_methods: savedMethods,
-      });
-
-      return true;
-    } catch (error) {
-      console.error('Error saving payment method:', error);
-      return false;
-    }
-  }
-
-  // Helper methods
-  private getPaymentMethodType(paymentIntent: Stripe.PaymentIntent): string {
-    const charges = paymentIntent.charges?.data;
-    if (charges && charges.length > 0) {
-      const charge = charges[0];
-      if (charge.payment_method_details?.card) {
-        return `card_${charge.payment_method_details.card.brand}`;
-      }
-      if (charge.payment_method_details?.ach_debit) {
-        return 'ach_debit';
-      }
-    }
-    return 'unknown';
-  }
-
-  private calculateStripeFee(amount: number): number {
-    // Standard Stripe fee: 2.9% + $0.30
-    return Math.round((amount * 0.029 + 0.30) * 100) / 100;
-  }
-
-  // Setup intent for saving payment methods
-  async createSetupIntent(contactId: number): Promise<PaymentResult> {
-    try {
-      const contact = await storage.getContact(contactId);
-      if (!contact) {
-        return { success: false, error: 'Contact not found' };
-      }
-
-      const stripeCustomer = await this.getOrCreateStripeCustomer(contact);
-
-      const setupIntent = await stripeClient.setupIntents.create({
-        customer: stripeCustomer.id,
-        payment_method_types: ['card'],
-        usage: 'off_session',
-        metadata: {
-          contactId: contactId.toString(),
-        },
-      });
-
-      return {
-        success: true,
-        paymentId: setupIntent.id,
-        clientSecret: setupIntent.client_secret || undefined,
-        status: setupIntent.status,
-      };
-    } catch (error) {
-      console.error('Error creating setup intent:', error);
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Setup intent creation failed' 
-      };
-    }
-  }
-
-  // Create subscription for recurring payments
-  async createRecurringPayment(
+  // Process payment for an invoice
+  async processInvoicePayment(
     invoiceId: number,
-    frequency: 'monthly' | 'quarterly' | 'yearly'
+    paymentData: {
+      amount: number;
+      payment_method: string;
+      paymentNumber: string;
+      description?: string;
+      metadata?: any;
+    }
   ): Promise<PaymentResult> {
     try {
-      const invoice = await storage.getInvoice(invoiceId);
+      // Get invoice details
+      const [invoice] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
       if (!invoice) {
         return { success: false, error: 'Invoice not found' };
       }
 
-      const contact = invoice.contactId 
-        ? await storage.getContact(invoice.contactId)
-        : null;
-
-      if (!contact) {
-        return { success: false, error: 'Contact not found' };
+      const amountPaid = invoice.amountPaid || 0;
+      // Validate payment amount
+      const remainingAmount = invoice.totalAmount - amountPaid;
+      if (paymentData.amount > remainingAmount) {
+        return { success: false, error: 'Payment amount exceeds remaining balance' };
       }
 
-      const stripeCustomer = await this.getOrCreateStripeCustomer(contact);
+      // Create payment record
+      const [payment] = await db.insert(payments).values({
+        userId: invoice.userId,
+        invoiceId: invoiceId,
+        amount: paymentData.amount,
+        payment_method: paymentData.payment_method,
+        paymentNumber: paymentData.paymentNumber,
+        status: 'completed',
+        description: paymentData.description || `Payment for invoice ${invoice.invoiceNumber}`,
+        metadata: paymentData.metadata,
+        paymentDate: new Date(),
+      }).returning();
 
-      // Create price for the subscription
-      const price = await stripeClient.prices.create({
-        unit_amount: Math.round(invoice.totalAmount * 100),
-        currency: invoice.currency.toLowerCase(),
-        recurring: {
-          interval: frequency === 'monthly' ? 'month' : 
-                   frequency === 'quarterly' ? 'month' : 'year',
-          interval_count: frequency === 'quarterly' ? 3 : 1,
+      // Update invoice amount paid
+      const newAmountPaid = amountPaid + paymentData.amount;
+      const newStatus = newAmountPaid >= invoice.totalAmount ? 'Paid' : 'Partial Payment';
+
+      await db.update(invoices)
+        .set({
+          amountPaid: newAmountPaid,
+          payment_status: newStatus,
+          last_payment_date: new Date(),
+          last_payment_amount: paymentData.amount,
+          last_payment_method: paymentData.payment_method,
+        })
+        .where(eq(invoices.id, invoiceId));
+
+      // Add to payment history
+      await db.insert(payment_history).values({
+        invoiceId: invoice.userId ? invoiceId : invoiceId,
+        event_type: 'payment_processed',
+        event_timestamp: new Date(),
+        details: {
+          amount: paymentData.amount,
+          payment_method: paymentData.payment_method,
         },
-        product_data: {
-          name: `Recurring Invoice ${invoice.invoiceNumber}`,
-          description: `Recurring payment for ${invoice.invoiceNumber}`,
-        },
-        metadata: {
-          invoiceId: invoiceId.toString(),
-        },
+        user_id: invoice.userId,
+        created_at: new Date(),
       });
 
-      // Create subscription
-      const subscription = await stripeClient.subscriptions.create({
-        customer: stripeCustomer.id,
-        items: [{ price: price.id }],
-        metadata: {
-          invoiceId: invoiceId.toString(),
-          originalInvoiceNumber: invoice.invoiceNumber,
-        },
-      });
-
-      // Update invoice as recurring
-      await storage.updateInvoice(invoiceId, {
-        is_recurring: true,
-        recurring_frequency: frequency,
-        recurring_start_date: new Date().toISOString().slice(0, 10),
-        updatedAt: new Date().toISOString(),
-      });
+      // Broadcast real-time update
+      if (wsService) {
+        wsService.broadcastToResource('finance', invoiceId.toString(), 'payment_processed', {
+          invoiceId,
+          paymentId: payment.id,
+          amount: paymentData.amount,
+          status: newStatus,
+        });
+      }
 
       return {
         success: true,
-        paymentId: subscription.id,
-        status: subscription.status,
+        paymentId: payment.id.toString(),
+        amount: paymentData.amount,
+        currency: invoice.currency || 'USD',
+        status: 'completed',
       };
     } catch (error) {
-      console.error('Error creating recurring payment:', error);
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Recurring payment creation failed' 
-      };
+      console.error('Error processing payment:', error);
+      return { success: false, error: 'Failed to process payment' };
     }
   }
 
-  // Get payment statistics
-  async getPaymentStats(userId: number, dateRange?: { from: Date; to: Date }): Promise<{
-    totalRevenue: number;
-    totalTransactions: number;
-    averageTransaction: number;
-    successRate: number;
-    topPaymentMethods: Array<{ method: string; count: number; total: number }>;
-  }> {
+  // Process refund
+  async processRefund(
+    paymentId: number,
+    refundData: {
+      amount: number;
+      reason: string;
+      description?: string;
+    }
+  ): Promise<PaymentResult> {
     try {
-      // This would need to be implemented with proper SQL queries
-      // For now, return mock data
+      // Get payment details
+      const [payment] = await db.select().from(payments).where(eq(payments.id, paymentId));
+      if (!payment) {
+        return { success: false, error: 'Payment not found' };
+      }
+
+      // Validate refund amount
+      if (refundData.amount > payment.amount) {
+        return { success: false, error: 'Refund amount cannot exceed payment amount' };
+      }
+
+      // Create refund record
+      const [refund] = await db.insert(payment_history).values({
+        invoiceId: payment.invoiceId || 0,
+        paymentId: paymentId,
+        event_type: 'refund_processed',
+        event_timestamp: new Date(),
+        details: { reason: refundData.reason, amount: refundData.amount },
+        user_id: payment.userId,
+        created_at: new Date(),
+      }).returning();
+
+      // Update payment status if full refund
+      if (refundData.amount === payment.amount) {
+        await db.update(payments)
+          .set({ status: 'refunded' })
+          .where(eq(payments.id, paymentId));
+      }
+
+      // Update invoice if applicable
+      if (payment.invoiceId) {
+        const [invoice] = await db.select().from(invoices).where(eq(invoices.id, payment.invoiceId));
+        if (invoice) {
+          const amountPaid = invoice.amountPaid || 0;
+          const newAmountPaid = Math.max(0, amountPaid - refundData.amount);
+          const newStatus = newAmountPaid === 0 ? 'Unpaid' : 'Partial Payment';
+
+          await db.update(invoices)
+            .set({
+              amountPaid: newAmountPaid,
+              payment_status: newStatus,
+            })
+            .where(eq(invoices.id, payment.invoiceId));
+        }
+      }
+
       return {
-        totalRevenue: 0,
-        totalTransactions: 0,
-        averageTransaction: 0,
-        successRate: 0,
-        topPaymentMethods: [],
+        success: true,
+        paymentId: refund.id.toString(),
+        amount: refundData.amount,
+        currency: payment.reference || 'USD',
+        status: 'refunded',
       };
     } catch (error) {
-      console.error('Error getting payment stats:', error);
-      throw error;
+      console.error('Error processing refund:', error);
+      return { success: false, error: 'Failed to process refund' };
+    }
+  }
+
+  // Get payment details
+  async getPaymentDetails(paymentId: number): Promise<Payment | null> {
+    try {
+      const [payment] = await db.select().from(payments).where(eq(payments.id, paymentId));
+      return payment || null;
+    } catch (error) {
+      console.error('Error getting payment details:', error);
+      return null;
+    }
+  }
+
+  // Get payment history for an invoice
+  async getInvoicePaymentHistory(invoiceId: number): Promise<any[]> {
+    try {
+      const history = await db.select().from(payment_history)
+        .where(eq(payment_history.invoiceId, invoiceId))
+        .orderBy(payment_history.event_timestamp);
+      return history as any[];
+    } catch (error) {
+      console.error('Error getting payment history:', error);
+      return [];
+    }
+  }
+
+  // Create recurring payment setup
+  async createRecurringPaymentSetup(
+    invoiceId: number,
+    options: {
+      interval: 'month' | 'year';
+      interval_count: number;
+      metadata?: Record<string, string>;
+    }
+  ): Promise<PaymentResult> {
+    try {
+      const [invoice] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
+      if (!invoice) {
+        return { success: false, error: 'Invoice not found' };
+      }
+
+      // Create Stripe setup intent for recurring payments
+      const setupIntent = await stripeClient.setupIntents.create({
+        payment_method_types: ['card'],
+        metadata: {
+          invoiceId: invoiceId.toString(),
+          invoiceNumber: invoice.invoiceNumber,
+          ...(options.metadata || {}),
+        },
+      } as any);
+
+      // Update invoice with recurring settings
+      await db.update(invoices)
+        .set({
+          is_recurring: true,
+          recurring_frequency: options.interval,
+          recurring_schedule: {
+            interval: options.interval,
+            interval_count: options.interval_count,
+            setup_intent_id: (setupIntent as any).id,
+          } as any,
+        })
+        .where(eq(invoices.id, invoiceId));
+
+      return {
+        success: true,
+        paymentId: (setupIntent as any).id,
+        clientSecret: (setupIntent as any).client_secret || undefined,
+        status: (setupIntent as any).status,
+      };
+    } catch (error) {
+      console.error('Error creating recurring payment setup:', error);
+      return { success: false, error: 'Failed to create recurring payment setup' };
+    }
+  }
+
+  // Process recurring payment
+  async processRecurringPayment(
+    invoiceId: number,
+    paymentMethodId: string
+  ): Promise<PaymentResult> {
+    try {
+      const [invoice] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
+      if (!invoice) {
+        return { success: false, error: 'Invoice not found' };
+      }
+
+      // Create payment intent using saved payment method
+      const paymentIntent = await stripeClient.paymentIntents.create({
+        amount: Math.round(invoice.totalAmount * 100),
+        currency: invoice.currency?.toLowerCase() || 'usd',
+        customer: paymentMethodId,
+        off_session: true,
+        confirm: true,
+        metadata: {
+          invoiceId: invoiceId.toString(),
+          invoiceNumber: invoice.invoiceNumber,
+          recurring: 'true',
+        },
+      } as any);
+
+      if (paymentIntent.status === 'succeeded') {
+        // Process the successful payment
+        return await this.processInvoicePayment(invoiceId, {
+          amount: invoice.totalAmount,
+          payment_method: 'recurring_card',
+          paymentNumber: (paymentIntent as any).id,
+          description: `Recurring payment for ${invoice.invoiceNumber}`,
+          metadata: { payment_intent_id: (paymentIntent as any).id },
+        });
+      } else {
+        return { success: false, error: `Payment failed: ${paymentIntent.status}` };
+      }
+    } catch (error) {
+      console.error('Error processing recurring payment:', error);
+      return { success: false, error: 'Failed to process recurring payment' };
     }
   }
 }

@@ -104,6 +104,77 @@ const shippingMethods = [
   "Standard Shipping", "Express Shipping", "Overnight", "UPS Ground", "FedEx", "DHL", "Freight", "Pickup"
 ];
 
+// Interface definitions
+interface Supplier {
+  id: number;
+  name: string;
+  contactPerson?: string;
+  email?: string;
+  phone?: string;
+  paymentTerms?: string;
+}
+
+interface Product {
+  id: number;
+  name: string;
+  sku: string;
+  unitPrice: number;
+}
+
+interface POItem {
+  id: number;
+  productId: string | number;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+}
+
+interface PurchaseOrder {
+  id: string;
+  supplierName: string;
+  dateCreated: string;
+  totalAmount: number;
+  status: string;
+  paymentStatus: string;
+  terms?: string;
+  expectedDelivery?: string;
+  actualDelivery?: string;
+  shipping?: {
+    method?: string;
+    trackingNumber?: string;
+    cost?: number;
+    address?: string;
+  };
+  receivingNotes?: string;
+  notes?: string;
+  items?: Array<{
+    id: number;
+    productId: string;
+    productName: string;
+    quantity: number;
+    unitPrice: number;
+    total: number;
+  }>;
+  relatedDocuments?: Array<{
+    type: string;
+    id: string;
+    date: string;
+    amount?: number;
+  }>;
+  approvalWorkflow?: Array<{
+    step: string;
+    status: string;
+    user?: string;
+    date?: string;
+  }>;
+  attachments?: Array<{
+    name: string;
+    type: string;
+    size: string;
+    date: string;
+  }>;
+}
+
 // Helper function for status badges
 const getStatusBadge = (status: string) => {
   switch (status) {
@@ -172,10 +243,10 @@ const PurchaseOrders = () => {
     to: undefined,
   });
   const [selectedSupplier, setSelectedSupplier] = useState<string>("");
-  const [selectedPO, setSelectedPO] = useState<any>(null);
+  const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null);
   const [showPODetails, setShowPODetails] = useState(false);
   const [showCreatePO, setShowCreatePO] = useState(false);
-  const [newPOItems, setNewPOItems] = useState<any[]>([{ id: 1, productId: "", quantity: 1, unitPrice: 0, total: 0 }]);
+  const [newPOItems, setNewPOItems] = useState<POItem[]>([{ id: 1, productId: "", quantity: 1, unitPrice: 0, total: 0 }]);
   const [selectedSupplierForNewPO, setSelectedSupplierForNewPO] = useState<string>("");
   const [expectedDeliveryDate, setExpectedDeliveryDate] = useState<Date>();
   
@@ -261,7 +332,7 @@ const PurchaseOrders = () => {
         
         // If product ID changed, update unitPrice from products
         if (field === "productId" && value) {
-          const selectedProduct = products.find(p => p.id === value);
+          const selectedProduct = products.find((p: Product) => p.id === value);
           if (selectedProduct) {
             updatedItem.unitPrice = selectedProduct.unitPrice;
           }
@@ -451,7 +522,7 @@ const PurchaseOrders = () => {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="">All Suppliers</SelectItem>
-                        {suppliers.map((supplier) => (
+                        {suppliers.map((supplier: Supplier) => (
                           <SelectItem key={supplier.id} value={supplier.id.toString()}>
                             {supplier.name}
                           </SelectItem>
@@ -515,7 +586,7 @@ const PurchaseOrders = () => {
                             <SelectValue placeholder="Select supplier" />
                           </SelectTrigger>
                           <SelectContent>
-                            {suppliers.map((supplier) => (
+                            {suppliers.map((supplier: Supplier) => (
                               <SelectItem key={supplier.id} value={supplier.id.toString()}>
                                 {supplier.name}
                               </SelectItem>
@@ -529,7 +600,7 @@ const PurchaseOrders = () => {
                           <Label>Contact Information</Label>
                           <div className="border rounded-md p-3 text-sm space-y-1">
                             {(() => {
-                              const supplier = suppliers.find(s => s.id.toString() === selectedSupplierForNewPO);
+                              const supplier = suppliers.find((s: Supplier) => s.id.toString() === selectedSupplierForNewPO);
                               return supplier ? (
                                 <>
                                   <p><span className="font-medium">Contact:</span> {supplier.contactPerson}</p>
@@ -623,7 +694,7 @@ const PurchaseOrders = () => {
                                       <SelectValue placeholder="Select product" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                      {products.map((product) => (
+                                      {products.map((product: Product) => (
                                         <SelectItem key={product.id} value={product.id}>
                                           {product.name} ({product.sku})
                                         </SelectItem>
@@ -799,7 +870,7 @@ const PurchaseOrders = () => {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredPOs.map((po) => (
+                  filteredPOs.map((po: PurchaseOrder) => (
                     <TableRow key={po.id}>
                       <TableCell className="font-medium">{po.id}</TableCell>
                       <TableCell>{po.supplierName}</TableCell>
@@ -1018,7 +1089,7 @@ const PurchaseOrders = () => {
                       <h3 className="font-medium mb-3">Related Documents</h3>
                       {selectedPO.relatedDocuments && selectedPO.relatedDocuments.length > 0 ? (
                         <div className="space-y-2">
-                          {selectedPO.relatedDocuments.map((doc, index) => (
+                          {selectedPO.relatedDocuments.map((doc: any, index: number) => (
                             <div key={index} className="flex items-center justify-between p-2 border rounded-md">
                               <div className="flex items-center gap-2">
                                 <FileText className="h-4 w-4 text-primary" />
@@ -1072,7 +1143,7 @@ const PurchaseOrders = () => {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {selectedPO.items.map((item) => (
+                      {selectedPO.items.map((item: any) => (
                         <TableRow key={item.id}>
                           <TableCell>
                             <div className="font-medium">{item.productName}</div>
@@ -1101,7 +1172,7 @@ const PurchaseOrders = () => {
                     <div className="relative">
                       <div className="absolute left-3 top-4 bottom-3 w-0.5 bg-muted"></div>
                       <div className="space-y-6 ml-6">
-                        {selectedPO.approvalWorkflow.map((step, index) => (
+                        {selectedPO.approvalWorkflow.map((step: any, index: number) => (
                           <div key={index} className="relative">
                             <div className="absolute -left-6 top-0">
                               {step.status === "Completed" ? (
@@ -1151,7 +1222,7 @@ const PurchaseOrders = () => {
                   <div className="space-y-4">
                     <h3 className="font-medium">Attachments</h3>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      {selectedPO.attachments.map((attachment, index) => (
+                      {selectedPO.attachments.map((attachment: any, index: number) => (
                         <div key={index} className="border rounded-md p-4">
                           <div className="flex items-start gap-3">
                             <div className="bg-muted p-2 rounded">
@@ -1230,7 +1301,7 @@ const PurchaseOrders = () => {
               <div>
                 <p className="text-sm font-medium text-muted-foreground mb-1">Pending Orders</p>
                 <h2 className="text-3xl font-bold">
-                  {purchaseOrders.filter(po => po.status === "Pending" || po.status === "Approved").length}
+                  {purchaseOrders.filter((po: PurchaseOrder) => po.status === "Pending" || po.status === "Approved").length}
                 </h2>
               </div>
               <div className="bg-blue-500/10 p-2 rounded-full">
@@ -1250,8 +1321,8 @@ const PurchaseOrders = () => {
                 <p className="text-sm font-medium text-muted-foreground mb-1">Total Spent</p>
                 <h2 className="text-3xl font-bold">
                   ${purchaseOrders
-                      .filter(po => po.status === "Received" || po.status === "Partially Received")
-                      .reduce((sum, po) => sum + po.totalAmount, 0)
+                      .filter((po: PurchaseOrder) => po.status === "Received" || po.status === "Partially Received")
+                      .reduce((sum: number, po: PurchaseOrder) => sum + po.totalAmount, 0)
                       .toFixed(2)}
                 </h2>
               </div>

@@ -148,10 +148,7 @@ router.post('/products', async (req: Request, res: Response) => {
     
     // Broadcast real-time update
     const wsService = req.app.locals.wsService as WSService;
-    wsService.broadcastToResource('inventory', 'products', {
-      type: 'product_created',
-      data: newProduct
-    });
+    wsService.broadcastToResource('inventory', 'products', 'product_created', newProduct);
     
     res.status(201).json(newProduct);
   } catch (error) {
@@ -178,10 +175,7 @@ router.put('/products/:id', async (req: Request, res: Response) => {
     
     // Broadcast real-time update
     const wsService = req.app.locals.wsService as WSService;
-    wsService.broadcastToResource('inventory', 'products', {
-      type: 'product_updated',
-      data: updatedProduct
-    });
+    wsService.broadcastToResource('inventory', 'products', 'product_updated', updatedProduct);
     
     res.json(updatedProduct);
   } catch (error) {
@@ -207,10 +201,7 @@ router.delete('/products/:id', async (req: Request, res: Response) => {
     
     // Broadcast real-time update
     const wsService = req.app.locals.wsService as WSService;
-    wsService.broadcastToResource('inventory', 'products', {
-      type: 'product_deleted',
-      data: { id: productId }
-    });
+    wsService.broadcastToResource('inventory', 'products', 'product_deleted', { id: productId });
     
     res.json({ message: 'Product deleted successfully' });
   } catch (error) {
@@ -254,15 +245,12 @@ router.post('/products/:id/adjust-stock', async (req: Request, res: Response) =>
     
     // Broadcast real-time update
     const wsService = req.app.locals.wsService as WSService;
-    wsService.broadcastToResource('inventory', 'stock', {
-      type: 'stock_adjusted',
-      data: {
-        product: updatedProduct,
-        adjustment: Number(adjustment),
-        reason,
-        oldQuantity: product.quantity,
-        newQuantity
-      }
+    wsService.broadcastToResource('inventory', 'stock', 'stock_adjusted', {
+      product: updatedProduct,
+      adjustment: Number(adjustment),
+      reason,
+      oldQuantity: product.quantity,
+      newQuantity
     });
     
     res.json({
@@ -373,12 +361,9 @@ router.post('/products/import', async (req: Request, res: Response) => {
     
     // Broadcast real-time update
     const wsService = req.app.locals.wsService as WSService;
-    wsService.broadcastToResource('inventory', 'products', {
-      type: 'products_imported',
-      data: {
-        products: insertedProducts,
-        count: insertedProducts.length
-      }
+    wsService.broadcastToResource('inventory', 'products', 'products_imported', {
+      products: insertedProducts,
+      count: insertedProducts.length
     });
     
     res.json({
@@ -448,3 +433,54 @@ router.post('/update-from-sales', async (req: Request, res: Response) => {
 });
 
 export default router;
+ 
+// Dashboard: Warehouse capacity breakdown
+router.get('/warehouse-capacity', async (req: Request, res: Response) => {
+  try {
+    const userId = getUserId(req);
+
+    const capacityRows = await db
+      .select({
+        warehouseId: schema.inventory.warehouseId,
+        totalQuantity: sql`COALESCE(SUM(${schema.inventory.quantity}), 0)`
+      })
+      .from(schema.inventory)
+      .leftJoin(schema.warehouses, eq(schema.inventory.warehouseId, schema.warehouses.id))
+      .where(sql`${schema.warehouses.userId} = ${userId}`)
+      .groupBy(schema.inventory.warehouseId);
+
+    const warehouses = await db
+      .select({
+        id: schema.warehouses.id,
+        name: schema.warehouses.name,
+        code: schema.warehouses.code
+      })
+      .from(schema.warehouses)
+      .where(eq(schema.warehouses.userId, userId));
+
+    const DEFAULT_CAPACITY = 1000;
+    const byId: Record<number, number> = {} as any;
+    for (const row of capacityRows as any[]) {
+      if (row.warehouseId) byId[row.warehouseId] = Number(row.totalQuantity) || 0;
+    }
+
+    const result = warehouses.map(w => {
+      const used = byId[w.id] || 0;
+      const capacity = DEFAULT_CAPACITY;
+      const utilization = capacity > 0 ? Math.min(100, Math.round((used / capacity) * 100)) : 0;
+      return {
+        id: w.id,
+        name: w.name,
+        code: w.code,
+        capacity,
+        used,
+        utilization
+      };
+    });
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error fetching warehouse capacity:', error);
+    res.status(500).json({ message: 'Failed to fetch warehouse capacity' });
+  }
+});

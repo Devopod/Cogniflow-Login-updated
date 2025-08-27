@@ -82,7 +82,7 @@ export default function ExpenseDetailsDialog({
           <DialogTitle className="flex items-center gap-2">
             <Receipt className="h-5 w-5" />
             Expense Details
-            {expense && getStatusBadge(expense.status)}
+            {expense && getStatusBadge((expense as any).status || 'pending')}
           </DialogTitle>
         </DialogHeader>
 
@@ -117,14 +117,14 @@ export default function ExpenseDetailsDialog({
                       <Label className="text-sm font-medium text-muted-foreground">Category</Label>
                       <div className="flex items-center gap-2">
                         <Tag className="h-4 w-4" />
-                        <p className="font-medium">{expense.category?.name || 'Uncategorized'}</p>
+                        <p className="font-medium">{(expense as any).category?.name || 'Uncategorized'}</p>
                       </div>
                     </div>
                     <div>
                       <Label className="text-sm font-medium text-muted-foreground">Expense Date</Label>
                       <div className="flex items-center gap-2">
                         <Calendar className="h-4 w-4" />
-                        <p className="font-medium">{new Date(expense.expenseDate).toLocaleDateString()}</p>
+                        <p className="font-medium">{expense.expenseDate ? new Date(expense.expenseDate as any).toLocaleDateString() : 'N/A'}</p>
                       </div>
                     </div>
                   </div>
@@ -143,7 +143,7 @@ export default function ExpenseDetailsDialog({
                       <span className="font-medium">{formatCurrency(expense.amount)}</span>
                     </div>
                     <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground">Tax ({expense.taxRate || 0}%):</span>
+                      <span className="text-muted-foreground">Tax ({(expense as any).taxRate || 0}%):</span>
                       <span className="font-medium">{formatCurrency(expense.taxAmount || 0)}</span>
                     </div>
                     <div className="flex justify-between items-center font-medium text-lg border-t pt-3">
@@ -170,13 +170,13 @@ export default function ExpenseDetailsDialog({
                     </div>
                     <div>
                       <Label className="text-sm font-medium text-muted-foreground">Account</Label>
-                      <p className="font-medium">{expense.account?.name || 'N/A'}</p>
+                      <p className="font-medium">{(expense as any).account?.name || 'N/A'}</p>
                     </div>
                     <div>
                       <Label className="text-sm font-medium text-muted-foreground">Supplier</Label>
                       <div className="flex items-center gap-2">
                         <User className="h-4 w-4" />
-                        <p className="font-medium">{expense.supplierContact ? `${expense.supplierContact.firstName} ${expense.supplierContact.lastName}` : 'N/A'}</p>
+                        <p className="font-medium">{(expense as any).supplierContact ? `${(expense as any).supplierContact.firstName} ${(expense as any).supplierContact.lastName}` : 'N/A'}</p>
                       </div>
                     </div>
                   </div>
@@ -205,7 +205,7 @@ export default function ExpenseDetailsDialog({
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {expense.receiptPath ? (
+                  {(expense as any).receiptPath ? (
                     <div className="space-y-4">
                       <div className="flex items-center justify-between p-4 border rounded-lg">
                         <div className="flex items-center gap-3">
@@ -213,7 +213,7 @@ export default function ExpenseDetailsDialog({
                           <div>
                             <p className="font-medium">Receipt</p>
                             <p className="text-sm text-muted-foreground">
-                              Uploaded on {new Date(expense.createdAt).toLocaleDateString()}
+                              Uploaded on {expense.createdAt ? new Date(expense.createdAt as any).toLocaleDateString() : 'N/A'}
                             </p>
                           </div>
                         </div>
@@ -245,10 +245,10 @@ export default function ExpenseDetailsDialog({
                 <CardContent className="space-y-4">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium">Current Status:</span>
-                    {getStatusBadge(expense.status)}
+                    {getStatusBadge((expense as any).status || 'pending')}
                   </div>
 
-                  {expense.status === 'pending' && (
+                  {(expense as any).status === 'pending' && (
                     <div className="space-y-4">
                       {!showRejectionForm ? (
                         <div className="flex gap-2">
@@ -302,17 +302,17 @@ export default function ExpenseDetailsDialog({
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                           <Label className="text-sm font-medium text-muted-foreground">Approved By</Label>
-                          <p className="font-medium">{expense.approvedBy ? `${expense.approvedBy.firstName} ${expense.approvedBy.lastName}` : 'N/A'}</p>
+                          <p className="font-medium">{(expense as any).approvedBy && typeof (expense as any).approvedBy === 'object' ? `${(expense as any).approvedBy.firstName} ${(expense as any).approvedBy.lastName}` : 'N/A'}</p>
                         </div>
                         <div>
                           <Label className="text-sm font-medium text-muted-foreground">Approval Date</Label>
-                          <p className="font-medium">{new Date(expense.approvalDate).toLocaleDateString()}</p>
+                          <p className="font-medium">{expense.approvalDate ? new Date(expense.approvalDate as any).toLocaleDateString() : 'N/A'}</p>
                         </div>
                       </div>
-                      {expense.approvalNotes && (
+                      {(expense as any).approvalNotes && (
                         <div className="mt-4">
                           <Label className="text-sm font-medium text-muted-foreground">Approval Notes</Label>
-                          <p className="text-sm bg-green-50 p-3 rounded border">{expense.approvalNotes}</p>
+                          <p className="text-sm bg-green-50 p-3 rounded border">{(expense as any).approvalNotes}</p>
                         </div>
                       )}
                     </div>
@@ -338,8 +338,8 @@ export default function ExpenseDetailsDialog({
                       <div className="flex-1">
                         <p className="font-medium">Expense Created</p>
                         <p className="text-sm text-muted-foreground">
-                          Created by {expense.user ? `${expense.user.firstName} ${expense.user.lastName}` : 'Unknown'} 
-                          on {new Date(expense.createdAt).toLocaleString()}
+                          Created by {(expense as any).user ? `${(expense as any).user.firstName} ${(expense as any).user.lastName}` : 'Unknown'} 
+                          on {expense.createdAt ? new Date(expense.createdAt as any).toLocaleString() : 'N/A'}
                         </p>
                       </div>
                     </div>
@@ -352,7 +352,7 @@ export default function ExpenseDetailsDialog({
                         <div className="flex-1">
                           <p className="font-medium">Expense Modified</p>
                           <p className="text-sm text-muted-foreground">
-                            Last updated on {new Date(expense.updatedAt).toLocaleString()}
+                            Last updated on {expense.updatedAt ? new Date(expense.updatedAt as any).toLocaleString() : 'N/A'}
                           </p>
                         </div>
                       </div>
@@ -366,8 +366,10 @@ export default function ExpenseDetailsDialog({
                         <div className="flex-1">
                           <p className="font-medium">Expense Approved</p>
                           <p className="text-sm text-muted-foreground">
-                            Approved by {expense.approvedBy ? `${expense.approvedBy.firstName} ${expense.approvedBy.lastName}` : 'Unknown'} 
-                            on {new Date(expense.approvalDate).toLocaleString()}
+                            Approved by {(expense as any).approvedBy && typeof (expense as any).approvedBy === 'object'
+                              ? `${(expense as any).approvedBy.firstName || ''} ${(expense as any).approvedBy.lastName || ''}`.trim() || 'Unknown'
+                              : 'Unknown'} 
+                            on {expense.approvalDate ? new Date(expense.approvalDate as any).toLocaleString() : 'N/A'}
                           </p>
                         </div>
                       </div>

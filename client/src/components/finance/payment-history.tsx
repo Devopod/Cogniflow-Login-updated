@@ -156,10 +156,10 @@ export function PaymentHistory({ invoice, payments, totalPaid, balanceDue, onRef
                       <div className="flex justify-between">
                         <div>
                           <p className="font-medium flex items-center">
-                            {getPaymentMethodIcon(payment.paymentMethod)}
-                            {payment.paymentMethod.replace('_', ' ')}
+                            {getPaymentMethodIcon(payment.payment_method)}
+                            {payment.payment_method.replace('_', ' ')}
                           </p>
-                          <p className="text-sm text-muted-foreground">{formatDate(payment.paymentDate)}</p>
+                          <p className="text-sm text-muted-foreground">{formatDate(payment.payment_date)}</p>
                           {payment.reference && (
                             <p className="text-sm text-muted-foreground">Ref: {payment.reference}</p>
                           )}
@@ -167,9 +167,9 @@ export function PaymentHistory({ invoice, payments, totalPaid, balanceDue, onRef
                         <div className="text-right">
                           <p className="font-bold">{formatCurrency(payment.amount)}</p>
                           <div className="flex space-x-1 mt-1 justify-end">
-                            <Button 
-                              variant="ghost" 
-                              size="icon" 
+                            <Button
+                              variant="ghost"
+                              size="icon"
                               className="h-6 w-6"
                               onClick={() => {
                                 setSelectedPayment(payment);
@@ -228,8 +228,8 @@ export function PaymentHistory({ invoice, payments, totalPaid, balanceDue, onRef
                 
                 {payments.map((payment) => (
                   <div key={payment.id} className="border-l-2 border-primary pl-4 py-1">
-                    <p className="text-sm text-muted-foreground">{formatDate(payment.paymentDate)}</p>
-                    <p>Payment of {formatCurrency(payment.amount)} recorded via {payment.paymentMethod.replace('_', ' ')}</p>
+                    <p className="text-sm text-muted-foreground">{formatDate(payment.payment_date)}</p>
+                    <p>Payment of {formatCurrency(payment.amount)} recorded via {payment.payment_method.replace('_', ' ')}</p>
                     {payment.description && <p className="text-sm">{payment.description}</p>}
                   </div>
                 ))}
@@ -266,10 +266,10 @@ export function PaymentHistory({ invoice, payments, totalPaid, balanceDue, onRef
             <div className="flex justify-between">
               <div>
                 <p className="font-medium">
-                  {selectedPayment?.paymentMethod.replace('_', ' ')}
+                  {selectedPayment?.payment_method.replace('_', ' ')}
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  {selectedPayment?.paymentDate && formatDate(selectedPayment.paymentDate)}
+                  {selectedPayment?.payment_date && formatDate(selectedPayment.payment_date)}
                 </p>
               </div>
               <div className="text-right">

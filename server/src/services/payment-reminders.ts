@@ -1,6 +1,7 @@
 import { db } from '../../db';
 import { invoices, payment_reminders, payment_history, contacts } from '@shared/schema';
-import { eq, and, or, lt, gt, gte, lte, isNull, sql } from 'drizzle-orm';
+import { eq, and, or, lt, gt } from 'drizzle-orm';
+import { sql, desc } from 'drizzle-orm';
 import { emailService } from './email';
 import { formatCurrency } from '../utils/format';
 
@@ -23,7 +24,8 @@ export async function processPaymentReminders() {
     return { success: true };
   } catch (error) {
     console.error('Error processing payment reminders:', error);
-    return { success: false, error: error.message };
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return { success: false, error: message };
   }
 }
 
@@ -44,6 +46,7 @@ async function processDueDateReminders(today: Date) {
     // Group reminders by days offset
     const remindersByOffset: Record<number, typeof payment_reminders.$inferSelect[]> = {};
     for (const reminder of dueReminders) {
+      if (reminder.days_offset == null) continue;
       const offset = reminder.days_offset;
       if (!remindersByOffset[offset]) {
         remindersByOffset[offset] = [];
@@ -56,14 +59,15 @@ async function processDueDateReminders(today: Date) {
       const offset = parseInt(offsetStr);
       
       // Calculate the target due date (today + abs(offset))
-      const targetDueDate = new Date(today);
-      targetDueDate.setDate(targetDueDate.getDate() - offset); // Negative offset becomes positive days ahead
+      const targetDue = new Date(today);
+      targetDue.setDate(targetDue.getDate() - offset); // Negative offset becomes positive days ahead
+      const targetDueDate = targetDue.toISOString().split('T')[0];
       
       // Find invoices due on the target date that haven't been fully paid
       // and haven't had a due reminder sent
       const dueInvoices = await db.query.invoices.findMany({
         where: and(
-          eq(sql`DATE(${invoices.dueDate})`, sql`DATE(${sql.raw('?')})`, [targetDueDate]),
+          eq(invoices.dueDate, targetDueDate),
           or(
             eq(invoices.payment_status, 'Unpaid'),
             eq(invoices.payment_status, 'Partial Payment')
@@ -75,7 +79,7 @@ async function processDueDateReminders(today: Date) {
         },
       });
       
-      console.log(`Found ${dueInvoices.length} invoices due on ${targetDueDate.toISOString().split('T')[0]} (${offset} days from now)`);
+      console.log(`Found ${dueInvoices.length} invoices due on ${targetDueDate} (${offset} days from now)`);
       
       // Send reminders for each invoice
       for (const invoice of dueInvoices) {
@@ -135,6 +139,7 @@ async function processOverdueReminders(today: Date) {
     // Group reminders by days offset
     const remindersByOffset: Record<number, typeof payment_reminders.$inferSelect[]> = {};
     for (const reminder of overdueReminders) {
+      if (reminder.days_offset == null) continue;
       const offset = reminder.days_offset;
       if (!remindersByOffset[offset]) {
         remindersByOffset[offset] = [];
@@ -147,14 +152,15 @@ async function processOverdueReminders(today: Date) {
       const offset = parseInt(offsetStr);
       
       // Calculate the target due date (today - offset)
-      const targetDueDate = new Date(today);
-      targetDueDate.setDate(targetDueDate.getDate() - offset);
+      const targetDue = new Date(today);
+      targetDue.setDate(targetDue.getDate() - offset);
+      const targetDueDate = targetDue.toISOString().split('T')[0];
       
       // Find invoices that became due on the target date, haven't been fully paid,
       // and haven't had an overdue reminder sent
       const overdueInvoices = await db.query.invoices.findMany({
         where: and(
-          eq(sql`DATE(${invoices.dueDate})`, sql`DATE(${sql.raw('?')})`, [targetDueDate]),
+          eq(invoices.dueDate, targetDueDate),
           or(
             eq(invoices.payment_status, 'Unpaid'),
             eq(invoices.payment_status, 'Partial Payment')
@@ -166,7 +172,7 @@ async function processOverdueReminders(today: Date) {
         },
       });
       
-      console.log(`Found ${overdueInvoices.length} invoices overdue by ${offset} days (due on ${targetDueDate.toISOString().split('T')[0]})`);
+      console.log(`Found ${overdueInvoices.length} invoices overdue by ${offset} days (due on ${targetDueDate})`);
       
       // Send reminders for each invoice
       for (const invoice of overdueInvoices) {
@@ -219,7 +225,7 @@ async function sendDueReminderEmail(invoice: any, daysUntilDue: number) {
     }
     
     const dueDate = new Date(invoice.dueDate).toLocaleDateString();
-    const amountDue = formatCurrency(invoice.totalAmount - (invoice.amountPaid || 0), invoice.currency || 'USD');
+    const amountDue = formatCurrency((invoice.totalAmount - (invoice.amountPaid || 0)), invoice.currency || 'USD');
     
     const subject = `Payment Reminder: Invoice #${invoice.invoiceNumber} due in ${daysUntilDue} days`;
     
@@ -288,7 +294,7 @@ async function sendOverdueReminderEmail(invoice: any, daysOverdue: number) {
     }
     
     const dueDate = new Date(invoice.dueDate).toLocaleDateString();
-    const amountDue = formatCurrency(invoice.totalAmount - (invoice.amountPaid || 0), invoice.currency || 'USD');
+    const amountDue = formatCurrency((invoice.totalAmount - (invoice.amountPaid || 0)), invoice.currency || 'USD');
     
     const subject = `OVERDUE: Invoice #${invoice.invoiceNumber} is ${daysOverdue} days past due`;
     
@@ -372,8 +378,12 @@ export async function createOrUpdateReminder(reminderData: Partial<typeof paymen
       // Create new reminder
       const [newReminder] = await db.insert(payment_reminders)
         .values({
-          ...reminderData,
-          status: 'pending',
+          invoiceId: reminderData.invoiceId || 0,
+          reminder_date: reminderData.reminder_date,
+          channel: reminderData.channel,
+          template_used: reminderData.template_used,
+          days_offset: reminderData.days_offset,
+          offset_type: reminderData.offset_type,
           created_at: new Date(),
           updated_at: new Date(),
         })

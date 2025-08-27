@@ -87,8 +87,8 @@ export default function ExpenseForm({ expense, onSubmit, isLoading, onCancel }: 
             {...register('description', { required: 'Description is required' })}
             placeholder="Enter expense description"
           />
-          {errors.description && (
-            <p className="text-sm text-red-600 mt-1">{errors.description.message}</p>
+          {errors.description?.message && (
+            <p className="text-sm text-red-600 mt-1">{String(errors.description.message)}</p>
           )}
         </div>
 
@@ -102,8 +102,8 @@ export default function ExpenseForm({ expense, onSubmit, isLoading, onCancel }: 
             {...register('amount', { required: 'Amount is required', min: 0.01 })}
             placeholder="0.00"
           />
-          {errors.amount && (
-            <p className="text-sm text-red-600 mt-1">{errors.amount.message}</p>
+          {errors.amount?.message && (
+            <p className="text-sm text-red-600 mt-1">{String(errors.amount.message)}</p>
           )}
         </div>
 

@@ -110,7 +110,10 @@ export default function InvoicesList() {
   };
 
   // Get status badge
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: string | null) => {
+    if (!status) {
+      return <Badge variant="outline">Unknown</Badge>;
+    }
     switch (status.toLowerCase()) {
       case "paid":
         return <Badge className="bg-green-500">Paid</Badge>;

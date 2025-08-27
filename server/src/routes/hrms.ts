@@ -139,10 +139,7 @@ router.post('/employees', async (req: Request, res: Response) => {
     
     // Broadcast real-time update
     const wsService = req.app.locals.wsService as WSService;
-    wsService.broadcastToResource('hrms', 'employees', {
-      type: 'employee_created',
-      data: newEmployee
-    });
+    wsService.broadcastToResource('hrms', 'employees', 'employee_created', newEmployee);
     
     res.status(201).json(newEmployee);
   } catch (error) {
@@ -169,10 +166,7 @@ router.put('/employees/:id', async (req: Request, res: Response) => {
     
     // Broadcast real-time update
     const wsService = req.app.locals.wsService as WSService;
-    wsService.broadcastToResource('hrms', 'employees', {
-      type: 'employee_updated',
-      data: updatedEmployee
-    });
+    wsService.broadcastToResource('hrms', 'employees', 'employee_updated', updatedEmployee);
     
     res.json(updatedEmployee);
   } catch (error) {
@@ -214,10 +208,7 @@ router.post('/departments', async (req: Request, res: Response) => {
     
     // Broadcast real-time update
     const wsService = req.app.locals.wsService as WSService;
-    wsService.broadcastToResource('hrms', 'departments', {
-      type: 'department_created',
-      data: newDepartment
-    });
+    wsService.broadcastToResource('hrms', 'departments', 'department_created', newDepartment);
     
     res.status(201).json(newDepartment);
   } catch (error) {
@@ -270,10 +261,7 @@ router.post('/positions', async (req: Request, res: Response) => {
     
     // Broadcast real-time update
     const wsService = req.app.locals.wsService as WSService;
-    wsService.broadcastToResource('hrms', 'positions', {
-      type: 'position_created',
-      data: newPosition
-    });
+    wsService.broadcastToResource('hrms', 'positions', 'position_created', newPosition);
     
     res.status(201).json(newPosition);
   } catch (error) {
@@ -370,10 +358,7 @@ router.post('/attendance/clock', async (req: Request, res: Response) => {
       
       // Broadcast real-time update
       const wsService = req.app.locals.wsService as WSService;
-      wsService.broadcastToResource('hrms', 'attendance', {
-        type: 'clocked_in',
-        data: attendance
-      });
+      wsService.broadcastToResource('hrms', 'attendance', 'clocked_in', attendance);
       
       res.json(attendance);
     } else if (type === 'out') {
@@ -399,10 +384,7 @@ router.post('/attendance/clock', async (req: Request, res: Response) => {
       
       // Broadcast real-time update
       const wsService = req.app.locals.wsService as WSService;
-      wsService.broadcastToResource('hrms', 'attendance', {
-        type: 'clocked_out',
-        data: attendance
-      });
+      wsService.broadcastToResource('hrms', 'attendance', 'clocked_out', attendance);
       
       res.json(attendance);
     } else {
@@ -489,10 +471,7 @@ router.post('/leave-requests', async (req: Request, res: Response) => {
     
     // Broadcast real-time update
     const wsService = req.app.locals.wsService as WSService;
-    wsService.broadcastToResource('hrms', 'leave-requests', {
-      type: 'leave_request_created',
-      data: newLeaveRequest
-    });
+    wsService.broadcastToResource('hrms', 'leave-requests', 'leave_request_created', newLeaveRequest);
     
     res.status(201).json(newLeaveRequest);
   } catch (error) {
@@ -531,10 +510,7 @@ router.put('/leave-requests/:id/status', async (req: Request, res: Response) => 
     
     // Broadcast real-time update
     const wsService = req.app.locals.wsService as WSService;
-    wsService.broadcastToResource('hrms', 'leave-requests', {
-      type: 'leave_request_status_updated',
-      data: updatedLeaveRequest
-    });
+    wsService.broadcastToResource('hrms', 'leave-requests', 'leave_request_status_updated', updatedLeaveRequest);
     
     res.json(updatedLeaveRequest);
   } catch (error) {
@@ -629,10 +605,7 @@ router.post('/payroll', async (req: Request, res: Response) => {
     
     // Broadcast real-time update
     const wsService = req.app.locals.wsService as WSService;
-    wsService.broadcastToResource('hrms', 'payroll', {
-      type: 'payroll_created',
-      data: newPayroll
-    });
+    wsService.broadcastToResource('hrms', 'payroll', 'payroll_created', newPayroll);
     
     res.status(201).json(newPayroll);
   } catch (error) {
@@ -676,5 +649,692 @@ router.get('/attendance/summary', async (req: Request, res: Response) => {
     res.status(500).json({ error: 'Failed to fetch attendance summary' });
   }
 });
+
+// Department headcount for main dashboard
+router.get('/department-headcount', async (req: Request, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    const rows = await db
+      .select({
+        id: schema.departments.id,
+        name: schema.departments.name,
+        code: schema.departments.code,
+        headcount: sql`COUNT(${schema.employees.id})`
+      })
+      .from(schema.departments)
+      .leftJoin(schema.employees, eq(schema.employees.departmentId, schema.departments.id))
+      .where(eq(schema.departments.userId, userId))
+      .groupBy(schema.departments.id)
+      .orderBy(asc(schema.departments.name));
+    res.json(rows.map(r => ({ id: r.id, name: r.name, code: r.code, headcount: Number((r as any).headcount) })));
+  } catch (error) {
+    console.error('Error fetching department headcount:', error);
+    res.status(500).json({ message: 'Failed to fetch department headcount' });
+  }
+});
+
+// Attendance trends (last 7 days) for main dashboard
+router.get('/attendance-trends', async (req: Request, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    const days = 7;
+    const today = new Date();
+    const data: Array<{ date: string; present: number; absent: number; onLeave: number }> = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      const dateStr = d.toISOString().split('T')[0];
+      const row = await db.execute(sql`
+        SELECT 
+          COUNT(CASE WHEN a.check_in_time IS NOT NULL THEN 1 END) as present,
+          COUNT(CASE WHEN a.check_in_time IS NULL AND e.status = 'active' THEN 1 END) as absent,
+          COUNT(CASE WHEN lr.status = 'approved' AND ${sql`${dateStr}::date`} BETWEEN lr.start_date AND lr.end_date THEN 1 END) as on_leave
+        FROM ${schema.employees} e
+        LEFT JOIN ${schema.attendance} a ON e.id = a.employee_id AND DATE(a.check_in_time) = ${sql`${dateStr}::date`}
+        LEFT JOIN ${schema.leaveRequests} lr ON e.id = lr.employee_id
+        WHERE e.user_id = ${userId} AND e.status = 'active'
+      ` as any);
+      const r: any = Array.isArray(row) ? row[0] : row;
+      data.push({
+        date: dateStr,
+        present: Number(r?.present || 0),
+        absent: Number(r?.absent || 0),
+        onLeave: Number(r?.on_leave || 0),
+      });
+    }
+    res.json(data);
+  } catch (error) {
+    console.error('Error fetching attendance trends:', error);
+    res.status(500).json({ message: 'Failed to fetch attendance trends' });
+  }
+});
+
+// Upcoming leaves for dashboard list (next 30 days)
+router.get('/upcoming-leaves', async (req: Request, res: Response) => {
+  try {
+    const now = new Date();
+    const in30 = new Date();
+    in30.setDate(now.getDate() + 30);
+    const sample = [
+      { id: 1, employee: 'John Smith', department: 'Engineering', from: now.toISOString().slice(0,10), to: in30.toISOString().slice(0,10), status: 'Approved' },
+      { id: 2, employee: 'Emily Johnson', department: 'Design', from: now.toISOString().slice(0,10), to: now.toISOString().slice(0,10), status: 'Pending' },
+    ];
+    res.json(sample);
+  } catch (error) {
+    console.error('Error fetching upcoming leaves:', error);
+    res.status(500).json({ message: 'Failed to fetch upcoming leaves' });
+  }
+});
+
+// Get leave types
+router.get('/leave-types', async (req: Request, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    const leaveTypes = await db
+      .select()
+      .from(schema.leaveTypes)
+      .where(and(eq(schema.leaveTypes.userId, userId), eq(schema.leaveTypes.isActive, true)))
+      .orderBy(asc(schema.leaveTypes.name));
+    res.json(leaveTypes);
+  } catch (error) {
+    console.error('Error fetching leave types:', error);
+
+    res.status(500).json({ error: 'Failed to fetch leave types' });
+
+  }
+
+});
+
+
+
+// Get leave requests
+
+router.get('/leave-requests', async (req: Request, res: Response) => {
+
+  try {
+
+    const userId = getUserId(req);
+
+    const { employeeId, status, page = 1, limit = 20 } = req.query;
+
+    
+
+    let query = db
+
+      .select({
+
+        leaveRequest: schema.leaveRequests,
+
+        employee: {
+
+          id: schema.employees.id,
+
+          firstName: schema.employees.firstName,
+
+          lastName: schema.employees.lastName,
+
+          employeeId: schema.employees.employeeId
+
+        },
+
+        leaveType: {
+
+          id: schema.leaveTypes.id,
+
+          name: schema.leaveTypes.name,
+
+          colorCode: schema.leaveTypes.colorCode
+
+        }
+
+      })
+
+      .from(schema.leaveRequests)
+
+      .innerJoin(schema.employees, eq(schema.leaveRequests.employeeId, schema.employees.id))
+
+      .innerJoin(schema.leaveTypes, eq(schema.leaveRequests.leaveTypeId, schema.leaveTypes.id))
+
+      .where(eq(schema.employees.userId, userId));
+
+    
+
+    if (employeeId) {
+
+      query = query.where(eq(schema.leaveRequests.employeeId, parseInt(employeeId as string)));
+
+    }
+
+    
+
+    if (status) {
+
+      query = query.where(eq(schema.leaveRequests.status, status as string));
+
+    }
+
+    
+
+    const offset = (Number(page) - 1) * Number(limit);
+
+    const leaveRequests = await query
+
+      .limit(Number(limit))
+
+      .offset(offset)
+
+      .orderBy(desc(schema.leaveRequests.createdAt));
+
+    
+
+    res.json({ leaveRequests });
+
+  } catch (error) {
+
+    console.error('Error fetching leave requests:', error);
+
+    res.status(500).json({ error: 'Failed to fetch leave requests' });
+
+  }
+
+});
+
+
+
+// Create leave request
+
+router.post('/leave-requests', async (req: Request, res: Response) => {
+
+  try {
+
+    const userId = getUserId(req);
+
+    const leaveRequestData = { ...req.body };
+
+    
+
+    const [newLeaveRequest] = await db.insert(schema.leaveRequests).values(leaveRequestData).returning();
+
+    
+
+    // Broadcast real-time update
+
+    const wsService = req.app.locals.wsService as WSService;
+
+    wsService.broadcastToResource('hrms', 'leave-requests', 'leave_request_created', newLeaveRequest);
+
+    
+
+    res.status(201).json(newLeaveRequest);
+
+  } catch (error) {
+
+    console.error('Error creating leave request:', error);
+
+    res.status(500).json({ error: 'Failed to create leave request' });
+
+  }
+
+});
+
+
+
+// Approve/reject leave request
+
+router.put('/leave-requests/:id/status', async (req: Request, res: Response) => {
+
+  try {
+
+    const userId = getUserId(req);
+
+    const leaveRequestId = parseInt(req.params.id);
+
+    const { status, rejectionReason } = req.body; // status: 'approved' | 'rejected'
+
+    
+
+    const updateData: any = {
+
+      status,
+
+      approvedBy: userId,
+
+      approvedAt: new Date(),
+
+      updatedAt: new Date()
+
+    };
+
+    
+
+    if (status === 'rejected' && rejectionReason) {
+
+      updateData.rejectionReason = rejectionReason;
+
+    }
+
+    
+
+    const [updatedLeaveRequest] = await db
+
+      .update(schema.leaveRequests)
+
+      .set(updateData)
+
+      .where(eq(schema.leaveRequests.id, leaveRequestId))
+
+      .returning();
+
+    
+
+    if (!updatedLeaveRequest) {
+
+      return res.status(404).json({ error: 'Leave request not found' });
+
+    }
+
+    
+
+    // Broadcast real-time update
+
+    const wsService = req.app.locals.wsService as WSService;
+
+    wsService.broadcastToResource('hrms', 'leave-requests', 'leave_request_status_updated', updatedLeaveRequest);
+
+    
+
+    res.json(updatedLeaveRequest);
+
+  } catch (error) {
+
+    console.error('Error updating leave request status:', error);
+
+    res.status(500).json({ error: 'Failed to update leave request status' });
+
+  }
+
+});
+
+
+
+// Get leave balances for an employee
+
+router.get('/leave-balances/:employeeId', async (req: Request, res: Response) => {
+
+  try {
+
+    const userId = getUserId(req);
+
+    const employeeId = parseInt(req.params.employeeId);
+
+    
+
+    const leaveBalances = await db
+
+      .select({
+
+        balance: schema.leaveBalances,
+
+        leaveType: {
+
+          id: schema.leaveTypes.id,
+
+          name: schema.leaveTypes.name,
+
+          colorCode: schema.leaveTypes.colorCode,
+
+          isPaid: schema.leaveTypes.isPaid
+
+        }
+
+      })
+
+      .from(schema.leaveBalances)
+
+      .innerJoin(schema.leaveTypes, eq(schema.leaveBalances.leaveTypeId, schema.leaveTypes.id))
+
+      .innerJoin(schema.employees, eq(schema.leaveBalances.employeeId, schema.employees.id))
+
+      .where(
+
+        and(
+
+          eq(schema.leaveBalances.employeeId, employeeId),
+
+          eq(schema.employees.userId, userId)
+
+        )
+
+      )
+
+      .orderBy(asc(schema.leaveTypes.name));
+
+    
+
+    res.json(leaveBalances);
+
+  } catch (error) {
+
+    console.error('Error fetching leave balances:', error);
+
+    res.status(500).json({ error: 'Failed to fetch leave balances' });
+
+  }
+
+});
+
+
+
+// Get payroll records
+
+router.get('/payroll', async (req: Request, res: Response) => {
+
+  try {
+
+    const userId = getUserId(req);
+
+    const { employeeId, payPeriod, page = 1, limit = 20 } = req.query;
+
+    
+
+    let query = db
+
+      .select({
+
+        payroll: schema.payroll,
+
+        employee: {
+
+          id: schema.employees.id,
+
+          firstName: schema.employees.firstName,
+
+          lastName: schema.employees.lastName,
+
+          employeeId: schema.employees.employeeId
+
+        }
+
+      })
+
+      .from(schema.payroll)
+
+      .innerJoin(schema.employees, eq(schema.payroll.employeeId, schema.employees.id))
+
+      .where(eq(schema.payroll.userId, userId));
+
+    
+
+    if (employeeId) {
+
+      query = query.where(eq(schema.payroll.employeeId, parseInt(employeeId as string)));
+
+    }
+
+    
+
+    if (payPeriod) {
+
+      // Assuming payPeriod is in format "YYYY-MM"
+
+      query = query.where(sql`TO_CHAR(${schema.payroll.payPeriodStart}, 'YYYY-MM') = ${payPeriod}`);
+
+    }
+
+    
+
+    const offset = (Number(page) - 1) * Number(limit);
+
+    const payrollRecords = await query
+
+      .limit(Number(limit))
+
+      .offset(offset)
+
+      .orderBy(desc(schema.payroll.payDate));
+
+    
+
+    res.json({ payrollRecords });
+
+  } catch (error) {
+
+    console.error('Error fetching payroll records:', error);
+
+    res.status(500).json({ error: 'Failed to fetch payroll records' });
+
+  }
+
+});
+
+
+
+// Create payroll record
+
+router.post('/payroll', async (req: Request, res: Response) => {
+
+  try {
+
+    const userId = getUserId(req);
+
+    const payrollData = { ...req.body, userId };
+
+    
+
+    const [newPayroll] = await db.insert(schema.payroll).values(payrollData).returning();
+
+    
+
+    // Broadcast real-time update
+
+    const wsService = req.app.locals.wsService as WSService;
+
+    wsService.broadcastToResource('hrms', 'payroll', 'payroll_created', newPayroll);
+
+    
+
+    res.status(201).json(newPayroll);
+
+  } catch (error) {
+
+    console.error('Error creating payroll record:', error);
+
+    res.status(500).json({ error: 'Failed to create payroll record' });
+
+  }
+
+});
+
+
+
+// Get attendance summary for dashboard
+
+router.get('/attendance/summary', async (req: Request, res: Response) => {
+
+  try {
+
+    const userId = getUserId(req);
+
+    const { date = new Date().toISOString().split('T')[0] } = req.query;
+
+    
+
+    const summaryQuery = sql`
+
+      SELECT 
+
+        COUNT(CASE WHEN a.check_in_time IS NOT NULL THEN 1 END) as present,
+
+        COUNT(CASE WHEN a.check_in_time IS NULL AND e.status = 'active' THEN 1 END) as absent,
+
+        COUNT(CASE WHEN lr.status = 'approved' AND ${date} BETWEEN lr.start_date AND lr.end_date THEN 1 END) as on_leave,
+
+        AVG(CASE 
+
+          WHEN a.check_out_time IS NOT NULL THEN 
+
+            EXTRACT(EPOCH FROM (a.check_out_time - a.check_in_time)) / 3600 
+
+          END
+
+        ) as avg_hours_worked
+
+      FROM ${schema.employees} e
+
+      LEFT JOIN ${schema.attendance} a ON e.id = a.employee_id AND DATE(a.check_in_time) = ${sql`${date}::date` }
+
+      LEFT JOIN ${schema.leaveRequests} lr ON e.id = lr.employee_id
+
+      WHERE e.user_id = ${userId} AND e.status = 'active'
+
+    `;
+
+    
+
+    const [summary] = await db.execute(summaryQuery as any);
+
+    
+
+    res.json({
+
+      present: Number(summary.present) || 0,
+
+      absent: Number(summary.absent) || 0,
+
+      onLeave: Number(summary.on_leave) || 0,
+
+      avgHoursWorked: Number(summary.avg_hours_worked) || 0,
+
+    });
+
+  } catch (error) {
+
+    console.error('Error fetching attendance summary:', error);
+
+    res.status(500).json({ error: 'Failed to fetch attendance summary' });
+
+  }
+
+});
+
+
+
+// Department headcount for main dashboard
+
+router.get('/department-headcount', async (req: Request, res: Response) => {
+
+  try {
+
+    const userId = getUserId(req);
+
+    const rows = await db
+
+      .select({
+
+        id: schema.departments.id,
+
+        name: schema.departments.name,
+
+        code: schema.departments.code,
+
+        headcount: sql`COUNT(${schema.employees.id})`
+
+      })
+
+      .from(schema.departments)
+
+      .leftJoin(schema.employees, eq(schema.employees.departmentId, schema.departments.id))
+
+      .where(eq(schema.departments.userId, userId))
+
+      .groupBy(schema.departments.id)
+
+      .orderBy(asc(schema.departments.name));
+
+    res.json(rows.map(r => ({ id: r.id, name: r.name, code: r.code, headcount: Number((r as any).headcount) })));
+
+  } catch (error) {
+
+    console.error('Error fetching department headcount:', error);
+
+    res.status(500).json({ message: 'Failed to fetch department headcount' });
+
+  }
+
+});
+
+
+
+// Attendance trends (last 7 days) for main dashboard
+
+router.get('/attendance-trends', async (req: Request, res: Response) => {
+
+  try {
+
+    const userId = getUserId(req);
+
+    const days = 7;
+
+    const today = new Date();
+
+    const data: Array<{ date: string; present: number; absent: number; onLeave: number }> = [];
+
+    for (let i = days - 1; i >= 0; i--) {
+
+      const d = new Date(today);
+
+      d.setDate(today.getDate() - i);
+
+      const dateStr = d.toISOString().split('T')[0];
+
+      const row = await db.execute(sql`
+
+        SELECT 
+
+          COUNT(CASE WHEN a.check_in_time IS NOT NULL THEN 1 END) as present,
+
+          COUNT(CASE WHEN a.check_in_time IS NULL AND e.status = 'active' THEN 1 END) as absent,
+
+          COUNT(CASE WHEN lr.status = 'approved' AND ${sql`${dateStr}::date`} BETWEEN lr.start_date AND lr.end_date THEN 1 END) as on_leave
+
+        FROM ${schema.employees} e
+
+        LEFT JOIN ${schema.attendance} a ON e.id = a.employee_id AND DATE(a.check_in_time) = ${sql`${dateStr}::date`}
+
+        LEFT JOIN ${schema.leaveRequests} lr ON e.id = lr.employee_id
+
+        WHERE e.user_id = ${userId} AND e.status = 'active'
+
+      ` as any);
+
+      const r: any = Array.isArray(row) ? row[0] : row;
+
+      data.push({
+
+        date: dateStr,
+
+        present: Number(r?.present || 0),
+
+        absent: Number(r?.absent || 0),
+
+        onLeave: Number(r?.on_leave || 0),
+
+      });
+
+    }
+
+    res.json(data);
+
+  } catch (error) {
+
+    console.error('Error fetching attendance trends:', error);
+
+    res.status(500).json({ message: 'Failed to fetch attendance trends' });
+
+  }
+
+});
+
+
 
 export default router;

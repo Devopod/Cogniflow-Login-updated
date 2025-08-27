@@ -168,14 +168,28 @@ class MemoryCache {
     const now = Date.now();
     let removedCount = 0;
     
-    for (const [key, item] of this.cache.entries()) {
-      if (now > item.expiresAt) {
+    for (const [key, item] of Array.from(this.cache.entries())) {
+      if (item.expiresAt && item.expiresAt < now) {
         this.cache.delete(key);
         removedCount++;
       }
     }
     
     return removedCount;
+  }
+
+  // Clear expired items
+  private clearExpiredItems(): void {
+    const now = Date.now();
+    const expiredKeys: string[] = [];
+
+    for (const [key, item] of Array.from(this.cache.entries())) {
+      if (item.expiresAt && item.expiresAt < now) {
+        expiredKeys.push(key);
+      }
+    }
+
+    expiredKeys.forEach(key => this.cache.delete(key));
   }
 }
 

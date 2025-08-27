@@ -155,6 +155,37 @@ const suppliers = [
   { id: 6, name: "Metal Supply Co.", leadTime: 14, rating: 4.0 },
 ];
 
+interface Product {
+  id: string;
+  name?: string;
+  sku?: string;
+  category?: string;
+  stockQuantity?: number;
+  reorderPoint?: number;
+  unitPrice: number;
+  costPrice: number;
+  status?: string;
+  description?: string;
+  barcode?: string;
+  dimensions?: string;
+  weight?: number;
+  supplier?: string;
+  leadTime?: number;
+  created?: string;
+  updated?: string;
+  customFields?: Record<string, string>;
+  notes?: string;
+  images?: string[];
+  attachments?: Array<{ name: string; size: string }>;
+  hasVariants?: boolean;
+  variants?: Array<{ id: string; name: string; sku: string; stockQuantity?: number; stock?: number }>;
+  available?: number;
+  allocated?: number;
+  location?: string;
+  reorderQuantity?: number;
+  taxRate?: number;
+}
+
 const ProductCatalog = () => {
   const { toast } = useToast();
   
@@ -168,8 +199,8 @@ const ProductCatalog = () => {
   });
 
   // Calculate low stock products using dynamic data
-  const lowStockProducts = products.filter(product => 
-    product.stockQuantity <= (product.reorderPoint || 0) + 5
+  const lowStockProducts = products.filter((product: Product) =>
+    (product.stockQuantity || 0) <= ((product.reorderPoint || 0) + 5)
   );
   
   const [searchTerm, setSearchTerm] = useState("");
@@ -180,7 +211,7 @@ const ProductCatalog = () => {
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   
   const [showProductDetails, setShowProductDetails] = useState(false);
-  const [selectedProduct, setSelectedProduct] = useState<any>(null);
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [showCreateProduct, setShowCreateProduct] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -188,27 +219,27 @@ const ProductCatalog = () => {
   const [stockUpdateType, setStockUpdateType] = useState<"adjustment" | "transfer">("adjustment");
   
   // Filter and sort products
-  const filteredProducts = products.filter(product => {
-    const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                         product.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         product.id.toLowerCase().includes(searchTerm.toLowerCase());
+  const filteredProducts = products.filter((product: Product) => {
+    const matchesSearch = (product.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+                         (product.sku?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+                         (product.id?.toLowerCase() || '').includes(searchTerm.toLowerCase());
     
     const matchesCategory = categoryFilter === "all" || product.category === categoryFilter;
     const matchesStatus = statusFilter === "all" || product.status === statusFilter;
     
     return matchesSearch && matchesCategory && matchesStatus;
-  }).sort((a, b) => {
+  }).sort((a: Product, b: Product) => {
     // Handle sorting
     if (sortField === "name") {
-      return sortOrder === "asc" 
-        ? a.name.localeCompare(b.name)
-        : b.name.localeCompare(a.name);
+      return sortOrder === "asc"
+        ? (a.name || '').localeCompare(b.name || '')
+        : (b.name || '').localeCompare(a.name || '');
     } else if (sortField === "stock") {
-      return sortOrder === "asc" 
+      return sortOrder === "asc"
         ? (a.stockQuantity || 0) - (b.stockQuantity || 0)
         : (b.stockQuantity || 0) - (a.stockQuantity || 0);
     } else if (sortField === "price") {
-      return sortOrder === "asc" 
+      return sortOrder === "asc"
         ? a.unitPrice - b.unitPrice
         : b.unitPrice - a.unitPrice;
     }
@@ -242,12 +273,12 @@ const ProductCatalog = () => {
     if (allSelected) {
       setSelectedProducts([]);
     } else {
-      setSelectedProducts(filteredProducts.map(product => product.id));
+      setSelectedProducts(filteredProducts.map((product: Product) => product.id));
     }
   };
   
   // View product details
-  const viewProductDetails = (product: any) => {
+  const viewProductDetails = (product: Product) => {
     setSelectedProduct(product);
     setShowProductDetails(true);
   };
@@ -771,7 +802,7 @@ const ProductCatalog = () => {
                 {lowStockProducts.length} products are at or below reorder level and need attention.
               </p>
               <div className="flex flex-wrap gap-2 mt-2">
-                {lowStockProducts.slice(0, 3).map((product) => (
+                {lowStockProducts.slice(0, 3).map((product: Product) => (
                   <Badge key={product.id} variant="outline" className="bg-amber-100 dark:bg-amber-900/40 hover:bg-amber-200">
                     {product.name}: {product.stockQuantity || 0} in stock
                   </Badge>
@@ -862,7 +893,7 @@ const ProductCatalog = () => {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredProducts.map((product) => (
+                  filteredProducts.map((product: Product) => (
                     <TableRow key={product.id} className={(product.stockQuantity || 0) <= (product.reorderPoint || 0) ? "bg-amber-50 dark:bg-amber-950/20" : ""}>
                       <TableCell>
                         <Checkbox
@@ -1050,9 +1081,9 @@ const ProductCatalog = () => {
         <Dialog open={showProductDetails} onOpenChange={setShowProductDetails}>
           <DialogContent className="sm:max-w-[900px]">
             <DialogHeader>
-              <DialogTitle>{selectedProduct.name}</DialogTitle>
+              <DialogTitle>{selectedProduct.name || 'Product Details'}</DialogTitle>
               <DialogDescription>
-                {selectedProduct.id} • {selectedProduct.sku}
+                {selectedProduct.id || 'N/A'} • {selectedProduct.sku || 'N/A'}
               </DialogDescription>
             </DialogHeader>
             <Tabs defaultValue="details" className="mt-4">
@@ -1068,7 +1099,7 @@ const ProductCatalog = () => {
                   <div className="md:col-span-2 space-y-6">
                     <div>
                       <h3 className="font-medium mb-2">Product Description</h3>
-                      <p className="text-sm">{selectedProduct.description}</p>
+                      <p className="text-sm">{selectedProduct.description || 'No description available'}</p>
                     </div>
                     <Separator />
                     <div className="grid grid-cols-2 gap-6">
@@ -1077,27 +1108,27 @@ const ProductCatalog = () => {
                         <dl className="space-y-2">
                           <div className="flex justify-between">
                             <dt className="text-sm text-muted-foreground">Category:</dt>
-                            <dd className="text-sm font-medium">{selectedProduct.category}</dd>
+                            <dd className="text-sm font-medium">{selectedProduct.category || 'N/A'}</dd>
                           </div>
                           <div className="flex justify-between">
                             <dt className="text-sm text-muted-foreground">Status:</dt>
                             <dd className="text-sm font-medium">
-                              <Badge variant={selectedProduct.status === "Active" ? "default" : "secondary"}>
-                                {selectedProduct.status}
+                              <Badge variant={(selectedProduct.status || 'Inactive') === "Active" ? "default" : "secondary"}>
+                                {selectedProduct.status || 'Inactive'}
                               </Badge>
                             </dd>
                           </div>
                           <div className="flex justify-between">
                             <dt className="text-sm text-muted-foreground">Barcode:</dt>
-                            <dd className="text-sm font-medium">{selectedProduct.barcode}</dd>
+                            <dd className="text-sm font-medium">{selectedProduct.barcode || 'N/A'}</dd>
                           </div>
                           <div className="flex justify-between">
                             <dt className="text-sm text-muted-foreground">Dimensions:</dt>
-                            <dd className="text-sm font-medium">{selectedProduct.dimensions}</dd>
+                            <dd className="text-sm font-medium">{selectedProduct.dimensions || 'N/A'}</dd>
                           </div>
                           <div className="flex justify-between">
                             <dt className="text-sm text-muted-foreground">Weight:</dt>
-                            <dd className="text-sm font-medium">{selectedProduct.weight} kg</dd>
+                            <dd className="text-sm font-medium">{selectedProduct.weight ? `${selectedProduct.weight} kg` : 'N/A'}</dd>
                           </div>
                         </dl>
                       </div>
@@ -1106,19 +1137,19 @@ const ProductCatalog = () => {
                         <dl className="space-y-2">
                           <div className="flex justify-between">
                             <dt className="text-sm text-muted-foreground">Supplier:</dt>
-                            <dd className="text-sm font-medium">{selectedProduct.supplier}</dd>
+                            <dd className="text-sm font-medium">{selectedProduct.supplier || 'N/A'}</dd>
                           </div>
                           <div className="flex justify-between">
                             <dt className="text-sm text-muted-foreground">Lead Time:</dt>
-                            <dd className="text-sm font-medium">{selectedProduct.leadTime} days</dd>
+                            <dd className="text-sm font-medium">{selectedProduct.leadTime ? `${selectedProduct.leadTime} days` : 'N/A'}</dd>
                           </div>
                           <div className="flex justify-between">
                             <dt className="text-sm text-muted-foreground">Created On:</dt>
-                            <dd className="text-sm font-medium">{selectedProduct.created}</dd>
+                            <dd className="text-sm font-medium">{selectedProduct.created || 'N/A'}</dd>
                           </div>
                           <div className="flex justify-between">
                             <dt className="text-sm text-muted-foreground">Last Updated:</dt>
-                            <dd className="text-sm font-medium">{selectedProduct.updated}</dd>
+                            <dd className="text-sm font-medium">{selectedProduct.updated || 'N/A'}</dd>
                           </div>
                         </dl>
                       </div>
@@ -1127,7 +1158,7 @@ const ProductCatalog = () => {
                     <div>
                       <h3 className="font-medium mb-2">Custom Fields</h3>
                       <div className="grid grid-cols-2 gap-4">
-                        {Object.entries(selectedProduct.customFields).map(([key, value]) => (
+                        {Object.entries(selectedProduct.customFields || {}).map(([key, value]) => (
                           <div key={key} className="border rounded-md p-3">
                             <h4 className="text-xs text-muted-foreground uppercase">{key}</h4>
                             <p className="font-medium mt-1">{value as string}</p>
@@ -1138,7 +1169,7 @@ const ProductCatalog = () => {
                     <div>
                       <h3 className="font-medium mb-2">Notes</h3>
                       <div className="border rounded-md p-3">
-                        <p className="text-sm">{selectedProduct.notes}</p>
+                        <p className="text-sm">{selectedProduct.notes || 'No notes available'}</p>
                       </div>
                     </div>
                   </div>
@@ -1165,9 +1196,9 @@ const ProductCatalog = () => {
                     </div>
                     <div className="border rounded-md p-4">
                       <h4 className="font-medium mb-2">Attachments</h4>
-                      {selectedProduct.attachments?.length > 0 ? (
+                      {selectedProduct.attachments && selectedProduct.attachments.length > 0 ? (
                         <div className="space-y-2">
-                          {selectedProduct.attachments.map((attachment: any, index: number) => (
+                          {selectedProduct.attachments?.map((attachment, index: number) => (
                             <div key={index} className="flex items-center justify-between p-2 border rounded-md">
                               <div className="flex items-center">
                                 <FileText className="h-4 w-4 mr-2 text-primary" />
@@ -1227,15 +1258,15 @@ const ProductCatalog = () => {
                         <div className="space-y-2">
                           <div className="flex justify-between items-center">
                             <span className="text-sm text-muted-foreground">Available:</span>
-                            <span className="font-medium">{selectedProduct.available}</span>
+                            <span className="font-medium">{selectedProduct.available || 0}</span>
                           </div>
                           <div className="flex justify-between items-center">
                             <span className="text-sm text-muted-foreground">Allocated:</span>
-                            <span className="font-medium">{selectedProduct.allocated}</span>
+                            <span className="font-medium">{selectedProduct.allocated || 0}</span>
                           </div>
                           <div className="flex justify-between items-center">
                             <span className="text-sm text-muted-foreground">Location:</span>
-                            <span className="font-medium">{selectedProduct.location}</span>
+                            <span className="font-medium">{selectedProduct.location || 'N/A'}</span>
                           </div>
                         </div>
                       </div>
@@ -1363,7 +1394,7 @@ const ProductCatalog = () => {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {selectedProduct.variants.map((variant: any) => (
+                          {selectedProduct.variants?.map((variant) => (
                             <TableRow key={variant.id}>
                               <TableCell className="font-medium">{variant.name}</TableCell>
                               <TableCell>{variant.sku}</TableCell>
@@ -1483,12 +1514,12 @@ const ProductCatalog = () => {
                         <div className="grid grid-cols-2 gap-3">
                           <div className="p-3 border rounded-md">
                             <p className="text-xs text-muted-foreground">Tax Rate</p>
-                            <p className="text-lg font-bold">{selectedProduct.taxRate}%</p>
+                            <p className="text-lg font-bold">{selectedProduct.taxRate || 0}%</p>
                           </div>
                           <div className="p-3 border rounded-md">
                             <p className="text-xs text-muted-foreground">Tax Amount</p>
                             <p className="text-lg font-bold">
-                              ${(selectedProduct.unitPrice * (selectedProduct.taxRate / 100)).toFixed(2)}
+                              ${(selectedProduct.unitPrice * ((selectedProduct.taxRate || 0) / 100)).toFixed(2)}
                             </p>
                           </div>
                         </div>
@@ -1709,7 +1740,7 @@ const ProductCatalog = () => {
                         <SelectValue placeholder="Select product" />
                       </SelectTrigger>
                       <SelectContent>
-                        {products.map(product => (
+                        {products.map((product: Product) => (
                           <SelectItem key={product.id} value={product.id}>
                             {product.name}
                           </SelectItem>
@@ -1777,7 +1808,7 @@ const ProductCatalog = () => {
                         <SelectValue placeholder="Select product" />
                       </SelectTrigger>
                       <SelectContent>
-                        {products.map(product => (
+                        {products.map((product: Product) => (
                           <SelectItem key={product.id} value={product.id}>
                             {product.name}
                           </SelectItem>

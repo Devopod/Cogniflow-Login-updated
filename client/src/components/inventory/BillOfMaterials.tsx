@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useBillOfMaterials } from "@/hooks/use-dynamic-data";
 import { useWebSocket } from '@/hooks/use-websocket';
 import { useToast } from "@/hooks/use-toast";
+import { formatDate } from "@/lib/utils";
 import {
   Card,
   CardContent,
@@ -127,12 +128,42 @@ const BillOfMaterials = () => {
     );
   }
 
+  // Get status badge
+  const getStatusBadge = (status: string) => {
+    switch (status.toLowerCase()) {
+      case "active":
+        return (
+          <Badge variant="outline" className="bg-green-100 text-green-800 border-green-200">
+            Active
+          </Badge>
+        );
+      case "pending":
+        return (
+          <Badge variant="outline" className="bg-yellow-100 text-yellow-800 border-yellow-200">
+            Pending
+          </Badge>
+        );
+      case "inactive":
+        return (
+          <Badge variant="outline" className="bg-gray-100 text-gray-600 border-gray-200">
+            Inactive
+          </Badge>
+        );
+      default:
+        return (
+          <Badge variant="outline">
+            {status}
+          </Badge>
+        );
+    }
+  };
+
   // Filter BOMs based on search and filters
-  const filteredBOMs = bomsData?.filter(bom => {
-    const matchesSearch = 
-      bom.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      bom.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      bom.description.toLowerCase().includes(searchTerm.toLowerCase());
+  const filteredBOMs = bomsData?.filter((bom: any) => {
+    const matchesSearch =
+      bom.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      bom.id?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      bom.description?.toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesStatus = statusFilter === "all" || bom.status === statusFilter;
     
