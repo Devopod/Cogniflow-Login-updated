@@ -9,10 +9,11 @@ import { eq } from 'drizzle-orm';
 
 const router = express.Router();
 
-// Initialize Stripe
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
+// Initialize Stripe only if a valid secret key is provided
+const stripeSecret = (process.env.STRIPE_SECRET_KEY || '').trim();
+const stripe = stripeSecret.startsWith('sk_') ? new Stripe(stripeSecret, {
   apiVersion: "2023-10-16" as any,
-});
+}) : null;
 
 // Stripe webhook endpoint
 router.post('/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
