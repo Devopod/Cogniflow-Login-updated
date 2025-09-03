@@ -48,9 +48,11 @@ import { invoicePDFService } from './src/services/pdf';
 // Create PostgreSQL-based session store
 const PostgresSessionStore = connectPg(session);
 
-// Initialize Stripe with correct API version
-const stripeKey = process.env.STRIPE_SECRET_KEY;
-const stripe = stripeKey && !stripeKey.includes('dummy') ? new Stripe(stripeKey, { 
+// Initialize Stripe with correct API version (only when a valid secret key exists)
+const rawStripeKey = process.env.STRIPE_SECRET_KEY;
+const normalizedKey = typeof rawStripeKey === 'string' ? rawStripeKey.trim() : '';
+const isValidStripeKey = normalizedKey.startsWith('sk_');
+const stripe = isValidStripeKey ? new Stripe(normalizedKey, { 
   apiVersion: '2023-10-16' as any 
 }) : null;
 

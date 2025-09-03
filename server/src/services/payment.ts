@@ -6,9 +6,11 @@ import { db } from '../../db';
 import { invoices, payments, payment_history } from '@shared/schema';
 import { eq, and } from 'drizzle-orm';
 
-// Initialize Stripe (only if API key is provided and not a dummy key)
-const stripeKey = process.env.STRIPE_SECRET_KEY;
-const stripe = stripeKey && !stripeKey.includes('dummy') ? new Stripe(stripeKey, {
+// Initialize Stripe only when a valid secret key exists
+const rawStripeKey = process.env.STRIPE_SECRET_KEY;
+const normalizedKey = typeof rawStripeKey === 'string' ? rawStripeKey.trim() : '';
+const isValidStripeKey = normalizedKey.startsWith('sk_'); // Accept both test and live keys
+const stripe = isValidStripeKey ? new Stripe(normalizedKey, {
   apiVersion: '2023-10-16' as any,
 }) : null;
 
