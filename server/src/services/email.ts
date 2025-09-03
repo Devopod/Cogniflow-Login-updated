@@ -1,7 +1,7 @@
 // Enhanced Email service for production with fallback mechanisms
 import nodemailer from 'nodemailer';
 import { storage } from '../../storage';
-import { Invoice, EmailTemplate, Contact, User, invoices, contacts } from '@shared/schema';
+import { Invoice, EmailTemplate, Contact, User, invoices, contacts, invoice_tokens } from '@shared/schema';
 import { invoicePDFService } from './pdf';
 import { sql, eq } from 'drizzle-orm';
 import { db } from '../../db';
@@ -38,12 +38,13 @@ interface InvoiceEmailOptions {
   ccEmails?: string[];
   scheduledSendDate?: Date;
   customEmail?: string;
+  subject?: string;
 }
 
 export class EmailService {
   private transporter: nodemailer.Transporter | null = null;
   private resendClient: any = null;
-  private emailProvider: 'resend' | 'smtp' | 'mock' = 'mock';
+  private emailProvider: 'smtp' | 'mock' = 'mock';
   
   constructor() {
     this.initializeEmailProvider();
@@ -51,28 +52,23 @@ export class EmailService {
 
   private async initializeEmailProvider() {
     try {
-      // Try SendGrid via nodemailer transport
+      // Force SendGrid via nodemailer transport if API key present
       if (process.env.SENDGRID_API_KEY) {
         console.log('🟢 Initializing SendGrid email service...');
-        // Use nodemailer with SendGrid transport
         const sgTransport = await import('nodemailer-sendgrid');
         this.transporter = (await import('nodemailer')).default.createTransport(
           sgTransport.default({ apiKey: process.env.SENDGRID_API_KEY }) as any
         );
+        // Force From email to verified sender
+        process.env.FROM_EMAIL = process.env.FROM_EMAIL || 'Yashwanth <yashwanth73374@gmail.com>';
         await this.transporter.verify();
         this.emailProvider = 'smtp';
         console.log('✅ SendGrid email service initialized');
         return;
       }
-      // Try Resend first (preferred for production)
-      if (process.env.RESEND_API_KEY && process.env.RESEND_API_KEY !== 're_123456789_placeholder_get_real_key_from_resend_com') {
-        console.log('🟢 Initializing Resend email service...');
-        const { Resend } = await import('resend');
-        this.resendClient = new Resend(process.env.RESEND_API_KEY);
-        this.emailProvider = 'resend';
-        console.log('✅ Resend email service initialized');
-        return;
-      }
+
+      // Disable Resend usage completely
+      this.resendClient = null;
 
       // Fallback to SMTP if configured
       if (process.env.SMTP_USER && process.env.SMTP_PASS && 
@@ -80,7 +76,7 @@ export class EmailService {
           process.env.SMTP_PASS !== 'your-app-password') {
         console.log('🟡 Initializing SMTP email service...');
         const config: EmailConfig = {
-          host: process.env.SMTP_HOST || 'smtp.gmail.com',
+          host: process.env.SMTP_HOST || 'smtp.sendgrid.net',
           port: parseInt(process.env.SMTP_PORT || '587'),
           secure: process.env.SMTP_SECURE === 'true',
           auth: {
@@ -111,8 +107,6 @@ export class EmailService {
   async sendEmail(options: EmailOptions): Promise<{ success: boolean; error?: string }> {
     try {
       switch (this.emailProvider) {
-        case 'resend':
-          return await this.sendViaResend(options);
         case 'smtp':
           return await this.sendViaSMTP(options);
         case 'mock':
@@ -125,38 +119,6 @@ export class EmailService {
     }
   }
 
-  // Send via Resend
-  private async sendViaResend(options: EmailOptions): Promise<{ success: boolean; error?: string }> {
-    try {
-      if (!this.resendClient) {
-        throw new Error('Resend client not initialized');
-      }
-
-      const result = await this.resendClient.emails.send({
-        from: process.env.FROM_EMAIL || 'noreply@cogniflow.com',
-        to: options.to,
-        cc: options.cc,
-        bcc: options.bcc,
-        subject: options.subject,
-        html: options.html,
-        text: options.text,
-        attachments: options.attachments?.map(att => ({
-          filename: att.filename,
-          content: att.content.toString('base64'),
-        })),
-      });
-
-      if ((result as any).error) {
-        throw new Error((result as any).error.message);
-      }
-
-      return { success: true };
-    } catch (error) {
-      console.error('Resend email error:', error);
-      return { success: false, error: 'Failed to send via Resend' };
-    }
-  }
-
   // Send via SMTP
   private async sendViaSMTP(options: EmailOptions): Promise<{ success: boolean; error?: string }> {
     try {
@@ -164,8 +126,9 @@ export class EmailService {
         throw new Error('SMTP transporter not initialized');
       }
 
+      const fromAddress = process.env.FROM_EMAIL || 'Yashwanth <yashwanth73374@gmail.com>';
       const mailOptions = {
-        from: process.env.FROM_EMAIL || 'noreply@cogniflow.com',
+        from: fromAddress,
         to: options.to,
         cc: options.cc,
         bcc: options.bcc,
@@ -202,43 +165,43 @@ export class EmailService {
   ): Promise<{ success: boolean; error?: string }> {
     try {
       // Get invoice with contact details
-      const [invoice] = await db.select({
-        id: invoices.id,
-        invoiceNumber: invoices.invoiceNumber,
-        totalAmount: invoices.totalAmount,
-        currency: invoices.currency,
-        status: invoices.status,
-        contactId: invoices.contactId,
-      }).from(invoices).where(eq(invoices.id, invoiceId));
+      const invoiceFull = await db.query.invoices.findFirst({
+        where: eq(invoices.id, invoiceId),
+        with: {
+          contact: true,
+          tokens: true,
+        },
+      });
 
-      if (!invoice) {
+      if (!invoiceFull) {
         return { success: false, error: 'Invoice not found' };
       }
 
-      // Get contact details
-      let contact: any = null;
-      if (invoice.contactId) {
-        const [contactResult] = await db.select({
-          id: contacts.id,
-          firstName: contacts.firstName,
-          lastName: contacts.lastName,
-          email: contacts.email,
-          company: contacts.company,
-        }).from(contacts).where(eq(contacts.id, invoice.contactId || 0));
-        contact = contactResult;
-      }
-
+      const contact = invoiceFull.contact;
       if (!contact || !contact.email) {
         return { success: false, error: 'Contact email not found' };
       }
 
-      // Generate email content
-      const content = this.generateInvoiceEmailContent(invoice, contact, emailOptions);
+      // Ensure a public token exists (30-day default)
+      let token = invoiceFull.tokens?.find(t => t.is_active) || null;
+      if (!token) {
+        [token] = await db.insert(invoice_tokens)
+          .values({
+            invoice_id: invoiceId,
+            created_by: userId,
+            expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+            permissions: { view: true, pay: true, download: true } as any,
+          })
+          .returning();
+      }
 
-      // Send email
+      // Generate email content
+      const content = this.generateInvoiceEmailContent(invoiceFull as any, contact as any, emailOptions);
+
+      // Send email via configured provider (SendGrid SMTP/Nodemailer)
       const result = await this.sendEmail({
-        to: contact.email,
-        subject: `Invoice ${invoice.invoiceNumber} from ${process.env.COMPANY_NAME || 'CogniFlow'}`,
+        to: emailOptions?.customEmail || contact.email,
+        subject: emailOptions?.subject || `Invoice ${invoiceFull.invoiceNumber} from ${process.env.COMPANY_NAME || 'CogniFlow'}`,
         html: content.html,
         text: content.text,
         attachments: emailOptions?.includePDF ? await this.generateInvoicePDF(invoiceId) : undefined,
@@ -271,7 +234,9 @@ export class EmailService {
     const companyEmail = process.env.COMPANY_EMAIL || 'support@cogniflow.com';
     const appUrl = process.env.APP_URL || 'http://localhost:5000';
 
-    const invoiceUrl = `${appUrl}/public/invoices/${invoice.payment_portal_token || invoice.id}`;
+    // Build public invoice URL using token; if missing, fallback to server route to create one
+    const publicToken = invoice.payment_portal_token || (invoice.tokens && invoice.tokens[0]?.token);
+    const invoiceUrl = `${appUrl}/public/invoices/${publicToken || invoice.id}`;
     const amount = this.formatCurrency(invoice.totalAmount, invoice.currency || 'USD');
 
     const html = `

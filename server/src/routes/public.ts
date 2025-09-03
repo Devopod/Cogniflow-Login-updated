@@ -484,12 +484,15 @@ async function recordSuccessfulPayment(verificationResult: any, invoiceId: numbe
     try {
       const formattedAmount = formatCurrency(verificationResult.amount, invoice.currency || 'USD');
       
-      await emailService.sendEmail({
-        to: 'customer@example.com', // TODO: Get contact email from contactId
-        subject: `Thank you for your payment - Invoice #${invoice.invoiceNumber}`,
-        text: `Dear Customer,\n\nThank you for your payment of ${formattedAmount} for invoice #${invoice.invoiceNumber}. Your payment has been received and processed successfully.\n\nRegards,\nOur Company`,
-                  html: `<p>Dear Customer,</p><p>Thank you for your payment of ${formattedAmount} for invoice #${invoice.invoiceNumber}. Your payment has been received and processed successfully.</p><p>Regards,<br>Our Company</p>`,
-      });
+      const contactEmail = invoice.contact?.email || undefined;
+      if (contactEmail) {
+        await emailService.sendEmail({
+          to: contactEmail,
+          subject: `Thank you for your payment - Invoice #${invoice.invoiceNumber}`,
+          text: `Dear ${invoice.contact?.firstName || 'Customer'},\n\nThank you for your payment of ${formattedAmount} for invoice #${invoice.invoiceNumber}. Your payment has been received and processed successfully.\n\nRegards,\n${process.env.COMPANY_NAME || 'Our Company'}`,
+          html: `<p>Dear ${invoice.contact?.firstName || 'Customer'},</p><p>Thank you for your payment of ${formattedAmount} for invoice #${invoice.invoiceNumber}. Your payment has been received and processed successfully.</p><p>Regards,<br>${process.env.COMPANY_NAME || 'Our Company'}</p>`,
+        });
+      }
       
       // Update invoice to mark thank you as sent
       await db.update(invoices)

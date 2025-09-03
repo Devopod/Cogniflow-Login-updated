@@ -36,7 +36,6 @@ import { eq, sql, and, desc, asc, like, gte, lte, inArray } from "drizzle-orm";
 import connectPg from "connect-pg-simple";
 import session from "express-session";
 import { pool } from "./db";
-import { Resend } from 'resend';
 import Stripe from 'stripe';
 import PDFDocument from 'pdfkit';
 import fs from 'fs';
@@ -48,8 +47,6 @@ import { invoicePDFService } from './src/services/pdf';
 
 // Create PostgreSQL-based session store
 const PostgresSessionStore = connectPg(session);
-
-const resend = new Resend(process.env.RESEND_API_KEY);
 
 // Initialize Stripe with correct API version
 const stripeKey = process.env.STRIPE_SECRET_KEY;
@@ -2642,8 +2639,17 @@ async function generateInvoicePdfWithLogo(invoice: any, contact: any, paymentLin
 
 export const storage = new DatabaseStorage();
 
-// Standalone function for sending invoice emails
+// Standalone function for sending invoice emails using EmailService directly
 export async function sendInvoiceEmail(invoiceId: number, userId: number, emailOptions?: { email?: string; subject?: string; message?: string }): Promise<{ success: boolean; error?: string }> {
-  const success = await storage.sendInvoiceEmail(invoiceId, emailOptions?.subject as any);
-  return success ? { success: true } : { success: false, error: 'Failed to send' };
+  try {
+    const result = await emailService.sendInvoiceEmail(invoiceId, userId, {
+      customEmail: emailOptions?.email,
+      subject: emailOptions?.subject,
+      customMessage: emailOptions?.message,
+      includePDF: true,
+    });
+    return result;
+  } catch (e) {
+    return { success: false, error: (e as any)?.message || 'Failed to send' };
+  }
 }
